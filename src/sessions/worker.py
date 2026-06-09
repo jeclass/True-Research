@@ -33,9 +33,12 @@ Method:
 
 Source rules:
 - Register EVERY source your finding relies on, in `sources`.
-- id format: ^src-[a-z0-9-]+$ — lowercase kebab, descriptive and unique,
-  e.g. src-bmj-if-meta-2024. Reuse an existing registry id (listed in the
-  task) only for the same URL.
+- id format: ^src-[a-z0-9-]+$ — STRICTLY ASCII lowercase letters a-z, digits,
+  hyphens. No accents or non-ASCII characters: transliterate them
+  (Sundfør -> sundfor, Müller -> muller). Descriptive and unique, e.g.
+  src-bmj-if-meta-2024. Reuse an existing registry id (listed in the task)
+  only for the same URL. Use the identical id string in your [src-...]
+  citations.
 - kind: web | paper | page_capture.
 - credibility 0-100: 90+ peer-reviewed/primary data; 70-89 major
   institutions/quality press; 40-69 expert blogs/industry; <40 weak. Note

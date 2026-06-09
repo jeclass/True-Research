@@ -188,7 +188,8 @@ def main(argv: list[str] | None = None) -> int:
             run = Runspace.create(runs_dir, args.question, profile)
             console.log(f"created run {run.meta.run_id} (profile: {profile})")
     except EngineError as exc:
-        console.print(f"[red]error:[/red] {exc}")
+        console.print("error: ", style="red", end="")
+        console.print(str(exc), markup=False, highlight=False)
         return 1
 
     backend = get_backend(settings)
@@ -199,7 +200,8 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     except EngineError as exc:
         # No silent fallback: surface the error, leave state on disk for --resume.
-        console.print(f"[red]error:[/red] {exc}")
+        console.print("error: ", style="red", end="")
+        console.print(str(exc), markup=False, highlight=False)
         console.print(f"run state preserved at {run.root}; resume with --resume {run.meta.run_id}")
         return 1
     finally:
