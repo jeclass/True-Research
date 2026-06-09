@@ -37,7 +37,9 @@ class OpenQuestion(_Strict):
     status: QuestionStatus = "open"
     priority: int = Field(ge=1, le=5)
     parent_id: str | None = None
-    created_by: Literal["initializer", "evaluator"]
+    # §4 lists initializer|evaluator, but §6 has workers spawning child
+    # questions on fragmentation — "worker" added to keep both sections true.
+    created_by: Literal["initializer", "evaluator", "worker"]
     resolved_by_finding: str | None = None
 
 

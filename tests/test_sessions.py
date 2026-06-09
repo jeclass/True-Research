@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 
 from src.errors import ConfigError
+from src.ledger import Ledger
 from src.runspace import Runspace
 from src.sessions.base import SynthesisError, resolve_endpoint_env
 from src.sessions.stub import run_synthesizer
@@ -63,6 +64,6 @@ def test_synthesizer_refuses_unknown_source_ids(tmp_path):
             "claim with a ghost citation",
         )
         with pytest.raises(SynthesisError, match="src-ghost"):
-            run_synthesizer(run, settings, cycle=1)
+            run_synthesizer(run, settings, 1, Ledger(run))
     finally:
         run.release_lock()

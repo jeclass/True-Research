@@ -99,10 +99,10 @@ def test_resume_reconstructs_from_disk(make_config, runs_dir, monkeypatch):
         backend = dict(real_backend(settings))
         real_evaluator = backend["evaluator"]
 
-        def evaluator(run, settings_, cycle):
+        def evaluator(run, settings_, cycle, ledger_):
             if cycle == 2:
                 raise RuntimeError("simulated kill mid-cycle")
-            return real_evaluator(run, settings_, cycle)
+            return real_evaluator(run, settings_, cycle, ledger_)
 
         backend["evaluator"] = evaluator
         return backend

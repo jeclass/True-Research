@@ -39,7 +39,7 @@ roles:
 
 # --- Per-session limits (enforced in sessions/base.py from Phase 2) ---------
 session:
-  backend: stub                  # Phase 1: stub sessions only — zero LLM calls
+  backend: sdk                   # real Agent SDK sessions; "stub" = Phase 1 plumbing
   max_budget_usd_per_session: 2.0
 
 # --- Stub session knobs (Phase 1 testing only) ------------------------------

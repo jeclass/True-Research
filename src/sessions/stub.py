@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import time
 
+from src.ledger import Ledger
 from src.runspace import PLAN_FILE, Runspace
 from src.sessions.base import (
     SessionResult,
@@ -19,6 +20,7 @@ from src.sessions.base import (
 from src.settings import SessionType, Settings
 from src.state import (
     FindingMeta,
+    LedgerEntry,
     OpenQuestion,
     QuestionList,
     SourceRecord,
@@ -30,9 +32,28 @@ _STUB_BANNER = "_(stub output — Phase 1 plumbing test, not research)_"
 
 
 def _result(
-    settings: Settings, session_type: SessionType, role: str, started: float, summary: str
+    settings: Settings,
+    session_type: SessionType,
+    role: str,
+    started: float,
+    summary: str,
+    ledger: Ledger,
+    cycle: int,
 ) -> SessionResult:
     role_cfg = settings.roles[role]
+    ledger.record(
+        LedgerEntry(
+            cycle=cycle,
+            session_type=session_type,
+            model=role_cfg.model,
+            endpoint=role_cfg.endpoint,
+            input_tokens=0,
+            output_tokens=0,
+            cached_tokens=0,
+            usd=settings.stub.cost_usd,
+            wall_seconds=time.monotonic() - started,
+        )
+    )
     return SessionResult(
         session_type=session_type,
         model=role_cfg.model,
@@ -46,7 +67,7 @@ def _result(
     )
 
 
-def run_initializer(run: Runspace, settings: Settings, cycle: int) -> SessionResult:
+def run_initializer(run: Runspace, settings: Settings, cycle: int, ledger: Ledger) -> SessionResult:
     started = time.monotonic()
     time.sleep(settings.stub.sleep_seconds)
 
@@ -69,18 +90,16 @@ def run_initializer(run: Runspace, settings: Settings, cycle: int) -> SessionRes
         f"Investigate {count} canned questions about: {run.meta.question}\n",
     )
     run.log(f"initializer (stub): wrote PLAN.md + {count} seed questions")
-    return _result(
-        settings, "initializer", "initializer", started, f"seeded {count} questions"
-    )
+    return _result(settings, "initializer", "initializer", started, f"seeded {count} questions", ledger, cycle)
 
 
-def run_worker(run: Runspace, settings: Settings, cycle: int) -> SessionResult:
+def run_worker(run: Runspace, settings: Settings, cycle: int, ledger: Ledger) -> SessionResult:
     started = time.monotonic()
     time.sleep(settings.stub.sleep_seconds)
 
     if settings.stub.worker_no_delta:
         run.log(f"worker (stub, cycle {cycle}): forced no-delta — touched nothing")
-        return _result(settings, "worker", "worker", started, "forced no-delta")
+        return _result(settings, "worker", "worker", started, "forced no-delta", ledger, cycle)
 
     questions = run.load_questions()
     # Highest priority open question; fall back to an in_progress one so a run
@@ -88,7 +107,7 @@ def run_worker(run: Runspace, settings: Settings, cycle: int) -> SessionResult:
     candidates = questions.open_items() or questions.in_progress_items()
     if not candidates:
         run.log(f"worker (stub, cycle {cycle}): no open questions left")
-        return _result(settings, "worker", "worker", started, "nothing open")
+        return _result(settings, "worker", "worker", started, "nothing open", ledger, cycle)
     target = sorted(candidates, key=lambda q: (-q.priority, q.id))[0]
 
     target.status = "in_progress"
@@ -117,10 +136,10 @@ def run_worker(run: Runspace, settings: Settings, cycle: int) -> SessionResult:
     target.resolved_by_finding = slug
     run.save_questions(questions)
     run.log(f"worker (stub, cycle {cycle}): resolved {target.id} -> findings/{slug}.md")
-    return _result(settings, "worker", "worker", started, f"resolved {target.id}")
+    return _result(settings, "worker", "worker", started, f"resolved {target.id}", ledger, cycle)
 
 
-def run_evaluator(run: Runspace, settings: Settings, cycle: int) -> SessionResult:
+def run_evaluator(run: Runspace, settings: Settings, cycle: int, ledger: Ledger) -> SessionResult:
     started = time.monotonic()
     time.sleep(settings.stub.sleep_seconds)
 
@@ -140,13 +159,10 @@ def run_evaluator(run: Runspace, settings: Settings, cycle: int) -> SessionResul
         f"evaluator (stub, cycle {cycle}): "
         + ("PASS" if verdict.passed else f"FAIL ({len(unresolved)} unresolved)")
     )
-    return _result(
-        settings, "evaluator", "evaluator", started,
-        "pass" if verdict.passed else "fail",
-    )
+    return _result(settings, "evaluator", "evaluator", started, "pass" if verdict.passed else "fail", ledger, cycle)
 
 
-def run_synthesizer(run: Runspace, settings: Settings, cycle: int) -> SessionResult:
+def run_synthesizer(run: Runspace, settings: Settings, cycle: int, ledger: Ledger) -> SessionResult:
     started = time.monotonic()
     time.sleep(settings.stub.sleep_seconds)
 
@@ -189,7 +205,4 @@ def run_synthesizer(run: Runspace, settings: Settings, cycle: int) -> SessionRes
     lines += [f"- {d}" for d in decisions] or ["- none logged"]
     run.write_text("REPORT.md", "\n".join(lines) + "\n")
     run.log(f"synthesizer (stub): wrote REPORT.md ({len(findings)} findings, reason={reason})")
-    return _result(
-        settings, "synthesizer", "synthesizer", started,
-        f"report with {len(findings)} findings",
-    )
+    return _result(settings, "synthesizer", "synthesizer", started, f"report with {len(findings)} findings", ledger, cycle)

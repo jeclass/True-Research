@@ -1,0 +1,149 @@
+"""Synthesizer session (Opus): findings -> REPORT.md with a deterministic
+citation pass (CLAUDE.md §6, invariant 3). The model composes; the engine
+verifies every [src-...] citation resolves against sources.json, refuses
+unknowns, and appends the limitations/decisions section and source appendix
+itself so they cannot be fabricated or omitted."""
+
+from __future__ import annotations
+
+from pydantic import BaseModel, ConfigDict
+
+from src.ledger import Ledger
+from src.runspace import REPORT_FILE, Runspace
+from src.sessions import common
+from src.sessions.base import SessionResult, SynthesisError, run_role_session
+from src.settings import Settings
+
+_ROLE = "synthesizer"
+_TOOLS = ["Read", "Glob", "Grep"]
+
+_SYSTEM_PROMPT = """\
+You are the SYNTHESIZER. Compose the final research report from the findings
+provided — and ONLY from them. No new research; no claims that do not appear
+in a finding.
+
+Report rules:
+- report_markdown: a complete markdown report. Lead with the answer: a direct
+  summary of what the evidence supports. Then evidence sections organized by
+  theme, then a section on contradictions and open uncertainties.
+- EVERY factual claim ends with its [src-id] citation(s), copied faithfully
+  from the findings. A claim you cannot cite does not go in the report.
+- If the run ended early (you will be told), say plainly what was and was not
+  covered. Do not pad.
+- Do NOT write a 'Limitations & decisions' section or a source list — the
+  engine appends both from its own records.
+
+Respond ONLY via the enforced JSON schema."""
+
+
+class SynthesizerOutput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    report_markdown: str
+
+
+def _build_user_prompt(run: Runspace) -> str:
+    questions = run.load_questions()
+    sources = run.load_sources()
+    reason = run.meta.finish_reason or "unknown"
+    status_note = (
+        "The run ended CONCLUSIVELY — the evaluator passed the findings."
+        if reason == "conclusive"
+        else f"The run ended EARLY (reason: {reason}) — this is a PARTIAL report; "
+        "scope your claims to what the findings actually cover."
+    )
+    return (
+        f"# Research question\n{run.meta.question}\n\n"
+        f"# Run status\n{status_note}\n\n"
+        f"# Question ledger\n{common.questions_digest(questions)}\n\n"
+        f"# Source registry\n{common.sources_digest(sources)}\n\n"
+        f"# Findings (full text — your only admissible material)\n"
+        f"{common.findings_digest(run, full_bodies=True)}\n"
+    )
+
+
+def run(run: Runspace, settings: Settings, cycle: int, ledger: Ledger) -> SessionResult:
+    findings = run.load_findings()
+    sources = run.load_sources()
+
+    if findings:
+        spawn = run_role_session(
+            run=run,
+            settings=settings,
+            ledger=ledger,
+            cycle=cycle,
+            session_type="synthesizer",
+            role=_ROLE,
+            system_prompt=_SYSTEM_PROMPT,
+            user_prompt=_build_user_prompt(run),
+            tools=_TOOLS,
+            output_model=SynthesizerOutput,
+        )
+        report_body = spawn.structured.report_markdown.strip()
+        metrics = spawn
+    else:
+        # Nothing to synthesize from — writing an honest empty report needs no
+        # model call (and must not invent content).
+        report_body = (
+            f"# Report: {run.meta.question}\n\n"
+            "No findings were produced before the run ended. There is nothing "
+            "to report."
+        )
+        metrics = None
+
+    # --- deterministic citation pass (invariant 3) ---------------------------
+    cited = common.CITATION_RE.findall(report_body)
+    unknown = sorted({c for c in cited if c not in sources.root})
+    if unknown:
+        raise SynthesisError(
+            f"report cites source ids missing from sources.json: {unknown}; "
+            "refusing to emit (invariant 3)"
+        )
+    if findings and not cited:
+        raise SynthesisError(
+            "report contains no [src-...] citations despite findings existing; "
+            "refusing to emit (invariant 3)"
+        )
+
+    reason = run.meta.finish_reason or "unknown"
+    banner = (
+        ""
+        if reason == "conclusive"
+        else f"\n> **PARTIAL REPORT** — run ended early (reason: {reason}).\n"
+    )
+
+    decisions = run.decisions()
+    limitations = ["", "## Limitations & decisions", ""]
+    limitations += [f"- {d}" for d in decisions] or ["- no decisions were logged"]
+
+    appendix = ["", "## Source registry", ""]
+    used = sorted(set(cited))
+    if used:
+        appendix += [
+            f"- `{sid}` — {sources.root[sid].title} "
+            f"({sources.root[sid].kind}, credibility {sources.root[sid].credibility}): "
+            f"{sources.root[sid].url}"
+            for sid in used
+        ]
+    else:
+        appendix += ["- no sources cited"]
+
+    run.write_text(
+        REPORT_FILE, banner + report_body + "\n" + "\n".join(limitations + appendix) + "\n"
+    )
+    run.log(
+        f"synthesizer: wrote REPORT.md ({len(findings)} findings, "
+        f"{len(used)} cited sources, reason={reason})"
+    )
+
+    role_cfg = settings.roles[_ROLE]
+    return SessionResult(
+        session_type="synthesizer",
+        model=role_cfg.model,
+        endpoint=role_cfg.endpoint,
+        input_tokens=metrics.input_tokens if metrics else 0,
+        output_tokens=metrics.output_tokens if metrics else 0,
+        cached_tokens=metrics.cached_tokens if metrics else 0,
+        usd=metrics.usd if metrics else 0.0,
+        wall_seconds=metrics.wall_seconds if metrics else 0.0,
+        summary=f"report: {len(findings)} findings, {len(used)} sources cited",
+    )

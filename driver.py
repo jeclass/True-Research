@@ -21,7 +21,7 @@ from src.runspace import PLAN_FILE, REPORT_FILE, Runspace
 from src.sessions import Backend, get_backend
 from src.sessions.base import EvalError
 from src.settings import Settings, load_settings
-from src.state import FinishReason, LedgerEntry
+from src.state import FinishReason
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -64,20 +64,9 @@ def _run_session(
     console: Console,
 ) -> None:
     console.log(f"[cycle {cycle}] {name}: starting")
-    result = backend[name](run, settings, cycle)
-    ledger.record(
-        LedgerEntry(
-            cycle=cycle,
-            session_type=result.session_type,
-            model=result.model,
-            endpoint=result.endpoint,
-            input_tokens=result.input_tokens,
-            output_tokens=result.output_tokens,
-            cached_tokens=result.cached_tokens,
-            usd=result.usd,
-            wall_seconds=result.wall_seconds,
-        )
-    )
+    # Sessions record their own ledger entries (so a failed session still
+    # accounts its spend); the driver only checkpoints and reads totals.
+    result = backend[name](run, settings, cycle, ledger)
     ledger.checkpoint()
     console.log(
         f"[cycle {cycle}] {name}: {result.summary} "

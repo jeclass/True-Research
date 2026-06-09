@@ -36,8 +36,7 @@ class RoleCfg(_Frozen):
 
 
 class SessionCfg(_Frozen):
-    backend: Literal["stub"]  # Phase 2 adds "sdk"; keeping the literal tight
-    # makes accidentally-real sessions a validation error, not a surprise.
+    backend: Literal["stub", "sdk"]
     max_budget_usd_per_session: float = Field(ge=0)
 
 
