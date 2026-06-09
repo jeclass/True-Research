@@ -1,0 +1,50 @@
+# Marathon Research Engine — all tunable knobs live here (CLAUDE.md §1).
+# No magic numbers in code; the driver accepts explicit CLI overrides for the
+# breaker values below.
+
+runs_dir: runs
+
+# --- Global circuit breakers (CLAUDE.md §3.4) -------------------------------
+max_budget_usd: 10.0      # driver halts cleanly when ledger spend reaches this
+max_wall_hours: 6.0       # accumulated *active* driver hours (survives resume)
+max_cycles: 40            # worker+evaluator cycles before forced halt
+
+# --- Stall detection (CLAUDE.md §3.5) ---------------------------------------
+stall_cycles: 2           # consecutive cycles with no state delta => halt
+
+# --- Research profiles (selected via --profile; implementations land Phase 4)
+profiles: [general, scientific, visual]
+default_profile: general
+
+# --- Model backends (CLAUDE.md §1) ------------------------------------------
+# base_url null => SDK/CLI default (api.anthropic.com), auth injected as
+# ANTHROPIC_API_KEY. Non-null base_url => injected as ANTHROPIC_BASE_URL with
+# the secret as ANTHROPIC_AUTH_TOKEN. auth_env names the variable in .env that
+# holds the secret. Injection is per spawned session, never process-global.
+endpoints:
+  anthropic:
+    base_url: null
+    auth_env: ANTHROPIC_API_KEY
+  local:
+    base_url: http://localhost:11434   # Ollama >= 0.14 serves /v1/messages
+    auth_env: OLLAMA_AUTH              # value "ollama" — required, ignored
+
+# --- Role routing (CLAUDE.md §1: route by cognitive density) ----------------
+roles:
+  initializer:     {endpoint: anthropic, model: claude-opus-4-8,            max_turns: 16}
+  worker:          {endpoint: anthropic, model: claude-sonnet-4-6,          max_turns: 50}
+  reader_subagent: {endpoint: anthropic, model: claude-haiku-4-5-20251001,  max_turns: 12}
+  evaluator:       {endpoint: anthropic, model: claude-opus-4-8,            max_turns: 24}
+  synthesizer:     {endpoint: anthropic, model: claude-opus-4-8,            max_turns: 40}
+
+# --- Per-session limits (enforced in sessions/base.py from Phase 2) ---------
+session:
+  backend: stub                  # Phase 1: stub sessions only — zero LLM calls
+  max_budget_usd_per_session: 2.0
+
+# --- Stub session knobs (Phase 1 testing only) ------------------------------
+stub:
+  seed_questions: 3        # open questions the stub initializer creates
+  worker_no_delta: false   # true => worker changes nothing (forces stall path)
+  sleep_seconds: 0.0       # per stub session; lets smoke tests kill mid-cycle
+  cost_usd: 0.0            # fake per-session cost recorded in the ledger
