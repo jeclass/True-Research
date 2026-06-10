@@ -340,3 +340,59 @@ def test_compose_output_does_not_clobber_existing_top_level():
         }
     )
     assert out.progress_note == "top-level wins"
+
+
+@pytest.mark.anyio
+async def test_single_shot_retries_parse_failures(tmp_path, monkeypatch):
+    settings = _settings(tmp_path)
+    run = Runspace.create(tmp_path / "runs", "q", "general")
+    calls = {"n": 0}
+
+    async def flaky(**kw):
+        calls["n"] += 1
+        if calls["n"] < 3:
+            raise WorkerError("worker session did not return parseable JSON - x")
+        return "spawn-ok"
+
+    monkeypatch.setattr(pipeline, "run_role_session_async", flaky)
+    result = await pipeline._single_shot_with_retry(
+        "compose", run=run, settings=settings, ledger=Ledger(run), cycle=1,
+    )
+    assert result == "spawn-ok"
+    assert calls["n"] == 3
+    run.release_lock()
+
+
+@pytest.mark.anyio
+async def test_single_shot_exhausts_then_raises(tmp_path, monkeypatch):
+    settings = _settings(tmp_path)
+    run = Runspace.create(tmp_path / "runs", "q", "general")
+
+    async def always_bad(**kw):
+        raise WorkerError("structured output failed validation: y")
+
+    monkeypatch.setattr(pipeline, "run_role_session_async", always_bad)
+    with pytest.raises(WorkerError):
+        await pipeline._single_shot_with_retry(
+            "query-gen", run=run, settings=settings, ledger=Ledger(run), cycle=1,
+        )
+    run.release_lock()
+
+
+@pytest.mark.anyio
+async def test_single_shot_does_not_retry_other_errors(tmp_path, monkeypatch):
+    settings = _settings(tmp_path)
+    run = Runspace.create(tmp_path / "runs", "q", "general")
+    calls = {"n": 0}
+
+    async def transport_dead(**kw):
+        calls["n"] += 1
+        raise WorkerError("session wall-timeout exceeded")
+
+    monkeypatch.setattr(pipeline, "run_role_session_async", transport_dead)
+    with pytest.raises(WorkerError):
+        await pipeline._single_shot_with_retry(
+            "compose", run=run, settings=settings, ledger=Ledger(run), cycle=1,
+        )
+    assert calls["n"] == 1
+    run.release_lock()

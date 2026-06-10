@@ -111,6 +111,33 @@ class ComposeOutput(BaseModel):
         return data
 
 
+async def _single_shot_with_retry(what: str, **session_kwargs):
+    """Query-gen and compose are stateless one-shot calls — a malformed-JSON
+    or schema-validation failure is a reroll, not a state hazard (observed:
+    qwen3.5-9b-32k truncating mid-string, smoke 2026-06-10). Retry within the
+    engine's standard transient policy, loudly; transport/timeout errors are
+    handled in base.py and propagate unchanged."""
+    run: Runspace = session_kwargs["run"]
+    settings: Settings = session_kwargs["settings"]
+    cycle: int = session_kwargs["cycle"]
+    attempts = settings.retry.attempts
+    last: SessionError | None = None
+    for attempt in range(1, attempts + 1):
+        try:
+            return await run_role_session_async(**session_kwargs)
+        except SessionError as exc:
+            msg = str(exc)
+            if "parseable JSON" not in msg and "failed validation" not in msg:
+                raise
+            last = exc
+            if attempt < attempts:
+                run.log(
+                    f"pipeline {what} (cycle {cycle}): output parse failed "
+                    f"(attempt {attempt}/{attempts}); retrying single-shot call"
+                )
+    raise last
+
+
 def _domain(url: str) -> str:
     return (urlparse(url).hostname or "").lower()
 
@@ -282,7 +309,8 @@ async def _run_pipeline_async(
         f"{common.sources_digest(registry)}\n\n"
         f"Generate up to {cfg['queries_per_question']} queries."
     )
-    query_spawn = await run_role_session_async(
+    query_spawn = await _single_shot_with_retry(
+        "query-gen",
         run=run, settings=settings, ledger=ledger, cycle=cycle,
         session_type="worker", role=_ROLE,
         system_prompt=_QUERY_GEN_SYSTEM, user_prompt=query_prompt,
@@ -381,7 +409,8 @@ async def _run_pipeline_async(
         + "\n\n# Reader summaries (your only admissible material)\n\n"
         + "\n\n".join(menu_lines)
     )
-    compose_spawn = await run_role_session_async(
+    compose_spawn = await _single_shot_with_retry(
+        "compose",
         run=run, settings=settings, ledger=ledger, cycle=cycle,
         session_type="worker", role=_ROLE,
         system_prompt=_COMPOSE_SYSTEM, user_prompt=compose_prompt,
