@@ -44,6 +44,7 @@ class ReaderCfg(_Frozen):
     max_page_chars: int = Field(ge=1000)
     max_failures_per_session: int = Field(ge=1)
     fetch_timeout_seconds: float = Field(gt=0)
+    require_reads: bool = True
 
 
 class StubCfg(_Frozen):

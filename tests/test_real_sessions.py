@@ -87,7 +87,7 @@ def test_next_question_id_continues_numbering():
     assert common.next_question_id(questions) == "q-008"
 
 
-def test_worker_apply_resolved_rejects_citationless_finding(run):
+def test_worker_apply_resolved_rejects_citationless_finding(run, settings):
     target = OpenQuestion(id="q-001", question="x", priority=5, created_by="initializer")
     run.save_questions(QuestionList([target]))
     output = worker.WorkerOutput(
@@ -97,10 +97,10 @@ def test_worker_apply_resolved_rejects_citationless_finding(run):
         progress_note="n",
     )
     with pytest.raises(WorkerError, match="no \\[src-"):
-        worker._apply_resolved(run, target, output, cycle=1)
+        worker._apply_resolved(run, settings, target, output, cycle=1, read_urls=set())
 
 
-def test_worker_apply_resolved_rejects_unregistered_citation(run):
+def test_worker_apply_resolved_rejects_unregistered_citation(run, settings):
     target = OpenQuestion(id="q-001", question="x", priority=5, created_by="initializer")
     run.save_questions(QuestionList([target]))
     output = worker.WorkerOutput(
@@ -110,10 +110,76 @@ def test_worker_apply_resolved_rejects_unregistered_citation(run):
         progress_note="n",
     )
     with pytest.raises(WorkerError, match="src-ghost"):
-        worker._apply_resolved(run, target, output, cycle=1)
+        worker._apply_resolved(run, settings, target, output, cycle=1, read_urls=set())
 
 
-def test_worker_apply_resolved_happy_path_writes_state(run):
+def test_read_gate_rejects_unread_source(run, settings):
+    """A source whose URL was never read this run cannot be cited when
+    require_reads is on (the ultimate-depth invariant)."""
+    target = OpenQuestion(id="q-001", question="x", priority=5, created_by="initializer")
+    run.save_questions(QuestionList([target]))
+    output = worker.WorkerOutput(
+        outcome="resolved",
+        finding=worker.ProposedFinding(body_markdown="Claim. [src-a]", confidence=0.8),
+        sources=[
+            worker.ProposedSource(id="src-a", url="https://example.org/a", title="A",
+                                  kind="web", credibility=85)
+        ],
+        progress_note="n",
+    )
+    with pytest.raises(WorkerError, match="never read via read_source"):
+        worker._apply_resolved(
+            run, settings, target, output, cycle=1, read_urls=set()
+        )
+
+
+def test_read_gate_allows_prior_cycle_registry_source(run, settings):
+    """A source already in sources.json (read in a prior cycle) may be reused
+    without re-reading."""
+    _register_source(run, "src-old")  # registers https://example.org/src-old
+    target = OpenQuestion(id="q-002", question="x", priority=5, created_by="initializer")
+    run.save_questions(QuestionList([target]))
+    output = worker.WorkerOutput(
+        outcome="resolved",
+        finding=worker.ProposedFinding(body_markdown="Reuse. [src-old]", confidence=0.7),
+        sources=[
+            worker.ProposedSource(id="src-old", url="https://example.org/src-old",
+                                  title="src-old", kind="web", credibility=80)
+        ],
+        progress_note="n",
+    )
+    summary = worker._apply_resolved(
+        run, settings, target, output, cycle=2, read_urls=set()
+    )
+    assert "q-002-c02" in summary
+
+
+def test_read_gate_disabled_admits_unread_source(run, tmp_path):
+    """require_reads=false (no-egress mode) admits snippet-only sources."""
+    raw = yaml.safe_load(yaml.safe_dump(BASE_CONFIG))
+    raw["runs_dir"] = str(tmp_path / "runs")
+    raw["session"]["backend"] = "sdk"
+    raw["reader"]["require_reads"] = False
+    lax = Settings.model_validate(raw)
+    target = OpenQuestion(id="q-001", question="x", priority=5, created_by="initializer")
+    run.save_questions(QuestionList([target]))
+    output = worker.WorkerOutput(
+        outcome="resolved",
+        finding=worker.ProposedFinding(body_markdown="Snippet claim. [src-a]", confidence=0.5),
+        sources=[
+            worker.ProposedSource(id="src-a", url="https://example.org/a", title="A",
+                                  kind="web", credibility=60)
+        ],
+        progress_note="n",
+    )
+    summary = worker._apply_resolved(
+        run, lax, target, output, cycle=1, read_urls=set()
+    )
+    assert "q-001-c01" in summary
+    assert any("require_reads=false" in d for d in run.decisions())
+
+
+def test_worker_apply_resolved_happy_path_writes_state(run, settings):
     target = OpenQuestion(id="q-001", question="x", priority=5, created_by="initializer")
     run.save_questions(QuestionList([target]))
     output = worker.WorkerOutput(
@@ -127,7 +193,11 @@ def test_worker_apply_resolved_happy_path_writes_state(run):
         ],
         progress_note="n",
     )
-    summary = worker._apply_resolved(run, target, output, cycle=2)
+    # The URL was read this session, so the read-gate admits it.
+    summary = worker._apply_resolved(
+        run, settings, target, output, cycle=2,
+        read_urls={"https://example.org/a"},
+    )
     assert "q-001-c02" in summary
     questions = run.load_questions()
     assert questions.get("q-001").status == "resolved"

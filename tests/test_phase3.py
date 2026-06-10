@@ -133,6 +133,16 @@ def test_fetch_page_failure_is_a_reader_error(tmp_path):
         asyncio.run(fetch_page("http://127.0.0.1:9/none", settings))
 
 
+def test_normalize_url_forgives_slash_case_fragment():
+    from src.sessions.common import normalize_url
+
+    base = normalize_url("https://Example.ORG/Path/")
+    assert normalize_url("https://example.org/Path") == base
+    assert normalize_url("https://example.org/Path/#section") == base
+    # path case is preserved (paths can be case-sensitive); host/scheme lowered
+    assert normalize_url("https://example.org/OTHER") != base
+
+
 # --- evaluator adjudication / close machinery ------------------------------------
 
 

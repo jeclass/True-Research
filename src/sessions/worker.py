@@ -136,6 +136,7 @@ def _build_reader_mcp(
     cycle: int,
     target: OpenQuestion,
     stats: dict[str, int],
+    read_urls: set[str],
 ):
     """In-process MCP server exposing read_source to the worker session.
     Lazy SDK import keeps stub-backend paths SDK-free."""
@@ -195,6 +196,8 @@ def _build_reader_mcp(
                     {"type": "text", "text": f"PAGE NOT USEFUL: {output.notes}"}
                 ]
             }
+        # Only useful reads qualify a URL for citation (the engine's read-gate).
+        read_urls.add(common.normalize_url(url))
         text = (
             f"TITLE: {output.title}\n"
             f"KIND: {output.kind}\n"
@@ -220,7 +223,10 @@ def run(run: Runspace, settings: Settings, cycle: int, ledger: Ledger) -> Sessio
     run.save_questions(questions)
 
     stats = {"reads": 0, "failures": 0}
-    reader_server = _build_reader_mcp(run, settings, ledger, cycle, target, stats)
+    read_urls: set[str] = set()
+    reader_server = _build_reader_mcp(
+        run, settings, ledger, cycle, target, stats, read_urls
+    )
 
     spawn = run_role_session(
         run=run,
@@ -246,7 +252,7 @@ def run(run: Runspace, settings: Settings, cycle: int, ledger: Ledger) -> Sessio
         )
 
     if output.outcome == "resolved":
-        summary = _apply_resolved(run, target, output, cycle)
+        summary = _apply_resolved(run, settings, target, output, cycle, read_urls)
     elif output.outcome == "fragmented":
         summary = _apply_fragmented(run, target, output)
     else:
@@ -272,7 +278,12 @@ def run(run: Runspace, settings: Settings, cycle: int, ledger: Ledger) -> Sessio
 
 
 def _apply_resolved(
-    run: Runspace, target: OpenQuestion, output: WorkerOutput, cycle: int
+    run: Runspace,
+    settings: Settings,
+    target: OpenQuestion,
+    output: WorkerOutput,
+    cycle: int,
+    read_urls: set[str],
 ) -> str:
     if output.finding is None:
         raise WorkerError(f"{target.id}: outcome=resolved but no finding returned")
@@ -281,8 +292,18 @@ def _apply_resolved(
             f"{target.id}: confidence {output.finding.confidence} outside 0-1"
         )
 
+    require_reads = settings.reader.require_reads
+    if not require_reads:
+        run.log_decision(
+            f"{target.id}: reader.require_reads=false — finding may rest on "
+            "sources not fetched via read_source (no-egress/degraded mode)"
+        )
     registry = common.merge_sources(
-        run, [s.model_dump() for s in output.sources], WorkerError
+        run,
+        [s.model_dump() for s in output.sources],
+        WorkerError,
+        read_urls=read_urls,
+        require_reads=require_reads,
     )
 
     body = output.finding.body_markdown.strip()

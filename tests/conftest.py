@@ -33,6 +33,7 @@ BASE_CONFIG: dict = {
         "max_page_chars": 24000,
         "max_failures_per_session": 6,
         "fetch_timeout_seconds": 30,
+        "require_reads": True,
     },
     "stub": {
         "seed_questions": 3,

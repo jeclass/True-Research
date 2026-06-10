@@ -15,6 +15,24 @@ SOURCE_ID_RE = re.compile(r"^src-[a-z0-9][a-z0-9-]{0,60}$")
 CITATION_RE = re.compile(r"\[(src-[a-z0-9][a-z0-9-]{0,60})\]")
 _QID_RE = re.compile(r"^q-(\d+)$")
 
+
+def normalize_url(url: str) -> str:
+    """Loose canonical form for matching a cited source URL against the set of
+    URLs actually read this run: lowercase scheme+host, strip trailing slash
+    and fragment. Deliberately not a full URL canonicalizer — just enough to
+    forgive trailing-slash / case drift between the read call and the source
+    record."""
+    raw = url.strip()
+    raw = raw.split("#", 1)[0]
+    if "://" in raw:
+        scheme, rest = raw.split("://", 1)
+        if "/" in rest:
+            host, path = rest.split("/", 1)
+            raw = f"{scheme.lower()}://{host.lower()}/{path}"
+        else:
+            raw = f"{scheme.lower()}://{rest.lower()}"
+    return raw.rstrip("/")
+
 PRIORITY_MIN, PRIORITY_MAX = 1, 5
 
 
@@ -53,10 +71,20 @@ def merge_sources(
     run: Runspace,
     proposed: list[dict],
     error_cls: type[SessionError],
+    read_urls: set[str] | None = None,
+    require_reads: bool = False,
 ) -> SourceRegistry:
     """Merge model-proposed sources into sources.json. Same id + same URL is a
-    no-op; same id + different URL is an error (no silent overwrite)."""
+    no-op; same id + different URL is an error (no silent overwrite).
+
+    Read-gating (ultimate-depth, invariant 3): when require_reads is true, a
+    NEW source may be registered only if its URL was actually read this run
+    (present in read_urls). Sources already in the registry were read in a
+    prior cycle and may be reused. A source the worker never read cannot
+    become a citation — WebSearch is discovery only, reads are evidence."""
+    read_urls = read_urls or set()
     registry = run.load_sources()
+    existing_urls = {normalize_url(rec.url) for rec in registry.root.values()}
     for item in proposed:
         source_id = item["id"]
         if not SOURCE_ID_RE.match(source_id):
@@ -81,6 +109,14 @@ def merge_sources(
                 f"{existing.url}, proposal points at {record.url}"
             )
         if existing is None:
+            norm = normalize_url(record.url)
+            if require_reads and norm not in read_urls and norm not in existing_urls:
+                raise error_cls(
+                    f"source {source_id} ({record.url}) was never read via "
+                    "read_source this run — a source can only be cited if it was "
+                    "fetched and judged useful (invariant 3). WebSearch is for "
+                    "discovery; call read_source on a URL before citing it."
+                )
             registry.root[source_id] = record
     run.save_sources(registry)
     return registry

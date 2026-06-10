@@ -57,3 +57,8 @@ reader:
   max_page_chars: 24000          # page text truncated before the reader sees it
   max_failures_per_session: 6    # then the worker session fails loudly (§1)
   fetch_timeout_seconds: 30
+  require_reads: true            # a source may be cited ONLY if read_source
+                                 # fetched+judged-it-useful this run (or it was
+                                 # read in a prior cycle). Set false ONLY in
+                                 # no-egress environments — logs a loud
+                                 # DECISION that findings rest on unread sources.
