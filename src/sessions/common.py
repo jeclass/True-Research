@@ -36,9 +36,14 @@ def next_question_id(questions: QuestionList) -> str:
 
 
 def pick_target_question(questions: QuestionList) -> OpenQuestion | None:
-    """Highest-priority open question; falls back to in_progress so a run
-    killed mid-cycle re-picks the orphaned question on resume."""
-    candidates = questions.open_items() or questions.in_progress_items()
+    """Orphaned in_progress questions first, then highest-priority open.
+
+    An in_progress question at cycle start can only be an orphan — every
+    worker exit path (resolved, fragmented, blocked) moves the status, so
+    in_progress survives only a crash/error. Without this precedence an
+    orphan starves until all open questions are exhausted (observed live in
+    the Phase 2 smoke run)."""
+    candidates = questions.in_progress_items() or questions.open_items()
     if not candidates:
         return None
     return sorted(candidates, key=lambda q: (-q.priority, q.id))[0]

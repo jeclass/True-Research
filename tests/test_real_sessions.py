@@ -147,6 +147,19 @@ def test_synthesizer_without_findings_needs_no_model(run, settings, tmp_path):
     assert result.usd == 0.0
 
 
+def test_orphaned_in_progress_question_is_picked_first():
+    questions = QuestionList(
+        [
+            OpenQuestion(id="q-001", question="orphan", priority=2,
+                         created_by="initializer", status="in_progress"),
+            OpenQuestion(id="q-002", question="fresh", priority=5,
+                         created_by="initializer", status="open"),
+        ]
+    )
+    target = common.pick_target_question(questions)
+    assert target is not None and target.id == "q-001"  # orphan beats higher-priority open
+
+
 def test_synthesizer_citation_regex_matches_engine_convention():
     text = "Claim one [src-bmj-2024]. Claim two [src-a][src-b]. Not a cite [q-001]."
     assert common.CITATION_RE.findall(text) == ["src-bmj-2024", "src-a", "src-b"]
