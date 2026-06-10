@@ -144,6 +144,33 @@ Compare `mean_overall` to baseline's 8.0. Evaluator A/B variant:
 Wall-clock note: local workers are slower — multi-hour becomes overnight for
 deep questions; that is the currency traded for $0 worker cost.
 
+## Afternoon addendum (post-report findings, 2026-06-10 PM)
+
+- **Ollama 0.30.7**: a staged update had never applied (tray ran 0.24.0 since
+  April). Now active. It **fixed the qwen `signature` transport failure** —
+  multi-turn local worker sessions complete. gemma4:12b pulled
+  (4eb23ef187e2).
+- **Context regression + permanent fix**: 0.30.7 ignores `OLLAMA_CONTEXT_LENGTH`
+  from the operator environment ("vram-based default context… 4096" in
+  server.log). Fixed durably with Modelfile variants `qwen3.5-9b-32k`,
+  `qwen3.5-4b-32k`, `gpt-oss-20b-32k`, `gemma4-12b-32k` (`PARAMETER num_ctx
+  32768`, layer-shared, zero extra disk). After ANY Ollama restart/upgrade:
+  check `ollama ps` CONTEXT column.
+- **Root cause of the 0xC0000409 crash class**: orphaned `llama-server.exe`
+  runners (3 orphans ≈ 36GB, one alive since 7:40 AM) + a SignalRGB leak
+  (14GB) pinned Windows commit charge at 100% — allocation failures killed
+  the Claude CLI subprocesses, eval legs, and other apps system-wide.
+  Cleared (commit 119→66GB). Engine wall-timeout (work item #1) is still
+  required — the hang-on-dead-transport behavior is the engine's own gap.
+- **Agentic local worker: empirically closed on 16GB.** qwen3.5-9b-32k on
+  0.30.7, three attempts, three distinct failures (signature → citation-id
+  typo → empty output) despite four barrier fixes during the day. Verdict
+  matches the operator's external model research (agentic workers start at
+  Qwen3.6-27B-class / 32GB). **Path forward chosen by operator: pipeline-
+  worker mode — see docs/PIPELINE_WORKER_SPEC.md** (single-shot local calls
+  only; the pattern locals executed flawlessly all day). Alternative
+  hardware path: +RTX 5060 Ti → Qwen3.6-27B via llama.cpp.
+
 ## Known constraints honored
 
 - Judgment (evaluator/synthesizer/judge) stayed on cloud Opus throughout the
