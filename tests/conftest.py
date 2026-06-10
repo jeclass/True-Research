@@ -26,6 +26,7 @@ BASE_CONFIG: dict = {
             "max_turns": 12,
         },
         "evaluator": {"endpoint": "anthropic", "model": "claude-opus-4-8", "max_turns": 24},
+        "judge": {"endpoint": "anthropic", "model": "claude-opus-4-8", "max_turns": 8},
         "synthesizer": {"endpoint": "anthropic", "model": "claude-opus-4-8", "max_turns": 40},
     },
     "session": {"backend": "stub", "max_budget_usd_per_session": 2.0},
@@ -36,6 +37,7 @@ BASE_CONFIG: dict = {
         "require_reads": True,
     },
     "search": {"searxng_base_url": None, "max_results": 8},
+    "retry": {"attempts": 3, "base_delay_seconds": 0.01, "max_delay_seconds": 0.05},
     "stub": {
         "seed_questions": 3,
         "worker_no_delta": False,

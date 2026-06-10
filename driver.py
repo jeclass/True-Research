@@ -17,7 +17,7 @@ from rich.table import Table
 
 from src.errors import ConfigError, EngineError
 from src.ledger import Ledger
-from src.runspace import PLAN_FILE, REPORT_FILE, Runspace
+from src.runspace import PLAN_FILE, REPORT_FILE, Runspace, _atomic_write
 from src.profiles import get_profile
 from src.sessions import Backend, get_backend
 from src.sessions.base import EvalError
@@ -36,6 +36,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--max-cycles", type=int, dest="max_cycles")
     parser.add_argument("--max-budget-usd", type=float, dest="max_budget_usd")
     parser.add_argument("--max-wall-hours", type=float, dest="max_wall_hours")
+    parser.add_argument(
+        "--json-summary",
+        metavar="PATH",
+        help="write a machine-readable run summary here (orchestrator hook)",
+    )
     args = parser.parse_args(argv)
     if bool(args.question) == bool(args.resume):
         parser.error("provide exactly one of: a question, or --resume RUN_ID")
@@ -166,6 +171,12 @@ def _print_summary(
     console.print(table)
 
 
+def _write_summary(path: str, payload: dict) -> None:
+    import json
+
+    _atomic_write(Path(path), json.dumps(payload, indent=2))
+
+
 def main(argv: list[str] | None = None) -> int:
     console = Console()
     args = parse_args(argv)
@@ -214,12 +225,39 @@ def main(argv: list[str] | None = None) -> int:
     try:
         reason = _drive(backend, run, settings, ledger, console)
         _print_summary(run, ledger, reason, console)
+        if args.json_summary:
+            _write_summary(
+                args.json_summary,
+                {
+                    "status": "finished",
+                    "run_id": run.meta.run_id,
+                    "run_dir": str(run.root),
+                    "question": run.meta.question,
+                    "profile": run.meta.profile,
+                    "finish_reason": reason,
+                    "cycles": run.last_cycle(),
+                    "spend_usd": round(ledger.spend_usd, 6),
+                    "wall_hours": round(run.wall_hours(), 4),
+                    "report": str(run.root / REPORT_FILE),
+                },
+            )
         return 0
     except EngineError as exc:
         # No silent fallback: surface the error, leave state on disk for --resume.
         console.print("error: ", style="red", end="")
         console.print(str(exc), markup=False, highlight=False)
         console.print(f"run state preserved at {run.root}; resume with --resume {run.meta.run_id}")
+        if args.json_summary:
+            _write_summary(
+                args.json_summary,
+                {
+                    "status": "error",
+                    "run_id": run.meta.run_id,
+                    "run_dir": str(run.root),
+                    "error": str(exc),
+                    "resume_with": run.meta.run_id,
+                },
+            )
         return 1
     finally:
         run.release_lock()

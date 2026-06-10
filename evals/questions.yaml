@@ -1,0 +1,208 @@
+# Eval set (CLAUDE.md §8 Phase 5): ~20 questions across the four domains.
+# `quick` subset (marked) is for the in-container/bake-off smoke; the full set
+# is for a normal-egress machine. Each item: id, profile, question, and
+# must_address — concrete facets the judge checks the report actually covers.
+
+- id: sci-aspirin
+  profile: scientific
+  subsets: [quick]
+  question: >-
+    Does daily low-dose aspirin reduce the risk of a first cardiovascular
+    event (primary prevention) in adults over 60 without existing heart
+    disease, and what do current major guidelines recommend?
+  must_address:
+    - pooled RCT effect on first CV events with effect size
+    - bleeding/harm tradeoff (GI and intracranial)
+    - current USPSTF / ACC-AHA (or ESC) recommendation and age cutoffs
+
+- id: sci-vitd-falls
+  profile: scientific
+  question: >-
+    Does vitamin D supplementation reduce the risk of falls in community-
+    dwelling older adults, per randomized trials and meta-analyses?
+  must_address:
+    - pooled RCT effect on fall risk
+    - dose dependence / high-dose harm signal
+    - guideline or expert-body stance
+
+- id: sci-sema-weight
+  profile: scientific
+  question: >-
+    How effective is semaglutide for weight loss in non-diabetic adults with
+    obesity, and what happens to weight after discontinuation?
+  must_address:
+    - mean % body-weight loss vs placebo in RCTs (STEP trials)
+    - weight regain after stopping
+    - common adverse effects
+
+- id: sci-mediterranean
+  profile: scientific
+  question: >-
+    Does the Mediterranean diet reduce cardiovascular events in primary
+    prevention, and how strong is the trial evidence (incl. PREDIMED issues)?
+  must_address:
+    - PREDIMED result and its 2018 retraction/re-analysis
+    - effect size for CV events
+    - quality/limitations of the evidence base
+
+- id: sci-omega3
+  profile: scientific
+  question: >-
+    Do omega-3 fatty acid supplements reduce cardiovascular events, and does
+    the answer depend on dose or formulation (e.g. EPA-only icosapent ethyl)?
+  must_address:
+    - low-dose mixed omega-3 null findings
+    - REDUCE-IT (icosapent ethyl) result and the mineral-oil-placebo critique
+    - dose/formulation dependence
+
+- id: gen-evbattery
+  profile: general
+  subsets: [quick]
+  question: >-
+    What is the current real-world lifespan of electric-vehicle lithium-ion
+    battery packs, and how much capacity do they typically lose per year?
+  must_address:
+    - typical annual capacity degradation rate
+    - expected pack lifespan / warranty norms
+    - factors that accelerate degradation
+
+- id: gen-remote-productivity
+  profile: general
+  question: >-
+    Does remote work increase or decrease individual productivity compared
+    with in-office work, according to the best available studies?
+  must_address:
+    - findings from controlled/quasi-experimental studies
+    - where remote helps vs hurts (task type, tenure)
+    - limitations and disagreement across studies
+
+- id: gen-heatpump-cold
+  profile: general
+  question: >-
+    Do air-source heat pumps work effectively in cold climates, and how does
+    their efficiency change as temperature drops?
+  must_address:
+    - COP/efficiency vs outdoor temperature
+    - cold-climate (ccASHP) performance data
+    - backup-heat / sizing considerations
+
+- id: gen-4dayweek
+  profile: general
+  question: >-
+    What do real-world four-day-workweek trials show about productivity,
+    revenue, and employee wellbeing?
+  must_address:
+    - outcomes from large trials (e.g. UK 2022, Iceland)
+    - productivity/revenue effects
+    - selection-bias and measurement caveats
+
+- id: gen-microplastics
+  profile: general
+  question: >-
+    What is currently known and not known about the health effects of
+    microplastics in humans?
+  must_address:
+    - what exposure/biomonitoring evidence shows
+    - what health effects are established vs hypothesized
+    - major evidence gaps
+
+- id: gen-passwords
+  profile: general
+  question: >-
+    Do password-complexity rules and forced periodic password rotation
+    improve security, and what do current standards (e.g. NIST) recommend?
+  must_address:
+    - evidence on complexity rules and forced rotation
+    - current NIST 800-63B guidance
+    - why guidance changed
+
+- id: gen-recession-2026
+  profile: general
+  question: >-
+    What do recent indicators and forecasts say about US recession risk over
+    the next 12 months, and how reliable are these signals historically?
+  must_address:
+    - current readings of leading indicators (yield curve, etc.)
+    - range of credible forecasts
+    - historical reliability/false-positive rate of the signals
+
+- id: biz-tam-ev-charging
+  profile: general
+  question: >-
+    How large is the US public EV-charging market today and what is its
+    credible growth trajectory through 2030?
+  must_address:
+    - current market size estimate with source
+    - growth projection range and assumptions
+    - key demand drivers and risks
+
+- id: biz-cloud-share
+  profile: general
+  question: >-
+    What are the current market shares of the major cloud-infrastructure
+    providers, and how have they shifted recently?
+  must_address:
+    - current shares for AWS / Azure / Google Cloud
+    - recent trend direction
+    - source quality and measurement caveats
+
+- id: legal-noncompete
+  profile: general
+  question: >-
+    What is the current legal status of employee non-compete agreements in
+    the United States at the federal level and in major states?
+  must_address:
+    - status of the FTC non-compete rule and litigation
+    - contrasting state regimes (e.g. California vs others)
+    - what currently binds employers
+
+- id: legal-256
+  profile: general
+  question: >-
+    Under current US copyright law, can the output of a generative-AI model
+    be copyrighted, and what do recent Copyright Office decisions say?
+  must_address:
+    - human-authorship requirement
+    - recent Copyright Office guidance/decisions
+    - what remains unsettled
+
+- id: vis-supplement-trust
+  profile: visual
+  subsets: [quick]
+  question: >-
+    How do the top direct-to-consumer supplement brands use trust badges,
+    certifications, and social proof on their product landing pages?
+  must_address:
+    - badge/certification types and their placement
+    - social-proof patterns (reviews, ratings) and placement
+    - comparison across at least 5 captured brand pages
+
+- id: vis-saas-pricing
+  profile: visual
+  question: >-
+    What visual and layout patterns do leading SaaS pricing pages use to
+    steer buyers toward a preferred tier?
+  must_address:
+    - tier-highlighting and anchoring devices
+    - CTA prominence and urgency cues
+    - comparison across at least 5 captured pricing pages
+
+- id: vis-news-paywall
+  profile: visual
+  question: >-
+    How do major news sites visually present paywalls and subscription
+    prompts, and what conversion-psychology patterns recur?
+  must_address:
+    - paywall styles (hard/soft/metered) as visually presented
+    - placement and urgency of subscription CTAs
+    - comparison across at least 5 captured sites
+
+- id: vis-dtc-mattress
+  profile: visual
+  question: >-
+    What imagery and claim patterns do direct-to-consumer mattress brands use
+    on their hero/landing pages (lifestyle vs product, claim density)?
+  must_address:
+    - lifestyle-vs-white-background imagery ratio
+    - claim density and trial/guarantee messaging placement
+    - comparison across at least 5 captured brand pages

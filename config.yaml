@@ -28,6 +28,9 @@ endpoints:
   local:
     base_url: http://localhost:11434   # Ollama >= 0.14 serves /v1/messages
     auth_env: OLLAMA_AUTH              # value "ollama" — required, ignored
+    # price_per_mtok: {input: 0.0, output: 0.0}   # set for PAID third-party
+    #   endpoints (e.g. DeepSeek/Groq) so the budget breaker sees real spend;
+    #   omitted => usd 0 (free local)
 
 # --- Role routing (CLAUDE.md §1: route by cognitive density) ----------------
 roles:
@@ -39,6 +42,8 @@ roles:
   # vision_reader analyzes page captures (visual profile). Must stay on a
   # vision-capable model; local text models will fail loudly here.
   vision_reader:   {endpoint: anthropic, model: claude-haiku-4-5-20251001,  max_turns: 6}
+  # judge scores eval-set reports (evals/run_evals.py); fresh context, Opus.
+  judge:           {endpoint: anthropic, model: claude-opus-4-8,            max_turns: 8}
 
 # --- Per-session limits (enforced in sessions/base.py from Phase 2) ---------
 session:
@@ -72,3 +77,9 @@ reader:
 search:
   searxng_base_url: null         # e.g. http://localhost:8888
   max_results: 8
+
+# --- Transient-failure retries (Phase 5 hardening) ----------------------------
+retry:
+  attempts: 3                # total tries per session spawn / engine fetch
+  base_delay_seconds: 2.0    # exponential backoff: 2s, 4s, ... capped below
+  max_delay_seconds: 30.0

@@ -11,9 +11,10 @@ from src.state import LedgerEntry, LedgerFile
 
 
 class Ledger:
-    def __init__(self, run: Runspace) -> None:
+    def __init__(self, run: Runspace, filename: str = LEDGER_FILE) -> None:
         self._run = run
-        path = run.root / LEDGER_FILE
+        self._filename = filename
+        path = run.root / filename
         if path.is_file():
             self._entries = state.parse_ledger(
                 path.read_text(encoding="utf-8"), label=str(path)
@@ -36,4 +37,4 @@ class Ledger:
         self.checkpoint()
 
     def checkpoint(self) -> None:
-        self._run.write_text(LEDGER_FILE, state.dump_ledger(LedgerFile(self._entries)))
+        self._run.write_text(self._filename, state.dump_ledger(LedgerFile(self._entries)))

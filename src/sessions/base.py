@@ -63,6 +63,7 @@ _ERROR_BY_TYPE: dict[SessionType, type[SessionError]] = {
     "evaluator": EvalError,
     "synthesizer": SynthesisError,
     "reader": ReaderError,
+    "judge": EvalError,
 }
 
 
@@ -135,6 +136,22 @@ def json_response_instructions(output_model: type[BaseModel]) -> str:
     )
 
 
+# HTTP statuses worth retrying (CLAUDE.md §8 Phase 5). Permanent failures
+# (4xx auth/validation, model errors) are never retried.
+TRANSIENT_HTTP_STATUSES = frozenset({408, 429, 500, 502, 503, 504, 529})
+
+
+class _TransientSpawnFailure(Exception):
+    """Internal marker: this spawn attempt failed transiently; retry."""
+
+
+def is_transient_result(is_error: bool, subtype: str, api_error_status: int | None) -> bool:
+    return bool(
+        (is_error or subtype != "success")
+        and api_error_status in TRANSIENT_HTTP_STATUSES
+    )
+
+
 @dataclass(frozen=True)
 class Spawn:
     """Outcome of one SDK session: parsed structured output + the metrics that
@@ -153,21 +170,35 @@ class Spawn:
 def finalize_metrics(
     usage: dict[str, Any] | None,
     total_cost_usd: float | None,
-    endpoint_is_local: bool,
+    endpoint_cfg: Any,
     wall_seconds: float,
 ) -> dict[str, Any]:
-    """Token/cost numbers for the ledger. Non-first-party endpoints record
-    usd=0 by §1 ('local sessions log usd: 0 but still record tokens') — the
-    CLI's price table has no meaning for them."""
+    """Token/cost numbers for the ledger. Cost precedence:
+    1. endpoint.price_per_mtok configured -> computed from token counts
+       (cached tokens billed at the input rate — conservative, breaker-safe).
+       This is how PAID non-first-party endpoints get real spend.
+    2. first-party endpoint (base_url None) -> the CLI's client-side estimate.
+    3. otherwise (free local) -> usd 0 per §1, tokens still recorded."""
     usage = usage or {}
+    input_tokens = int(usage.get("input_tokens") or 0)
+    output_tokens = int(usage.get("output_tokens") or 0)
     cached = int(usage.get("cache_read_input_tokens") or 0) + int(
         usage.get("cache_creation_input_tokens") or 0
     )
+    if endpoint_cfg.price_per_mtok is not None:
+        price = endpoint_cfg.price_per_mtok
+        usd = (
+            (input_tokens + cached) * price.input + output_tokens * price.output
+        ) / 1_000_000
+    elif endpoint_cfg.base_url is None:
+        usd = float(total_cost_usd or 0.0)
+    else:
+        usd = 0.0
     return dict(
-        input_tokens=int(usage.get("input_tokens") or 0),
-        output_tokens=int(usage.get("output_tokens") or 0),
+        input_tokens=input_tokens,
+        output_tokens=output_tokens,
         cached_tokens=cached,
-        usd=0.0 if endpoint_is_local else float(total_cost_usd or 0.0),
+        usd=usd,
         wall_seconds=wall_seconds,
     )
 
@@ -226,37 +257,82 @@ async def run_role_session_async(
         mcp_servers=mcp_servers or {},
     )
 
-    started = time.monotonic()
-    final: ResultMessage | None = None
-    try:
-        async for message in query(prompt=user_prompt, options=options):
-            if isinstance(message, ResultMessage):
-                final = message
-    except ClaudeSDKError as exc:
-        raise error_cls(f"{session_type} session transport failure: {exc}") from exc
-    if final is None:
-        raise error_cls(f"{session_type} session ended without a result message")
-    wall = time.monotonic() - started
-
-    metrics = finalize_metrics(final.usage, final.total_cost_usd, endpoint_is_local, wall)
-    # Record spend FIRST — a failed session still burned tokens (SDK_NOTES:
-    # error results carry usage too).
-    ledger.record(
-        LedgerEntry(
-            cycle=cycle,
-            session_type=session_type,
-            model=role_cfg.model,
-            endpoint=role_cfg.endpoint,
-            **metrics,
-        )
+    from claude_agent_sdk import CLIConnectionError
+    from tenacity import (
+        AsyncRetrying,
+        RetryError,
+        retry_if_exception_type,
+        stop_after_attempt,
+        wait_exponential,
     )
 
-    if final.is_error or final.subtype != "success":
-        detail = "; ".join(final.errors or []) or (final.result or "no detail")
-        status = f" (api_error_status={final.api_error_status})" if final.api_error_status else ""
-        raise error_cls(
-            f"{session_type} session failed: subtype={final.subtype}{status}: {detail}"
+    async def _attempt() -> tuple[ResultMessage, dict[str, Any]]:
+        started = time.monotonic()
+        final: ResultMessage | None = None
+        try:
+            async for message in query(prompt=user_prompt, options=options):
+                if isinstance(message, ResultMessage):
+                    final = message
+        except CLIConnectionError as exc:
+            raise _TransientSpawnFailure(f"transport: {exc}") from exc
+        except ClaudeSDKError as exc:
+            raise error_cls(f"{session_type} session transport failure: {exc}") from exc
+        if final is None:
+            raise _TransientSpawnFailure("session ended without a result message")
+        wall = time.monotonic() - started
+
+        metrics = finalize_metrics(final.usage, final.total_cost_usd, endpoint_cfg, wall)
+        # Record spend on EVERY attempt — a failed/retried session still
+        # burned tokens (SDK_NOTES: error results carry usage too).
+        ledger.record(
+            LedgerEntry(
+                cycle=cycle,
+                session_type=session_type,
+                model=role_cfg.model,
+                endpoint=role_cfg.endpoint,
+                **metrics,
+            )
         )
+
+        if final.is_error or final.subtype != "success":
+            detail = "; ".join(final.errors or []) or (final.result or "no detail")
+            status = (
+                f" (api_error_status={final.api_error_status})"
+                if final.api_error_status
+                else ""
+            )
+            message = (
+                f"{session_type} session failed: subtype={final.subtype}{status}: {detail}"
+            )
+            if is_transient_result(final.is_error, final.subtype, final.api_error_status):
+                raise _TransientSpawnFailure(message)
+            raise error_cls(message)
+        return final, metrics
+
+    retry_cfg = settings.retry
+    try:
+        async for attempt in AsyncRetrying(
+            retry=retry_if_exception_type(_TransientSpawnFailure),
+            stop=stop_after_attempt(retry_cfg.attempts),
+            wait=wait_exponential(
+                multiplier=retry_cfg.base_delay_seconds,
+                max=retry_cfg.max_delay_seconds,
+            ),
+            reraise=False,
+        ):
+            with attempt:
+                if attempt.retry_state.attempt_number > 1:
+                    run.log(
+                        f"{session_type} (cycle {cycle}): transient failure — "
+                        f"retry {attempt.retry_state.attempt_number}/{retry_cfg.attempts}"
+                    )
+                final, metrics = await _attempt()
+    except RetryError as exc:
+        last = exc.last_attempt.exception()
+        raise error_cls(
+            f"{session_type} session failed after {retry_cfg.attempts} attempts "
+            f"(transient): {last}"
+        ) from exc
 
     structured: Any = None
     if output_model is not None:

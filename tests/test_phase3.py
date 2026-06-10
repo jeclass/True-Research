@@ -76,17 +76,96 @@ def test_json_response_instructions_embed_schema():
 # --- metrics / ledger attribution ---------------------------------------------
 
 
-def test_finalize_metrics_zeroes_usd_on_local_endpoints():
+def test_finalize_metrics_cost_precedence():
+    from src.settings import EndpointCfg
+
     usage = {
         "input_tokens": 100,
         "output_tokens": 50,
         "cache_read_input_tokens": 10,
         "cache_creation_input_tokens": 5,
     }
-    local = finalize_metrics(usage, 1.23, endpoint_is_local=True, wall_seconds=2.0)
-    cloud = finalize_metrics(usage, 1.23, endpoint_is_local=False, wall_seconds=2.0)
-    assert local["usd"] == 0.0 and cloud["usd"] == 1.23
+    first_party = EndpointCfg(base_url=None, auth_env="ANTHROPIC_API_KEY")
+    free_local = EndpointCfg(base_url="http://localhost:11434", auth_env="OLLAMA_AUTH")
+    paid_third_party = EndpointCfg(
+        base_url="https://api.example.com",
+        auth_env="SOME_KEY",
+        price_per_mtok={"input": 1.0, "output": 5.0},
+    )
+    cloud = finalize_metrics(usage, 1.23, first_party, wall_seconds=2.0)
+    local = finalize_metrics(usage, 1.23, free_local, wall_seconds=2.0)
+    paid = finalize_metrics(usage, None, paid_third_party, wall_seconds=2.0)
+    assert cloud["usd"] == 1.23          # CLI estimate on first-party
+    assert local["usd"] == 0.0           # free local => §1 usd 0
+    # paid third-party: (100+15 cached)*$1/M + 50*$5/M
+    assert paid["usd"] == pytest.approx((115 * 1.0 + 50 * 5.0) / 1_000_000)
     assert local["input_tokens"] == 100 and local["cached_tokens"] == 15
+
+
+def test_http_get_with_retry_recovers_from_transient_5xx(tmp_path):
+    """Flaky server: two 503s then 200 — the retrying GET must succeed.
+    A permanent 403 must NOT be retried."""
+    import asyncio
+    import threading
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+    import httpx
+
+    from src.tools import http_get_with_retry
+
+    state = {"calls": 0, "fail_first": 2, "status": 503}
+
+    class Handler(BaseHTTPRequestHandler):
+        def log_message(self, *args):
+            pass
+
+        def do_GET(self):
+            state["calls"] += 1
+            if state["calls"] <= state["fail_first"]:
+                self.send_response(state["status"])
+                self.end_headers()
+                return
+            self.send_response(200)
+            self.send_header("content-type", "text/plain")
+            self.end_headers()
+            self.wfile.write(b"ok")
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    host, port = server.server_address
+    url = f"http://{host}:{port}/x"
+    retry_cfg = _settings(tmp_path).retry  # conftest: 3 attempts, ms delays
+
+    try:
+        response = asyncio.run(
+            http_get_with_retry(url, retry_cfg=retry_cfg, timeout=5)
+        )
+        assert response.status_code == 200 and state["calls"] == 3
+
+        # permanent failure: 403 raises immediately, exactly one call
+        state.update(calls=0, fail_first=99, status=403)
+        with pytest.raises(httpx.HTTPStatusError):
+            asyncio.run(http_get_with_retry(url, retry_cfg=retry_cfg, timeout=5))
+        assert state["calls"] == 1
+
+        # exhaustion: all attempts 503 -> TransportError naming the attempts
+        state.update(calls=0, fail_first=99, status=503)
+        with pytest.raises(httpx.TransportError, match="after 3 attempts"):
+            asyncio.run(http_get_with_retry(url, retry_cfg=retry_cfg, timeout=5))
+        assert state["calls"] == 3
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
+def test_is_transient_result_classification():
+    from src.sessions.base import is_transient_result
+
+    assert is_transient_result(True, "success", 529)
+    assert is_transient_result(True, "error_during_execution", 503)
+    assert not is_transient_result(True, "error_during_execution", None)
+    assert not is_transient_result(True, "error_max_budget_usd", 400)
+    assert not is_transient_result(False, "success", None)
 
 
 def test_reader_session_type_is_a_valid_ledger_entry():

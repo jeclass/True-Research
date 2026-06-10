@@ -9,8 +9,8 @@ from typing import Any
 
 import httpx
 
-from src.settings import Settings
-from src.tools import ConnectorError
+from src.settings import RetryCfg, Settings
+from src.tools import ConnectorError, http_get_with_retry
 
 
 def parse_searxng_results(payload: dict, max_results: int) -> list[dict[str, Any]]:
@@ -38,16 +38,16 @@ def format_results(results: list[dict[str, Any]]) -> str:
 
 
 async def searxng_search(
-    base_url: str, query: str, max_results: int, timeout: float
+    base_url: str, query: str, max_results: int, timeout: float, retry_cfg: RetryCfg
 ) -> str:
     try:
-        async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
-            response = await client.get(
-                base_url.rstrip("/") + "/search",
-                params={"q": query, "format": "json"},
-            )
-            response.raise_for_status()
-            payload = response.json()
+        response = await http_get_with_retry(
+            base_url.rstrip("/") + "/search",
+            retry_cfg=retry_cfg,
+            timeout=timeout,
+            params={"q": query, "format": "json"},
+        )
+        payload = response.json()
     except (httpx.HTTPError, json.JSONDecodeError) as exc:
         raise ConnectorError(f"SearXNG search failed ({base_url}): {exc}") from exc
     return format_results(parse_searxng_results(payload, max_results))
@@ -77,7 +77,9 @@ def build_search_mcp(settings: Settings):
             return {"content": [{"type": "text", "text": "web_search: empty query"}],
                     "is_error": True}
         try:
-            text = await searxng_search(base_url, query, max_results, timeout)
+            text = await searxng_search(
+                base_url, query, max_results, timeout, settings.retry
+            )
         except ConnectorError as exc:
             return {"content": [{"type": "text", "text": f"SEARCH FAILED: {exc}"}],
                     "is_error": True}

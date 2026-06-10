@@ -85,14 +85,15 @@ async def fetch_page(url: str, settings: Settings) -> str:
     """Fetch one URL and return extracted text, truncated to the configured
     budget. Raises ReaderError on any fetch problem — callers surface it to
     the worker as a failed read, never as fabricated content."""
+    from src.tools import http_get_with_retry
+
     try:
-        async with httpx.AsyncClient(
-            follow_redirects=True,
+        response = await http_get_with_retry(
+            url,
+            retry_cfg=settings.retry,
             timeout=settings.reader.fetch_timeout_seconds,
             headers={"User-Agent": "marathon-research-engine/0.1 (+research)"},
-        ) as client:
-            response = await client.get(url)
-            response.raise_for_status()
+        )
     except httpx.HTTPError as exc:
         raise ReaderError(f"fetch failed for {url}: {exc}") from exc
 

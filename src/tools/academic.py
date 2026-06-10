@@ -11,8 +11,8 @@ from typing import Any
 
 import httpx
 
-from src.settings import Settings
-from src.tools import ConnectorError
+from src.settings import RetryCfg, Settings
+from src.tools import ConnectorError, http_get_with_retry
 
 _PUBMED_ESEARCH = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi"
 _PUBMED_ESUMMARY = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esummary.fcgi"
@@ -142,23 +142,26 @@ def format_papers(papers: list[dict[str, Any]], source_name: str) -> str:
 # --- fetchers ------------------------------------------------------------------
 
 
-async def _get_json(url: str, params: dict, timeout: float) -> dict:
+async def _get_json(url: str, params: dict, timeout: float, retry_cfg: RetryCfg) -> dict:
     try:
-        async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
-            response = await client.get(url, params=params)
-            response.raise_for_status()
-            return response.json()
+        response = await http_get_with_retry(
+            url, retry_cfg=retry_cfg, timeout=timeout, params=params
+        )
+        return response.json()
     except (httpx.HTTPError, json.JSONDecodeError) as exc:
         raise ConnectorError(f"academic API call failed ({url}): {exc}") from exc
 
 
-async def search_pubmed(query: str, max_results: int, timeout: float) -> str:
+async def search_pubmed(
+    query: str, max_results: int, timeout: float, retry_cfg: RetryCfg
+) -> str:
     ids = parse_pubmed_esearch(
         await _get_json(
             _PUBMED_ESEARCH,
             {"db": "pubmed", "term": query, "retmax": max_results, "retmode": "json",
              "sort": "relevance"},
             timeout,
+            retry_cfg,
         )
     )
     if not ids:
@@ -168,26 +171,31 @@ async def search_pubmed(query: str, max_results: int, timeout: float) -> str:
             _PUBMED_ESUMMARY,
             {"db": "pubmed", "id": ",".join(ids), "retmode": "json"},
             timeout,
+            retry_cfg,
         )
     )
     return format_papers(papers, "PubMed")
 
 
-async def search_openalex(query: str, max_results: int, timeout: float) -> str:
+async def search_openalex(
+    query: str, max_results: int, timeout: float, retry_cfg: RetryCfg
+) -> str:
     payload = await _get_json(
-        _OPENALEX_WORKS, {"search": query, "per-page": max_results}, timeout
+        _OPENALEX_WORKS, {"search": query, "per-page": max_results}, timeout, retry_cfg
     )
     return format_papers(parse_openalex_works(payload), "OpenAlex")
 
 
-async def search_arxiv(query: str, max_results: int, timeout: float) -> str:
+async def search_arxiv(
+    query: str, max_results: int, timeout: float, retry_cfg: RetryCfg
+) -> str:
     try:
-        async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
-            response = await client.get(
-                _ARXIV_QUERY,
-                params={"search_query": f"all:{query}", "max_results": max_results},
-            )
-            response.raise_for_status()
+        response = await http_get_with_retry(
+            _ARXIV_QUERY,
+            retry_cfg=retry_cfg,
+            timeout=timeout,
+            params={"search_query": f"all:{query}", "max_results": max_results},
+        )
     except httpx.HTTPError as exc:
         raise ConnectorError(f"academic API call failed (arXiv): {exc}") from exc
     return format_papers(parse_arxiv_atom(response.text), "arXiv")
@@ -200,6 +208,8 @@ def build_academic_mcp(settings: Settings):
     timeout = settings.reader.fetch_timeout_seconds
     max_results = settings.search.max_results
 
+    retry_cfg = settings.retry
+
     def _wrap(coro_fn, label):
         async def handler(args: dict) -> dict:
             query = str(args.get("query", "")).strip()
@@ -207,7 +217,7 @@ def build_academic_mcp(settings: Settings):
                 return {"content": [{"type": "text", "text": f"{label}: empty query"}],
                         "is_error": True}
             try:
-                text = await coro_fn(query, max_results, timeout)
+                text = await coro_fn(query, max_results, timeout, retry_cfg)
             except ConnectorError as exc:
                 return {"content": [{"type": "text", "text": f"SEARCH FAILED: {exc}"}],
                         "is_error": True}

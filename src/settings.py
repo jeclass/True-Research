@@ -17,16 +17,26 @@ from pydantic import BaseModel, ConfigDict, Field, SecretStr, ValidationError, m
 
 from src.errors import ConfigError
 
-SessionType = Literal["initializer", "worker", "evaluator", "synthesizer", "reader"]
+SessionType = Literal[
+    "initializer", "worker", "evaluator", "synthesizer", "reader", "judge"
+]
 
 
 class _Frozen(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
 
+class PriceCfg(_Frozen):
+    # USD per million tokens. Set for PAID non-first-party endpoints so the
+    # ledger and budget breaker see real spend; omit for free local endpoints.
+    input: float = Field(ge=0)
+    output: float = Field(ge=0)
+
+
 class EndpointCfg(_Frozen):
     base_url: str | None = None
     auth_env: str
+    price_per_mtok: PriceCfg | None = None
 
 
 class RoleCfg(_Frozen):
@@ -45,6 +55,14 @@ class ReaderCfg(_Frozen):
     max_failures_per_session: int = Field(ge=1)
     fetch_timeout_seconds: float = Field(gt=0)
     require_reads: bool = True
+
+
+class RetryCfg(_Frozen):
+    # Transient-failure retries (CLAUDE.md §8 Phase 5): transport errors and
+    # HTTP 429/5xx/529 only. Permanent failures are never retried.
+    attempts: int = Field(ge=1)
+    base_delay_seconds: float = Field(gt=0)
+    max_delay_seconds: float = Field(gt=0)
 
 
 class SearchCfg(_Frozen):
@@ -75,6 +93,7 @@ class Settings(_Frozen):
     session: SessionCfg
     reader: ReaderCfg
     search: SearchCfg
+    retry: RetryCfg
     stub: StubCfg
     # auth_env name -> secret value, from .env (and os.environ as fallback so
     # CI can inject keys). Never printed: SecretStr redacts in repr/str.
