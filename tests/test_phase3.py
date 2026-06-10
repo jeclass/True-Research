@@ -422,3 +422,33 @@ def test_local_endpoint_e2e_via_mock_server(tmp_path, monkeypatch):
         assert all(not r["x_api_key"] for r in hits)
     # else: broker-managed environment — auth is host-pinned by design and
     # unassertable here; the routing/ledger assertions above still hold.
+
+
+def test_evaluator_retries_parse_failures(run, tmp_path, monkeypatch):
+    # Observed smoke11 2026-06-10: local evaluator emitted unterminated JSON
+    # and killed the run - evaluator sessions reroll like pipeline one-shots.
+    _seed_questions(run)
+    run.write_text("PLAN.md", "# plan\n")
+    settings = _settings(tmp_path)
+    calls = {"n": 0}
+
+    class _Spawn:
+        def __init__(self, structured):
+            self.structured = structured
+            self.input_tokens = 1
+            self.output_tokens = 1
+            self.cached_tokens = 0
+            self.usd = 0.0
+            self.wall_seconds = 0.1
+            self.num_turns = 1
+
+    def flaky(**kwargs):
+        calls["n"] += 1
+        if calls["n"] < 3:
+            raise EvalError("evaluator session did not return parseable JSON - x")
+        return _Spawn(_eval_output(passed=False))
+
+    monkeypatch.setattr(evaluator, "run_role_session", flaky)
+    result = evaluator.run(run, settings, 1, Ledger(run))
+    assert calls["n"] == 3
+    assert result.session_type == "evaluator"

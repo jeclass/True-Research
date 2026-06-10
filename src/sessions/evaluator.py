@@ -249,18 +249,40 @@ def _run_tier(
     run: Runspace, settings: Settings, cycle: int, ledger: Ledger, role: str, final: bool
 ) -> SessionResult:
     profile = get_profile(run.meta.profile)
-    spawn = run_role_session(
-        run=run,
-        settings=settings,
-        ledger=ledger,
-        cycle=cycle,
-        session_type="evaluator",
-        role=role,
-        system_prompt=build_system_prompt(profile, final=final),
-        user_prompt=_build_user_prompt(run, settings, ledger, cycle),
-        tools=_TOOLS,
-        output_model=EvaluatorOutput,
-    )
+    # Evaluator sessions are stateless until _apply_output — a malformed-JSON
+    # roll is retryable exactly like the pipeline single-shots (observed
+    # smoke11 2026-06-10: local evaluator emitted an unterminated string at
+    # cycle 6 and killed an otherwise-finishing run).
+    attempts = settings.retry.attempts
+    spawn = None
+    last: EvalError | None = None
+    for attempt in range(1, attempts + 1):
+        try:
+            spawn = run_role_session(
+                run=run,
+                settings=settings,
+                ledger=ledger,
+                cycle=cycle,
+                session_type="evaluator",
+                role=role,
+                system_prompt=build_system_prompt(profile, final=final),
+                user_prompt=_build_user_prompt(run, settings, ledger, cycle),
+                tools=_TOOLS,
+                output_model=EvaluatorOutput,
+            )
+            break
+        except EvalError as exc:
+            msg = str(exc)
+            if "parseable JSON" not in msg and "failed validation" not in msg:
+                raise
+            last = exc
+            if attempt < attempts:
+                run.log(
+                    f"evaluator ({role}, cycle {cycle}): output parse failed "
+                    f"(attempt {attempt}/{attempts}); retrying session"
+                )
+    if spawn is None:
+        raise last
     output: EvaluatorOutput = spawn.structured
 
     passed, notes, added_ids, closed_ids = _apply_output(run, output, cycle)
