@@ -39,6 +39,13 @@ BASE_CONFIG: dict = {
     },
     "search": {"searxng_base_url": None, "max_results": 8},
     "retry": {"attempts": 3, "base_delay_seconds": 0.01, "max_delay_seconds": 0.05},
+    "worker_pipeline": {
+        "enabled": False,  # agentic default in tests; pipeline tested explicitly
+        "queries_per_question": 4,
+        "urls_per_query": 4,
+        "max_reads": 12,
+        "per_domain_cap": 2,
+    },
     "stub": {
         "seed_questions": 3,
         "worker_no_delta": False,

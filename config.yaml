@@ -39,10 +39,11 @@ endpoints:
 # (needs a cloud agentic worker) — use a separate config for visual runs.
 roles:
   initializer:     {endpoint: anthropic, model: claude-opus-4-8,    max_turns: 16, max_wall_seconds: 600}
-  # worker: agentic-local is empirically closed on 16GB (LOCAL_SETUP_REPORT);
-  # stays Sonnet ONLY until pipeline mode (worker_pipeline.enabled) flips it
-  # local. Pipeline mode uses this same role for its one-shot sessions.
-  worker:          {endpoint: anthropic, model: claude-sonnet-4-6,  max_turns: 50, max_wall_seconds: 3600}
+  # worker: LOCAL via pipeline mode (worker_pipeline.enabled below). The
+  # agentic-local path is empirically closed on 16GB (LOCAL_SETUP_REPORT);
+  # pipeline mode uses this role only for single-shot query-gen + compose
+  # sessions — the pattern locals execute flawlessly.
+  worker:          {endpoint: local,     model: gpt-oss-20b-32k,    max_turns: 4,  max_wall_seconds: 1200}
   reader_subagent: {endpoint: local,     model: gpt-oss-20b-32k,    max_turns: 12, max_wall_seconds: 900}
   # per-cycle evaluator: local (cheap gate; engine force-fails dishonest
   # passes). The run can only END through final_evaluator below.
@@ -97,3 +98,16 @@ retry:
   attempts: 3                # total tries per session spawn / engine fetch
   base_delay_seconds: 2.0    # exponential backoff: 2s, 4s, ... capped below
   max_delay_seconds: 30.0
+
+# --- Pipeline-worker mode (docs/PIPELINE_WORKER_SPEC.md) ----------------------
+# Engine-orchestrated worker: one-shot query-gen (local) -> engine search
+# (SearXNG + profile providers) -> rule-based URL selection -> reader fan-out
+# -> engine-built sources -> one-shot compose (local). The model never types
+# a URL or invents a source id. enabled: false restores the agentic worker
+# (requires a cloud-capable worker model).
+worker_pipeline:
+  enabled: true
+  queries_per_question: 4
+  urls_per_query: 4
+  max_reads: 12
+  per_domain_cap: 2

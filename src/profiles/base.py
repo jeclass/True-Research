@@ -68,6 +68,38 @@ def search_tools(settings: Settings) -> WorkerToolset:
 class Profile(ABC):
     name: ClassVar[str]
 
+    # --- pipeline-worker hooks (docs/PIPELINE_WORKER_SPEC.md) ---------------
+
+    def pipeline_search_providers(self, settings: Settings) -> list[tuple[str, Any]]:
+        """(name, async fn(query) -> [{title,url,snippet}]) pairs the engine
+        queries in pipeline mode. Default: SearXNG only — pipeline mode is an
+        engine-side searcher, so Anthropic-hosted WebSearch is never available
+        here regardless of worker endpoint."""
+        base_url = settings.search.searxng_base_url
+        if not base_url:
+            raise ConfigError(
+                "pipeline-worker mode needs search.searxng_base_url — engine-side "
+                "search cannot use Anthropic-hosted WebSearch"
+            )
+        from src.tools.search import searxng_results
+
+        async def _searxng(query: str):
+            return await searxng_results(
+                base_url, query, settings.search.max_results,
+                settings.reader.fetch_timeout_seconds, settings.retry,
+            )
+
+        return [("searxng", _searxng)]
+
+    def url_preferences(self) -> dict[str, Any]:
+        """Ranking hints for pipeline URL selection: preferred_domains are
+        ranked first; domain_cap_overrides relax the per-domain cap."""
+        return {"preferred_domains": [], "domain_cap_overrides": {}}
+
+    def pipeline_overrides(self) -> dict[str, int]:
+        """Per-profile overrides of worker_pipeline numeric knobs."""
+        return {}
+
     @abstractmethod
     def worker_toolset(self, ctx: WorkerToolContext) -> WorkerToolset:
         """Tools for the worker session (search + file tools + domain MCP)."""

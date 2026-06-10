@@ -84,6 +84,15 @@ def build_capture_mcp(ctx: WorkerToolContext):
 class VisualProfile(Profile):
     name = "visual"
 
+    def pipeline_search_providers(self, settings):
+        from src.errors import ConfigError
+
+        raise ConfigError(
+            "the visual profile needs the agentic worker (in-loop capture "
+            "decisions) — run it with worker_pipeline.enabled: false and a "
+            "cloud-capable worker model (outside the budget posture)"
+        )
+
     def worker_toolset(self, ctx: WorkerToolContext) -> WorkerToolset:
         toolset = self._base_toolset(ctx)
         toolset.mcp_servers["capture"] = build_capture_mcp(ctx)

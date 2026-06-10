@@ -4,8 +4,11 @@ This is the profile The Clinical Index work uses."""
 
 from __future__ import annotations
 
+from typing import Any
+
 from src.profiles.base import Profile, WorkerToolContext, WorkerToolset
-from src.tools.academic import build_academic_mcp
+from src.settings import Settings
+from src.tools.academic import build_academic_mcp, openalex_results, pubmed_results
 
 
 class ScientificProfile(Profile):
@@ -20,6 +23,37 @@ class ScientificProfile(Profile):
             "mcp__academic__search_arxiv",
         ]
         return toolset
+
+    def pipeline_search_providers(self, settings: Settings) -> list[tuple[str, Any]]:
+        providers = super().pipeline_search_providers(settings)
+        timeout = settings.reader.fetch_timeout_seconds
+        max_results = settings.search.max_results
+
+        async def _openalex(query: str):
+            return await openalex_results(query, max_results, timeout, settings.retry)
+
+        async def _pubmed(query: str):
+            return await pubmed_results(query, max_results, timeout, settings.retry)
+
+        # Academic indexes first (worker_guidance order), web context last.
+        return [("openalex", _openalex), ("pubmed", _pubmed)] + providers
+
+    def url_preferences(self) -> dict[str, Any]:
+        # Mirrors the a77ccdc prompt guidance, enforced in code: OA mirrors
+        # rank first (publisher pages 403 automated readers), and the PMC
+        # domain may exceed the per-domain cap since mirrors concentrate there.
+        return {
+            "preferred_domains": [
+                "pmc.ncbi.nlm.nih.gov",
+                "europepmc.org",
+                "pubmed.ncbi.nlm.nih.gov",
+            ],
+            "domain_cap_overrides": {"pmc.ncbi.nlm.nih.gov": 4, "europepmc.org": 4},
+        }
+
+    def pipeline_overrides(self) -> dict[str, int]:
+        # Denser pages + 403-mirror retries burn read attempts.
+        return {"queries_per_question": 5, "max_reads": 16}
 
     def rubric(self) -> str:
         return """\

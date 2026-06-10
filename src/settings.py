@@ -78,6 +78,18 @@ class SearchCfg(_Frozen):
     max_results: int = Field(ge=1)
 
 
+class WorkerPipelineCfg(_Frozen):
+    # Pipeline-worker mode (docs/PIPELINE_WORKER_SPEC.md): replaces the
+    # open-loop agentic worker with single-shot local calls + engine
+    # orchestration — the pattern local models execute flawlessly. The
+    # agentic path remains when enabled=false.
+    enabled: bool
+    queries_per_question: int = Field(ge=1)
+    urls_per_query: int = Field(ge=1)
+    max_reads: int = Field(ge=1)
+    per_domain_cap: int = Field(ge=1)
+
+
 class StubCfg(_Frozen):
     seed_questions: int = Field(ge=1)
     worker_no_delta: bool
@@ -99,6 +111,7 @@ class Settings(_Frozen):
     reader: ReaderCfg
     search: SearchCfg
     retry: RetryCfg
+    worker_pipeline: WorkerPipelineCfg
     stub: StubCfg
     # auth_env name -> secret value, from .env (and os.environ as fallback so
     # CI can inject keys). Never printed: SecretStr redacts in repr/str.

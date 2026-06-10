@@ -37,6 +37,23 @@ def format_results(results: list[dict[str, Any]]) -> str:
     return "\n".join(lines)
 
 
+async def searxng_results(
+    base_url: str, query: str, max_results: int, timeout: float, retry_cfg: RetryCfg
+) -> list[dict[str, Any]]:
+    """Normalized raw results for pipeline-mode URL selection."""
+    try:
+        response = await http_get_with_retry(
+            base_url.rstrip("/") + "/search",
+            retry_cfg=retry_cfg,
+            timeout=timeout,
+            params={"q": query, "format": "json"},
+        )
+        payload = response.json()
+    except (httpx.HTTPError, json.JSONDecodeError) as exc:
+        raise ConnectorError(f"SearXNG search failed ({base_url}): {exc}") from exc
+    return parse_searxng_results(payload, max_results)
+
+
 async def searxng_search(
     base_url: str, query: str, max_results: int, timeout: float, retry_cfg: RetryCfg
 ) -> str:

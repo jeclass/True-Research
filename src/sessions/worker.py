@@ -241,6 +241,15 @@ def run(run: Runspace, settings: Settings, cycle: int, ledger: Ledger) -> Sessio
     target.status = "in_progress"
     run.save_questions(questions)
 
+    if settings.worker_pipeline.enabled:
+        # Pipeline-worker mode (operator decision 2026-06-10): single-shot
+        # local sessions + engine orchestration; the agentic loop below is
+        # the cloud-worker alternative (worker_pipeline.enabled: false).
+        from src.sessions import pipeline
+
+        profile = get_profile(run.meta.profile)
+        return pipeline.run_pipeline(run, settings, cycle, ledger, target, profile)
+
     stats = {"reads": 0, "failures": 0}
     read_urls: set[str] = set()
     reader_server = _build_reader_mcp(

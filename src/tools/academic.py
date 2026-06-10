@@ -201,6 +201,54 @@ async def search_arxiv(
     return format_papers(parse_arxiv_atom(response.text), "arXiv")
 
 
+def _normalize_papers(papers: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [
+        {
+            "title": p.get("title", "(untitled)"),
+            "url": p.get("url", ""),
+            "snippet": (p.get("abstract") or "")[:400],
+        }
+        for p in papers
+        if p.get("url")
+    ]
+
+
+async def pubmed_results(
+    query: str, max_results: int, timeout: float, retry_cfg: RetryCfg
+) -> list[dict[str, Any]]:
+    """Normalized raw results for pipeline-mode URL selection."""
+    ids = parse_pubmed_esearch(
+        await _get_json(
+            _PUBMED_ESEARCH,
+            {"db": "pubmed", "term": query, "retmax": max_results, "retmode": "json",
+             "sort": "relevance"},
+            timeout,
+            retry_cfg,
+        )
+    )
+    if not ids:
+        return []
+    papers = parse_pubmed_esummary(
+        await _get_json(
+            _PUBMED_ESUMMARY,
+            {"db": "pubmed", "id": ",".join(ids), "retmode": "json"},
+            timeout,
+            retry_cfg,
+        )
+    )
+    return _normalize_papers(papers)
+
+
+async def openalex_results(
+    query: str, max_results: int, timeout: float, retry_cfg: RetryCfg
+) -> list[dict[str, Any]]:
+    """Normalized raw results for pipeline-mode URL selection."""
+    payload = await _get_json(
+        _OPENALEX_WORKS, {"search": query, "per-page": max_results}, timeout, retry_cfg
+    )
+    return _normalize_papers(parse_openalex_works(payload))
+
+
 def build_academic_mcp(settings: Settings):
     """In-process MCP server with the three paper-search tools."""
     from claude_agent_sdk import create_sdk_mcp_server, tool
