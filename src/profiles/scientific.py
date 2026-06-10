@@ -45,6 +45,11 @@ class ScientificProfile(Profile):
 - Prioritize meta-analyses and systematic reviews of RCTs, then landmark
   individual RCTs. Read the primary record (abstract page, PMC full text)
   rather than journalism about it.
+- Access note: publisher and PubMed abstract pages often block automated
+  readers (HTTP 403). When a read fails, retry open-access copies in this
+  order: PMC full text (pmc.ncbi.nlm.nih.gov/articles/PMC...), Europe PMC
+  (europepmc.org/article/MED/<PMID>), then the journal's open-access page.
+  Register whichever URL actually returned a read_source digest.
 - In every finding, record study type, n, effect size (with CI/p-value when
   reported), and year for each load-bearing claim.
 - In source notes record: venue, year, study type, peer-review status

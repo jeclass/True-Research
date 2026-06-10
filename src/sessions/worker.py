@@ -56,6 +56,12 @@ Method:
 Source rules:
 - Register EVERY source your finding relies on, in `sources`, copying
   title/kind/credibility/notes from the read_source results.
+- READ-GATE (hard rule, enforced by the engine): a source may be registered
+  ONLY under the exact URL that returned a successful read_source digest THIS
+  session (or an id already in the registry). A source you merely found via
+  search does NOT qualify. Never substitute a canonical/DOI/abstract URL for
+  the URL you actually read — if you read a mirror (e.g. PMC full text),
+  register the mirror URL and put the canonical reference in `notes`.
 - id format: ^src-[a-z0-9-]+$ — STRICTLY ASCII lowercase letters a-z, digits,
   hyphens. No accents or non-ASCII characters: transliterate them
   (Sundfør -> sundfor, Müller -> muller). Descriptive and unique, e.g.
