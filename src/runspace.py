@@ -13,6 +13,7 @@ from __future__ import annotations
 import hashlib
 import os
 import secrets
+import sys
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -60,6 +61,31 @@ def _atomic_write(target: Path, content: str) -> None:
 
 
 def _pid_alive(pid: int) -> bool:
+    if sys.platform == "win32":
+        # os.kill(pid, 0) is not a probe on Windows — it TERMINATES the target
+        # (TerminateProcess) and raises plain OSError for dead pids. Probe via
+        # a SYNCHRONIZE handle: signaled => exited; timeout/failure => treat as
+        # alive (refuse lock takeover when unsure, same posture as the
+        # PermissionError branch below).
+        import ctypes
+
+        ERROR_ACCESS_DENIED = 5
+        SYNCHRONIZE = 0x00100000
+        WAIT_OBJECT_0 = 0
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        kernel32.OpenProcess.restype = ctypes.c_void_p
+        kernel32.WaitForSingleObject.argtypes = [ctypes.c_void_p, ctypes.c_uint32]
+        kernel32.WaitForSingleObject.restype = ctypes.c_uint32
+        kernel32.CloseHandle.argtypes = [ctypes.c_void_p]
+        handle = kernel32.OpenProcess(SYNCHRONIZE, False, pid)
+        if not handle:
+            # access denied => live process we may not open; anything else
+            # (e.g. ERROR_INVALID_PARAMETER) => no such process
+            return ctypes.get_last_error() == ERROR_ACCESS_DENIED
+        try:
+            return kernel32.WaitForSingleObject(handle, 0) != WAIT_OBJECT_0
+        finally:
+            kernel32.CloseHandle(handle)
     try:
         os.kill(pid, 0)
     except ProcessLookupError:

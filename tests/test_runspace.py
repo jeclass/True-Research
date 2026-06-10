@@ -66,17 +66,27 @@ def test_state_hash_tracks_questions_and_findings_only(run):
 
 
 def test_lock_blocks_second_live_driver(run, tmp_path):
-    # Simulate another live driver holding the lock: PID 1 is always alive.
-    (run.root / runspace_mod.LOCK_FILE).write_text("1")
-    with pytest.raises(RunspaceError, match="locked by live pid"):
-        Runspace.resume(tmp_path / "runs", run.meta.run_id)
+    # Simulate another live driver holding the lock: a child we keep alive.
+    # (PID 1 is a Unix-ism; a spawned child is portable to Windows.)
+    import subprocess
+    import sys
+
+    proc = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"])
+    try:
+        (run.root / runspace_mod.LOCK_FILE).write_text(str(proc.pid))
+        with pytest.raises(RunspaceError, match="locked by live pid"):
+            Runspace.resume(tmp_path / "runs", run.meta.run_id)
+    finally:
+        proc.kill()
+        proc.wait()
 
 
 def test_stale_lock_is_taken_over(run, tmp_path):
-    # A pid that cannot exist: max pid + 1 territory. Use one we spawned and reaped.
+    # A dead pid, guaranteed: one we spawned and reaped ("true" is Unix-only).
     import subprocess
+    import sys
 
-    proc = subprocess.Popen(["true"])
+    proc = subprocess.Popen([sys.executable, "-c", "pass"])
     proc.wait()
     (run.root / runspace_mod.LOCK_FILE).write_text(str(proc.pid))
     resumed = Runspace.resume(tmp_path / "runs", run.meta.run_id)
