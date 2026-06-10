@@ -65,9 +65,14 @@ def apply_overrides(settings: Settings, args: argparse.Namespace) -> Settings:
         k: v.get_secret_value() for k, v in settings.secrets.items()
     }
     for role, model_arg, endpoint_arg in (
-        ("worker", args.worker_model, args.worker_endpoint),
-        ("reader_subagent", args.reader_model, args.reader_endpoint),
+        ("worker", getattr(args, "worker_model", None), getattr(args, "worker_endpoint", None)),
+        ("reader_subagent", getattr(args, "reader_model", None), getattr(args, "reader_endpoint", None)),
+        ("evaluator", getattr(args, "evaluator_model", None), getattr(args, "evaluator_endpoint", None)),
+        ("final_evaluator", getattr(args, "final_evaluator_model", None),
+         getattr(args, "final_evaluator_endpoint", None)),
     ):
+        if role not in raw["roles"]:
+            continue
         if model_arg:
             raw["roles"][role]["model"] = model_arg
         if endpoint_arg:
@@ -125,6 +130,10 @@ def main() -> int:
     parser.add_argument("--worker-endpoint")
     parser.add_argument("--reader-model")
     parser.add_argument("--reader-endpoint")
+    parser.add_argument("--evaluator-model")
+    parser.add_argument("--evaluator-endpoint")
+    parser.add_argument("--final-evaluator-model")
+    parser.add_argument("--final-evaluator-endpoint")
     args = parser.parse_args()
 
     console = Console()

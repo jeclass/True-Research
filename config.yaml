@@ -32,26 +32,37 @@ endpoints:
     #   endpoints (e.g. DeepSeek/Groq) so the budget breaker sees real spend;
     #   omitted => usd 0 (free local)
 
-# --- Role routing (CLAUDE.md §1: route by cognitive density) ----------------
+# --- Role routing — BUDGET POSTURE (operator decision 2026-06-10) -----------
+# Cloud Opus ONLY where judgment ends the run: initializer, final_evaluator
+# (terminal conclusiveness gate), synthesizer. Everything else local on the
+# operator's -32k Modelfile variants. Visual profile is OUT of this posture
+# (needs a cloud agentic worker) — use a separate config for visual runs.
 roles:
-  initializer:     {endpoint: anthropic, model: claude-opus-4-8,            max_turns: 16}
-  worker:          {endpoint: anthropic, model: claude-sonnet-4-6,          max_turns: 50}
-  # readers local (hybrid posture, RUNBOOK §1): gate-passed 2026-06-10 on
-  # gpt-oss:20b / qwen3.5:9b / gemma4:12b; baseline routed here, bake-off
-  # compares the three. Cloud fallback: claude-haiku-4-5-20251001.
-  reader_subagent: {endpoint: local,     model: gpt-oss:20b,                max_turns: 12}
-  evaluator:       {endpoint: anthropic, model: claude-opus-4-8,            max_turns: 24}
-  synthesizer:     {endpoint: anthropic, model: claude-opus-4-8,            max_turns: 40}
-  # vision_reader analyzes page captures (visual profile). Must stay on a
-  # vision-capable model; local text models will fail loudly here.
-  vision_reader:   {endpoint: anthropic, model: claude-haiku-4-5-20251001,  max_turns: 6}
+  initializer:     {endpoint: anthropic, model: claude-opus-4-8,    max_turns: 16, max_wall_seconds: 600}
+  # worker: agentic-local is empirically closed on 16GB (LOCAL_SETUP_REPORT);
+  # stays Sonnet ONLY until pipeline mode (worker_pipeline.enabled) flips it
+  # local. Pipeline mode uses this same role for its one-shot sessions.
+  worker:          {endpoint: anthropic, model: claude-sonnet-4-6,  max_turns: 50, max_wall_seconds: 3600}
+  reader_subagent: {endpoint: local,     model: gpt-oss-20b-32k,    max_turns: 12, max_wall_seconds: 900}
+  # per-cycle evaluator: local (cheap gate; engine force-fails dishonest
+  # passes). The run can only END through final_evaluator below.
+  evaluator:       {endpoint: local,     model: gpt-oss-20b-32k,    max_turns: 24, max_wall_seconds: 1200}
+  # terminal conclusiveness gate — Opus, fires only when the per-cycle
+  # evaluator passes with zero open questions. Remove this role to fall back
+  # to single-tier evaluation.
+  final_evaluator: {endpoint: anthropic, model: claude-opus-4-8,    max_turns: 24, max_wall_seconds: 1200}
+  synthesizer:     {endpoint: anthropic, model: claude-opus-4-8,    max_turns: 40, max_wall_seconds: 1800}
+  # vision_reader must stay vision-capable; visual profile is outside the
+  # budget posture (kept Opus to honor only-Opus-cloud; rarely invoked).
+  vision_reader:   {endpoint: anthropic, model: claude-opus-4-8,    max_turns: 6,  max_wall_seconds: 600}
   # judge scores eval-set reports (evals/run_evals.py); fresh context, Opus.
-  judge:           {endpoint: anthropic, model: claude-opus-4-8,            max_turns: 8}
+  judge:           {endpoint: anthropic, model: claude-opus-4-8,    max_turns: 8,  max_wall_seconds: 900}
 
 # --- Per-session limits (enforced in sessions/base.py from Phase 2) ---------
 session:
   backend: sdk                   # real Agent SDK sessions; "stub" = Phase 1 plumbing
   max_budget_usd_per_session: 2.0
+  default_max_wall_seconds: 1800 # per-session hang ceiling (roles may override)
 
 # --- Stub session knobs (Phase 1 testing only) ------------------------------
 stub:

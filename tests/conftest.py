@@ -29,7 +29,8 @@ BASE_CONFIG: dict = {
         "judge": {"endpoint": "anthropic", "model": "claude-opus-4-8", "max_turns": 8},
         "synthesizer": {"endpoint": "anthropic", "model": "claude-opus-4-8", "max_turns": 40},
     },
-    "session": {"backend": "stub", "max_budget_usd_per_session": 2.0},
+    "session": {"backend": "stub", "max_budget_usd_per_session": 2.0,
+                "default_max_wall_seconds": 1800},
     "reader": {
         "max_page_chars": 24000,
         "max_failures_per_session": 6,

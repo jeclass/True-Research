@@ -43,11 +43,16 @@ class RoleCfg(_Frozen):
     endpoint: str
     model: str
     max_turns: int = Field(ge=1)
+    # Per-session wall ceiling; falls back to session.default_max_wall_seconds.
+    # A hung CLI transport must die loudly, never hang the loop (local report
+    # finding #1).
+    max_wall_seconds: float | None = Field(default=None, gt=0)
 
 
 class SessionCfg(_Frozen):
     backend: Literal["stub", "sdk"]
     max_budget_usd_per_session: float = Field(ge=0)
+    default_max_wall_seconds: float = Field(gt=0)
 
 
 class ReaderCfg(_Frozen):

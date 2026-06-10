@@ -36,5 +36,22 @@ class Ledger:
         self._entries.append(entry)
         self.checkpoint()
 
+    def record_provisional(self, entry: LedgerEntry) -> int:
+        """Append a provisional (reconciled=False) entry at session start and
+        return its index. A session that dies mid-flight leaves this entry
+        behind as visible evidence of unledgered billed spend."""
+        self._entries.append(entry)
+        self.checkpoint()
+        return len(self._entries) - 1
+
+    def reconcile(self, index: int, entry: LedgerEntry) -> None:
+        """Replace a provisional entry with the session's final accounting."""
+        self._entries[index] = entry
+        self.checkpoint()
+
+    @property
+    def unreconciled_count(self) -> int:
+        return sum(1 for e in self._entries if not e.reconciled)
+
     def checkpoint(self) -> None:
         self._run.write_text(self._filename, state.dump_ledger(LedgerFile(self._entries)))

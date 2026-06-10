@@ -162,6 +162,28 @@ def run_evaluator(run: Runspace, settings: Settings, cycle: int, ledger: Ledger)
     return _result(settings, "evaluator", "evaluator", started, "pass" if verdict.passed else "fail", ledger, cycle)
 
 
+def run_final_evaluator(run: Runspace, settings: Settings, cycle: int, ledger: Ledger) -> SessionResult:
+    """Stub terminal gate: passes iff nothing is unresolved (default-FAIL),
+    writing a cycle-<n>-final.md verdict like the real two-tier gate."""
+    started = time.monotonic()
+    time.sleep(settings.stub.sleep_seconds)
+    questions = run.load_questions()
+    unresolved = [q.id for q in questions.root if q.status != "resolved"]
+    verdict = Verdict(
+        passed=not unresolved,
+        unmet_criteria=[f"question {qid} not resolved" for qid in unresolved],
+        contradictions=[],
+        new_questions=[],
+        notes=f"STUB FINAL verdict for cycle {cycle}",
+    )
+    run.write_verdict(cycle, verdict, final=True)
+    run.log(
+        f"final gate (stub, cycle {cycle}): " + ("PASS" if verdict.passed else "FAIL")
+    )
+    return _result(settings, "evaluator", "final_evaluator", started,
+                   "final pass" if verdict.passed else "final fail", ledger, cycle)
+
+
 def run_synthesizer(run: Runspace, settings: Settings, cycle: int, ledger: Ledger) -> SessionResult:
     started = time.monotonic()
     time.sleep(settings.stub.sleep_seconds)

@@ -263,21 +263,30 @@ class Runspace:
             )
         return findings
 
-    def write_verdict(self, cycle: int, verdict: Verdict) -> None:
-        self.write_text(f"{VERDICTS_DIR}/cycle-{cycle}.md", state.dump_verdict(verdict))
+    def write_verdict(self, cycle: int, verdict: Verdict, final: bool = False) -> None:
+        suffix = "-final" if final else ""
+        self.write_text(
+            f"{VERDICTS_DIR}/cycle-{cycle}{suffix}.md", state.dump_verdict(verdict)
+        )
 
     def latest_verdict(self) -> Verdict | None:
-        best: tuple[int, Path] | None = None
+        """Newest verdict; at the same cycle a -final verdict (the terminal
+        Opus gate, two-tier evaluation) supersedes the per-cycle one."""
+        best: tuple[int, int, Path] | None = None
         for path in (self.root / VERDICTS_DIR).glob("cycle-*.md"):
+            stem = path.stem.removeprefix("cycle-")
+            is_final = 1 if stem.endswith("-final") else 0
+            if is_final:
+                stem = stem.removesuffix("-final")
             try:
-                n = int(path.stem.removeprefix("cycle-"))
+                n = int(stem)
             except ValueError as exc:
                 raise StateError(f"unexpected verdict filename: {path}") from exc
-            if best is None or n > best[0]:
-                best = (n, path)
+            if best is None or (n, is_final) > (best[0], best[1]):
+                best = (n, is_final, path)
         if best is None:
             return None
-        return state.parse_verdict(self._read(best[1]), label=str(best[1]))
+        return state.parse_verdict(self._read(best[2]), label=str(best[2]))
 
     def no_open_questions(self) -> bool:
         questions = self.load_questions()

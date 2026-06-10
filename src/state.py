@@ -95,6 +95,11 @@ class LedgerEntry(_Strict):
     cached_tokens: int = Field(ge=0)
     usd: float = Field(ge=0)
     wall_seconds: float = Field(ge=0)
+    # False => the session started but never returned a ResultMessage (died
+    # mid-flight / timed out). Token counts are then best-effort partials from
+    # the stream; first-party billed spend may be under-counted (bounded by
+    # the per-session budget + wall ceiling). Loud, not silent.
+    reconciled: bool = True
 
 
 class LedgerFile(RootModel[list[LedgerEntry]]):

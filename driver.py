@@ -135,6 +135,26 @@ def _drive(
             raise EvalError(f"evaluator finished cycle {cycle} without writing a verdict")
 
         if verdict.passed and run.no_open_questions():
+            # Two-tier evaluation (operator decision 2026-06-10): the run may
+            # only END through the final_evaluator gate when one is configured.
+            if "final_evaluator" in settings.roles and "final_evaluator" in backend:
+                tripped = _tripped_breaker(run, settings, ledger, cycle)
+                if tripped:
+                    return _finish(backend, run, settings, ledger, console, tripped)
+                _run_session(backend, "final_evaluator", run, settings, cycle, ledger, console)
+                final_verdict = run.latest_verdict()
+                if final_verdict is None:
+                    raise EvalError(
+                        f"final evaluator finished cycle {cycle} without a verdict"
+                    )
+                if final_verdict.passed and run.no_open_questions():
+                    run.complete_cycle(cycle, stalled=False)
+                    return _finish(backend, run, settings, ledger, console, "conclusive")
+                # Final gate rejected: its new questions are open now — the
+                # loop deepens. State changed, so this cycle is not a stall.
+                run.complete_cycle(cycle, stalled=False)
+                cycle += 1
+                continue
             run.complete_cycle(cycle, stalled=False)
             return _finish(backend, run, settings, ledger, console, "conclusive")
 

@@ -25,6 +25,7 @@ def get_backend(settings: Settings) -> Backend:
             "initializer": stub.run_initializer,
             "worker": stub.run_worker,
             "evaluator": stub.run_evaluator,
+            "final_evaluator": stub.run_final_evaluator,
             "synthesizer": stub.run_synthesizer,
         }
     if settings.session.backend == "sdk":
@@ -34,6 +35,7 @@ def get_backend(settings: Settings) -> Backend:
             "initializer": initializer.run,
             "worker": worker.run,
             "evaluator": evaluator.run,
+            "final_evaluator": evaluator.run_final,
             "synthesizer": synthesizer.run,
         }
     raise ConfigError(f"unknown session backend {settings.session.backend!r}")

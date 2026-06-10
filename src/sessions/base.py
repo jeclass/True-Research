@@ -257,7 +257,7 @@ async def run_role_session_async(
         mcp_servers=mcp_servers or {},
     )
 
-    from claude_agent_sdk import CLIConnectionError
+    from claude_agent_sdk import AssistantMessage, CLIConnectionError
     from tenacity import (
         AsyncRetrying,
         RetryError,
@@ -266,16 +266,85 @@ async def run_role_session_async(
         wait_exponential,
     )
 
+    wall_ceiling = role_cfg.max_wall_seconds or settings.session.default_max_wall_seconds
+
     async def _attempt() -> tuple[ResultMessage, dict[str, Any]]:
         started = time.monotonic()
         final: ResultMessage | None = None
-        try:
+        # Provisional entry FIRST (reconciled=False): if this session dies
+        # mid-flight or hangs past the wall ceiling, the ledger still shows it
+        # started — the local report's "unledgered mid-flight spend" finding.
+        provisional_index = ledger.record_provisional(
+            LedgerEntry(
+                cycle=cycle,
+                session_type=session_type,
+                model=role_cfg.model,
+                endpoint=role_cfg.endpoint,
+                input_tokens=0,
+                output_tokens=0,
+                cached_tokens=0,
+                usd=0.0,
+                wall_seconds=0.0,
+                reconciled=False,
+            )
+        )
+        # Best-effort partial usage from the stream (dedupe by message_id —
+        # parallel tool calls share ids), so a dead session's entry carries
+        # the tokens we SAW even though the final accounting never arrived.
+        partial: dict[str, dict[str, Any]] = {}
+
+        def _reconcile_partial(wall: float) -> None:
+            usage_sum = {
+                "input_tokens": sum(int(u.get("input_tokens") or 0) for u in partial.values()),
+                "output_tokens": sum(int(u.get("output_tokens") or 0) for u in partial.values()),
+                "cache_read_input_tokens": sum(
+                    int(u.get("cache_read_input_tokens") or 0) for u in partial.values()
+                ),
+                "cache_creation_input_tokens": sum(
+                    int(u.get("cache_creation_input_tokens") or 0) for u in partial.values()
+                ),
+            }
+            metrics = finalize_metrics(usage_sum, None, endpoint_cfg, wall)
+            ledger.reconcile(
+                provisional_index,
+                LedgerEntry(
+                    cycle=cycle,
+                    session_type=session_type,
+                    model=role_cfg.model,
+                    endpoint=role_cfg.endpoint,
+                    reconciled=False,  # stays visibly unreconciled: partial truth
+                    **metrics,
+                ),
+            )
+
+        async def _consume() -> None:
+            nonlocal final
             async for message in query(prompt=user_prompt, options=options):
+                if isinstance(message, AssistantMessage) and message.usage:
+                    partial[message.message_id or str(len(partial))] = message.usage
                 if isinstance(message, ResultMessage):
                     final = message
+
+        try:
+            await asyncio.wait_for(_consume(), timeout=wall_ceiling)
+        except asyncio.TimeoutError:
+            # The hang-forever failure mode (local report finding #1): a dead
+            # CLI transport never yields a result. Cancel kills the consume
+            # task (the SDK closes its transport on cancellation), account
+            # what we saw, retry fresh under the standard transient cap.
+            _reconcile_partial(time.monotonic() - started)
+            run.log(
+                f"{session_type} (cycle {cycle}): session exceeded wall ceiling "
+                f"{wall_ceiling:.0f}s — killed (partial usage ledgered, unreconciled)"
+            )
+            raise _TransientSpawnFailure(
+                f"session exceeded wall ceiling {wall_ceiling:.0f}s"
+            )
         except CLIConnectionError as exc:
+            _reconcile_partial(time.monotonic() - started)
             raise _TransientSpawnFailure(f"transport: {exc}") from exc
         except ClaudeSDKError as exc:
+            _reconcile_partial(time.monotonic() - started)
             raise error_cls(f"{session_type} session transport failure: {exc}") from exc
         except Exception as exc:
             # The SDK raises a BARE Exception (not a ClaudeSDKError) when the
@@ -286,22 +355,25 @@ async def run_role_session_async(
             # which it surfaces as a loud typed error. Never silent, never
             # infinite (§0). asyncio.CancelledError is a BaseException, so it
             # is not swallowed here.
+            _reconcile_partial(time.monotonic() - started)
             raise _TransientSpawnFailure(f"CLI error result: {exc}") from exc
         if final is None:
+            _reconcile_partial(time.monotonic() - started)
             raise _TransientSpawnFailure("session ended without a result message")
         wall = time.monotonic() - started
 
         metrics = finalize_metrics(final.usage, final.total_cost_usd, endpoint_cfg, wall)
-        # Record spend on EVERY attempt — a failed/retried session still
-        # burned tokens (SDK_NOTES: error results carry usage too).
-        ledger.record(
+        # Reconcile the provisional with the session's final accounting —
+        # success AND error results carry usage (SDK_NOTES).
+        ledger.reconcile(
+            provisional_index,
             LedgerEntry(
                 cycle=cycle,
                 session_type=session_type,
                 model=role_cfg.model,
                 endpoint=role_cfg.endpoint,
                 **metrics,
-            )
+            ),
         )
 
         if final.is_error or final.subtype != "success":

@@ -26,6 +26,7 @@ from src.settings import Settings
 from src.state import OpenQuestion, Verdict
 
 _ROLE = "evaluator"
+_FINAL_ROLE = "final_evaluator"
 _TOOLS = ["Read", "Glob", "Grep"]
 
 _SYSTEM_PROMPT = """\
@@ -103,12 +104,25 @@ class EvaluatorOutput(BaseModel):
     notes: str
 
 
-def build_system_prompt(profile) -> str:
-    """Stable per-run prompt: the default-FAIL gate + the profile's rubric."""
+_FINAL_GATE_ADDENDUM = """\
+
+# FINAL CONCLUSIVENESS GATE
+You are the TERMINAL gate. A cheaper per-cycle evaluator already passed this
+state; your pass ENDS the run and publishes the report. Re-verify its
+judgment from scratch with maximum scrutiny — especially traceability
+spot-checks and contradiction adjudications, where weaker evaluators are most
+charitable. If anything load-bearing is unproven, FAIL with the questions
+that would prove it. Do not rubber-stamp."""
+
+
+def build_system_prompt(profile, final: bool = False) -> str:
+    """Stable per-run prompt: the default-FAIL gate + the profile's rubric
+    (+ the terminal-gate addendum for the two-tier final pass)."""
     return (
         _SYSTEM_PROMPT
         + f"\n\n# Domain rubric (profile: {profile.name}) — additional demands\n"
         + profile.rubric()
+        + (_FINAL_GATE_ADDENDUM if final else "")
     )
 
 
@@ -200,6 +214,19 @@ def _apply_output(
 
 
 def run(run: Runspace, settings: Settings, cycle: int, ledger: Ledger) -> SessionResult:
+    return _run_tier(run, settings, cycle, ledger, role=_ROLE, final=False)
+
+
+def run_final(run: Runspace, settings: Settings, cycle: int, ledger: Ledger) -> SessionResult:
+    """Two-tier terminal gate (operator decision 2026-06-10): fires only when
+    the per-cycle evaluator passed with zero open questions; the run can only
+    END through this session's verdict."""
+    return _run_tier(run, settings, cycle, ledger, role=_FINAL_ROLE, final=True)
+
+
+def _run_tier(
+    run: Runspace, settings: Settings, cycle: int, ledger: Ledger, role: str, final: bool
+) -> SessionResult:
     profile = get_profile(run.meta.profile)
     spawn = run_role_session(
         run=run,
@@ -207,8 +234,8 @@ def run(run: Runspace, settings: Settings, cycle: int, ledger: Ledger) -> Sessio
         ledger=ledger,
         cycle=cycle,
         session_type="evaluator",
-        role=_ROLE,
-        system_prompt=build_system_prompt(profile),
+        role=role,
+        system_prompt=build_system_prompt(profile, final=final),
         user_prompt=_build_user_prompt(run, settings, ledger, cycle),
         tools=_TOOLS,
         output_model=EvaluatorOutput,
@@ -228,9 +255,10 @@ def run(run: Runspace, settings: Settings, cycle: int, ledger: Ledger) -> Sessio
         new_questions=[p.question for p in output.new_questions],
         notes=notes,
     )
-    run.write_verdict(cycle, verdict)
+    run.write_verdict(cycle, verdict, final=final)
     run.log(
-        f"evaluator (cycle {cycle}): {'PASS' if passed else 'FAIL'}"
+        f"{'FINAL gate' if final else 'evaluator'} (cycle {cycle}): "
+        f"{'PASS' if passed else 'FAIL'}"
         + (f", opened {', '.join(added_ids)}" if added_ids else "")
         + (f", closed {', '.join(closed_ids)}" if closed_ids else "")
         + (
@@ -241,7 +269,7 @@ def run(run: Runspace, settings: Settings, cycle: int, ledger: Ledger) -> Sessio
         )
     )
 
-    role_cfg = settings.roles[_ROLE]
+    role_cfg = settings.roles[role]
     return SessionResult(
         session_type="evaluator",
         model=role_cfg.model,
@@ -251,7 +279,7 @@ def run(run: Runspace, settings: Settings, cycle: int, ledger: Ledger) -> Sessio
         cached_tokens=spawn.cached_tokens,
         usd=spawn.usd,
         wall_seconds=spawn.wall_seconds,
-        summary=("PASS" if passed else "FAIL")
+        summary=("FINAL " if final else "") + ("PASS" if passed else "FAIL")
         + (f" +{len(added_ids)} opened" if added_ids else "")
         + (f" -{len(closed_ids)} closed" if closed_ids else "")
         + f" ({spawn.num_turns} turns)",
