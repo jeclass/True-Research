@@ -71,9 +71,15 @@ web) — see docs/SDK_NOTES.md "Host-broker auth override".
 ## Repo map
 
 - `driver.py` — the deterministic loop; zero prompts, zero model calls
+  (`--json-summary <path>` emits a machine-readable summary for orchestrators)
 - `src/sessions/` — the cognition: one module per session role + SDK wrapper
+- `src/profiles/` — the swappable domain profiles (tools + rubric + guidance)
+- `src/tools/` — connectors: academic search, SearXNG, page capture
 - `src/{settings,state,runspace,ledger}.py` — config, schemas, atomic run
-  state, cost accounting
+  state, cost accounting (per-endpoint pricing for paid third-party backends)
+- `evals/` — eval set + Opus judge + `run_evals.py` (bake-off model A/B)
+- `scripts/check_local_backend.py` — pre-flight for a local/hybrid endpoint
+- `docs/RUNBOOK.md` — machine-side setup, validation run, model bake-off
 - `docs/SDK_NOTES.md` — verified Agent SDK facts this build relies on
 - `docs/DECISIONS.md` — one line per non-obvious choice
-- `tests/` — pytest suite (`.venv/bin/python -m pytest tests/ -q`)
+- `tests/` — pytest suite, 86 passing (`.venv/bin/python -m pytest tests/ -q`)
