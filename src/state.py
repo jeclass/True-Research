@@ -130,6 +130,7 @@ class RunMeta(_Strict):
     last_cycle: int = Field(ge=0, default=0)
     stall_count: int = Field(ge=0, default=0)
     active_seconds: float = Field(ge=0, default=0.0)
+    final_eval_count: int = Field(ge=0, default=0)
 
 
 # --- (de)serialization helpers ---------------------------------------------------

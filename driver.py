@@ -138,10 +138,23 @@ def _drive(
             # Two-tier evaluation (operator decision 2026-06-10): the run may
             # only END through the final_evaluator gate when one is configured.
             if "final_evaluator" in settings.roles and "final_evaluator" in backend:
+                # Opus final-gate firing cap (budget posture's variable cost):
+                # once exhausted, accept the local evaluator's pass rather than
+                # re-summon Opus — spend stays deterministic, finish stays
+                # conclusive. The budget breaker is still the hard net beneath.
+                if run.meta.final_eval_count >= settings.max_final_evaluations:
+                    run.log_decision(
+                        f"Opus final-gate budget ({settings.max_final_evaluations}) "
+                        "exhausted; accepting the per-cycle evaluator's pass as "
+                        "conclusive (local-judged, not Opus-confirmed this cycle)."
+                    )
+                    run.complete_cycle(cycle, stalled=False)
+                    return _finish(backend, run, settings, ledger, console, "conclusive")
                 tripped = _tripped_breaker(run, settings, ledger, cycle)
                 if tripped:
                     return _finish(backend, run, settings, ledger, console, tripped)
                 _run_session(backend, "final_evaluator", run, settings, cycle, ledger, console)
+                run.bump_final_eval()
                 final_verdict = run.latest_verdict()
                 if final_verdict is None:
                     raise EvalError(

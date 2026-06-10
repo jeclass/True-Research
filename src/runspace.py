@@ -210,6 +210,14 @@ class Runspace:
     def last_cycle(self) -> int:
         return self.meta.last_cycle
 
+    def bump_final_eval(self) -> int:
+        """Count an Opus final-gate firing (persisted; resume-safe)."""
+        self.meta = self.meta.model_copy(
+            update={"final_eval_count": self.meta.final_eval_count + 1}
+        )
+        self._persist_meta()
+        return self.meta.final_eval_count
+
     def complete_cycle(self, cycle: int, stalled: bool) -> int:
         """Persist end-of-cycle bookkeeping atomically; returns stall count."""
         stall_count = self.meta.stall_count + 1 if stalled else 0

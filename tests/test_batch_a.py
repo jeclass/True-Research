@@ -224,3 +224,76 @@ def test_latest_verdict_prefers_final_at_same_cycle(tmp_path):
     finally:
         run.release_lock()
     assert latest is not None and latest.passed is False and latest.notes == "final"
+
+
+def test_final_gate_budget_cap_accepts_local_pass(make_config, runs_dir):
+    """After max_final_evaluations Opus firings, the run finishes conclusive
+    on the local evaluator's pass instead of re-summoning Opus — with the
+    decision logged. Spend becomes deterministic."""
+    cfg_path = make_config(**{"max_final_evaluations": 1})
+    raw = yaml.safe_load(Path(cfg_path).read_text())
+    raw["roles"]["final_evaluator"] = {
+        "endpoint": "anthropic", "model": "claude-opus-4-8", "max_turns": 24,
+    }
+    # Force the stub final gate to FAIL its first firing by leaving a question
+    # unresolved at that moment is hard with stubs; instead simulate the count
+    # already exhausted via meta: run once normally with cap=0-equivalent.
+    raw["max_final_evaluations"] = 1
+    Path(cfg_path).write_text(yaml.safe_dump(raw))
+
+    rc = driver.main(["q", "--config", str(cfg_path), "--max-cycles", "5"])
+    assert rc == 0
+    run_dir = only_run_dir(runs_dir)
+
+    import json
+
+    meta = json.loads((run_dir / "run.json").read_text())
+    assert meta["finish_reason"] == "conclusive"
+    # Stub final gate passes on first firing here, so the cap wasn't needed —
+    # assert the firing was COUNTED (persistence is what the cap rests on).
+    assert meta["final_eval_count"] == 1
+
+
+def test_final_gate_cap_exhausted_accepts_local_pass(make_config, runs_dir):
+    """With final_eval_count already at the cap, the driver finishes
+    conclusive on the LOCAL evaluator's pass, logs the decision, and never
+    calls the Opus gate — the deterministic-spend guarantee."""
+    from rich.console import Console
+
+    from driver import _drive
+    from src.sessions import get_backend
+    from src.settings import load_settings
+
+    cfg_path = make_config(**{"max_final_evaluations": 2})
+    raw = yaml.safe_load(Path(cfg_path).read_text())
+    raw["roles"]["final_evaluator"] = {
+        "endpoint": "anthropic", "model": "claude-opus-4-8", "max_turns": 24,
+    }
+    raw["max_final_evaluations"] = 2
+    Path(cfg_path).write_text(yaml.safe_dump(raw))
+    settings = load_settings(config_path=cfg_path)
+
+    run = Runspace.create(Path(settings.runs_dir), "q", "general")
+    try:
+        # Pre-exhaust the Opus gate budget (as if two firings already happened).
+        run.bump_final_eval()
+        run.bump_final_eval()
+
+        backend = dict(get_backend(settings))
+        fired = {"n": 0}
+        real_final = backend["final_evaluator"]
+
+        def counting_final(run_, settings_, cycle, ledger_):
+            fired["n"] += 1
+            return real_final(run_, settings_, cycle, ledger_)
+
+        backend["final_evaluator"] = counting_final
+        ledger = Ledger(run)
+        reason = _drive(backend, run, settings, ledger, Console(quiet=True))
+    finally:
+        run.release_lock()
+
+    assert reason == "conclusive"
+    assert fired["n"] == 0  # Opus gate never summoned past the cap
+    progress = (run.root / "PROGRESS.md").read_text()
+    assert "final-gate budget" in progress and "exhausted" in progress

@@ -103,6 +103,10 @@ class Settings(_Frozen):
     max_wall_hours: float = Field(gt=0)
     max_cycles: int = Field(ge=1)
     stall_cycles: int = Field(ge=1)
+    # Opus final-gate firings allowed per run; the dominant variable cost in
+    # the budget posture. After this many, the run accepts the local
+    # evaluator's pass (logged) rather than summoning Opus again.
+    max_final_evaluations: int = Field(ge=1)
     profiles: list[str] = Field(min_length=1)
     default_profile: str
     endpoints: dict[str, EndpointCfg] = Field(min_length=1)

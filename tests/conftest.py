@@ -11,6 +11,7 @@ BASE_CONFIG: dict = {
     "max_wall_hours": 6.0,
     "max_cycles": 40,
     "stall_cycles": 2,
+    "max_final_evaluations": 4,
     "profiles": ["general", "scientific", "visual"],
     "default_profile": "general",
     "endpoints": {

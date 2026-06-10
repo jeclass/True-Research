@@ -5,9 +5,13 @@
 runs_dir: runs
 
 # --- Global circuit breakers (CLAUDE.md §3.4) -------------------------------
-max_budget_usd: 10.0      # driver halts cleanly when ledger spend reaches this
+max_budget_usd: 2.0       # HARD net (operator bar: $1-2 per multi-hour run);
+                          # checked before every session — cannot be exceeded
 max_wall_hours: 6.0       # accumulated *active* driver hours (survives resume)
 max_cycles: 40            # worker+evaluator cycles before forced halt
+max_final_evaluations: 4  # Opus final-gate firings/run (budget posture's main
+                          # variable cost): after this many, accept the local
+                          # evaluator's pass rather than re-summon Opus.
 
 # --- Stall detection (CLAUDE.md §3.5) ---------------------------------------
 stall_cycles: 2           # consecutive cycles with no state delta => halt
