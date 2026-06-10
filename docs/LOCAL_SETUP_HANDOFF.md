@@ -15,13 +15,18 @@ development task.**
 2. **No silent fallbacks.** If a step fails, report the error and stop that
    track. The engine's own checks are the acceptance gates — do not work
    around a failing gate.
-3. **Verify, don't assume model tags.** The operator wants to test
-   **Qwen 3.5 9B** (for BOTH the reader and worker roles, same card) and
-   **Gemma 4 12B**, plus the already-validated baseline `gpt-oss:20b`.
+3. **Verify, don't assume model tags.** The operator's candidates:
+   **Qwen 3.5 4B** as the small/quick READER model, and **Gemma 4 12B** +
+   `gpt-oss:20b` as WORKER candidates (also bake them off as readers for
+   comparison). Reader and worker co-reside on the one 16GB card — a 4B
+   reader (~2.5-3GB q4) plus a 12-20B worker is the intended pairing.
    These model families are newer than the docs in this repo — resolve the
    exact Ollama registry tags yourself (`ollama search qwen3.5`,
    `ollama search gemma4`, or https://ollama.com/library) and prefer
    instruct-tuned q4_K_M-class quants. Record the exact tags you used.
+   Expectation to carry into the bake-off: 4B in the WORKER role will likely
+   fail the JSON/orchestration gates — run the leg anyway and record the
+   result; the reader role is where 4B is expected to shine.
 4. Read `docs/RUNBOOK.md` first — it is the human-oriented version of this
    plan with extra context. `docs/SDK_NOTES.md` → "Host-broker auth override"
    explains why step 3's auth check exists.
@@ -54,18 +59,20 @@ OLLAMA_HOST=0.0.0.0:11434     # only if the driver runs on another machine
 OLLAMA_KV_CACHE_TYPE=q8_0     # halves KV memory; needed for 2 models + 32k ctx
 ```
 
-VRAM budget on 16GB: two ~9B q4 models ≈ 11–13GB weights + KV caches. If
-`ollama ps` shows either model split CPU/GPU, drop `OLLAMA_NUM_PARALLEL` to 2,
-then 1, before dropping `OLLAMA_MAX_LOADED_MODELS` to 1 (eviction between
-reader/worker calls costs seconds per swap but works). Gemma 4 12B + a 9B
-resident together likely will NOT both fit — test it solo first.
+VRAM budget on 16GB with a 4B reader resident (~2.5-3GB q4 + KV):
+- + Gemma 4 12B worker (~7-8GB q4): comfortable; `OLLAMA_NUM_PARALLEL=4` is
+  affordable for faster reader fan-out.
+- + gpt-oss:20b worker (~13GB MoE): tight — keep `OLLAMA_NUM_PARALLEL=2-3`
+  and q8 KV; if `ollama ps` shows CPU/GPU split, drop parallelism first,
+  then `OLLAMA_MAX_LOADED_MODELS=1` (eviction between reader/worker calls
+  costs seconds per swap but works).
 
 Pull the candidates (exact tags per your step-0 verification):
 
 ```bash
-ollama pull <qwen3.5-9b-instruct-tag>
-ollama pull <gemma4-12b-instruct-tag>
-ollama pull gpt-oss:20b                    # known-good baseline candidate
+ollama pull <qwen3.5-4b-instruct-tag>      # the reader model
+ollama pull <gemma4-12b-instruct-tag>      # worker candidate
+ollama pull gpt-oss:20b                    # worker candidate / known-good baseline
 ```
 
 ## Step 2 — per-model pre-flight (the acceptance gate)
@@ -139,13 +146,15 @@ output dir per leg:
 ```bash
 B=.venv/bin/python
 $B evals/run_evals.py --subset quick --max-wall-hours 1 --out evals/results/baseline
-$B evals/run_evals.py --subset quick --reader-endpoint local --reader-model <qwen3.5-9b> --out evals/results/reader-qwen35
+$B evals/run_evals.py --subset quick --reader-endpoint local --reader-model <qwen3.5-4b> --out evals/results/reader-qwen35-4b
 $B evals/run_evals.py --subset quick --reader-endpoint local --reader-model <gemma4-12b>  --out evals/results/reader-gemma4
 $B evals/run_evals.py --subset quick --reader-endpoint local --reader-model gpt-oss:20b   --out evals/results/reader-gptoss
 # worker legs (needs step 4; reader pinned to the step-3 winner):
 $B evals/run_evals.py --subset quick --worker-model claude-haiku-4-5 --out evals/results/worker-haiku
-$B evals/run_evals.py --subset quick --worker-endpoint local --worker-model <qwen3.5-9b> --out evals/results/worker-qwen35
+$B evals/run_evals.py --subset quick --worker-endpoint local --worker-model <gemma4-12b> --out evals/results/worker-gemma4
 $B evals/run_evals.py --subset quick --worker-endpoint local --worker-model gpt-oss:20b  --out evals/results/worker-gptoss
+# expected-to-fail leg, run it anyway and record the outcome:
+$B evals/run_evals.py --subset quick --worker-endpoint local --worker-model <qwen3.5-4b> --out evals/results/worker-qwen35-4b
 ```
 
 Expect worker-local legs to be slower and to FAIL more evaluator cycles —
