@@ -32,6 +32,7 @@ from src.sessions.base import (
     SessionError,
     SessionResult,
     WorkerError,
+    parse_prompted_json,
     run_role_session_async,
 )
 from src.sessions.worker import (
@@ -78,14 +79,73 @@ outcome:
 - "blocked"    — the summaries cannot support an answer; say why in
   blocked_reason. Do NOT fabricate.
 
-finding.confidence: 0.0-1.0. progress_note: one line for the run log.
-Respond ONLY via the enforced JSON schema."""
+# Response format (MANDATORY — two parts)
+Part 1: a SMALL json object (in a ```json fence) with EXACTLY these fields:
+```json
+{"outcome": "resolved", "confidence": 0.85, "child_questions": [],
+ "blocked_reason": "", "progress_note": "one line for the run log"}
+```
+confidence: 0.0-1.0, required when outcome is "resolved".
+child_questions entries: {"question": "...", "priority": 1-5}.
+
+Part 2 (ONLY when outcome is "resolved"): on its own line write exactly
+---FINDING---
+then the finding body as plain markdown — NOT inside JSON, no escaping.
+Every factual sentence ends with [src-id] citations from the menu.
+When outcome is "fragmented" or "blocked", stop after Part 1."""
 
 
 class QueryGenOutput(BaseModel):
     model_config = ConfigDict(extra="forbid")
     queries: list[str]
     notes: str
+
+
+class ComposeHeader(BaseModel):
+    """Part 1 of the two-part compose format: small JSON, no long strings.
+    The finding body travels OUTSIDE the JSON (after ---FINDING---) because
+    multi-paragraph markdown inside a JSON string is the dominant local-model
+    parse-failure cause (observed: 3 consecutive escape/truncation failures
+    on one compose, smoke4 2026-06-10)."""
+
+    model_config = ConfigDict(extra="forbid")
+    outcome: Literal["resolved", "fragmented", "blocked"]
+    confidence: float | None = None
+    child_questions: list[ChildQuestion] = []
+    blocked_reason: str = ""
+    progress_note: str
+
+
+_FINDING_SENTINEL = "---FINDING---"
+
+
+def parse_compose_output(text: str) -> "ComposeOutput":
+    """Split the two-part compose reply and build a validated ComposeOutput.
+    Raises ValueError on any defect so the single-shot retry net rerolls."""
+    head, sep, body = text.partition(_FINDING_SENTINEL)
+    header = parse_prompted_json(head, ComposeHeader)
+    body = body.strip()
+    finding = None
+    if header.outcome == "resolved":
+        if not body:
+            raise ValueError(
+                "prompted-JSON parse failed: outcome=resolved but no "
+                f"{_FINDING_SENTINEL} body section"
+            )
+        if header.confidence is None:
+            raise ValueError(
+                "prompted-JSON parse failed: outcome=resolved requires confidence"
+            )
+        finding = ProposedFinding(
+            body_markdown=body, confidence=header.confidence
+        )
+    return ComposeOutput(
+        outcome=header.outcome,
+        finding=finding,
+        child_questions=header.child_questions,
+        blocked_reason=header.blocked_reason,
+        progress_note=header.progress_note,
+    )
 
 
 class ComposeOutput(BaseModel):
@@ -111,12 +171,14 @@ class ComposeOutput(BaseModel):
         return data
 
 
-async def _single_shot_with_retry(what: str, **session_kwargs):
+async def _single_shot_with_retry(what: str, postprocess=None, **session_kwargs):
     """Query-gen and compose are stateless one-shot calls — a malformed-JSON
     or schema-validation failure is a reroll, not a state hazard (observed:
     qwen3.5-9b-32k truncating mid-string, smoke 2026-06-10). Retry within the
     engine's standard transient policy, loudly; transport/timeout errors are
-    handled in base.py and propagate unchanged."""
+    handled in base.py and propagate unchanged. `postprocess(spawn)` runs
+    inside the net: a ValueError from it (e.g. two-part compose parsing) is
+    retryable like any other parse defect."""
     run: Runspace = session_kwargs["run"]
     settings: Settings = session_kwargs["settings"]
     cycle: int = session_kwargs["cycle"]
@@ -124,17 +186,20 @@ async def _single_shot_with_retry(what: str, **session_kwargs):
     last: SessionError | None = None
     for attempt in range(1, attempts + 1):
         try:
-            return await run_role_session_async(**session_kwargs)
+            spawn = await run_role_session_async(**session_kwargs)
+            return postprocess(spawn) if postprocess else spawn
+        except ValueError as exc:
+            last = WorkerError(f"pipeline {what}: {exc}")
         except SessionError as exc:
             msg = str(exc)
             if "parseable JSON" not in msg and "failed validation" not in msg:
                 raise
             last = exc
-            if attempt < attempts:
-                run.log(
-                    f"pipeline {what} (cycle {cycle}): output parse failed "
-                    f"(attempt {attempt}/{attempts}); retrying single-shot call"
-                )
+        if attempt < attempts:
+            run.log(
+                f"pipeline {what} (cycle {cycle}): output parse failed "
+                f"(attempt {attempt}/{attempts}); retrying single-shot call"
+            )
     raise last
 
 
@@ -423,14 +488,14 @@ async def _run_pipeline_async(
         + "\n\n# Reader summaries (your only admissible material)\n\n"
         + "\n\n".join(menu_lines)
     )
-    compose_spawn = await _single_shot_with_retry(
+    compose_spawn, output = await _single_shot_with_retry(
         "compose",
+        postprocess=lambda sp: (sp, parse_compose_output(sp.result_text)),
         run=run, settings=settings, ledger=ledger, cycle=cycle,
         session_type="worker", role=_ROLE,
         system_prompt=_COMPOSE_SYSTEM, user_prompt=compose_prompt,
-        tools=[], output_model=ComposeOutput,
+        tools=[], output_model=None,
     )
-    output: ComposeOutput = compose_spawn.structured
 
     # --- step 7: existing apply gates, unchanged semantics --------------------------
     if output.outcome == "resolved":

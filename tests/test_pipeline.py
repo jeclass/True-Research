@@ -207,13 +207,12 @@ def test_pipeline_happy_path_resolves_with_engine_sources(run_env, monkeypatch):
         sessions["n"] += 1
         if kwargs["output_model"] is pipeline.QueryGenOutput:
             return FakeSpawn(pipeline.QueryGenOutput(queries=["q one", "q two"], notes="n"))
-        # compose: cite the first menu id verbatim from the prompt
+        # compose: two-part text format, citing the first menu id verbatim
         menu_id = kwargs["user_prompt"].split("[", 1)[1].split("]", 1)[0]
-        return FakeSpawn(pipeline.ComposeOutput(
-            outcome="resolved",
-            finding=pipeline.ProposedFinding(
-                body_markdown=f"A composed claim. [{menu_id}]", confidence=0.8),
-            progress_note="composed",
+        return FakeSpawn(None, result_text=(
+            '{"outcome": "resolved", "confidence": 0.8, "child_questions": [],'
+            ' "blocked_reason": "", "progress_note": "composed"}\n'
+            f"---FINDING---\nA composed claim. [{menu_id}]"
         ))
 
     async def fake_read(*, url, **kwargs):
@@ -266,11 +265,10 @@ def test_pipeline_compose_citing_off_menu_id_fails_loudly(run_env, monkeypatch):
     async def fake_session(**kwargs):
         if kwargs["output_model"] is pipeline.QueryGenOutput:
             return FakeSpawn(pipeline.QueryGenOutput(queries=["q"], notes="n"))
-        return FakeSpawn(pipeline.ComposeOutput(
-            outcome="resolved",
-            finding=pipeline.ProposedFinding(
-                body_markdown="Claim. [src-invented-id]", confidence=0.9),
-            progress_note="bad",
+        return FakeSpawn(None, result_text=(
+            '{"outcome": "resolved", "confidence": 0.9, "child_questions": [],'
+            ' "blocked_reason": "", "progress_note": "bad"}\n'
+            "---FINDING---\nClaim. [src-invented-id]"
         ))
 
     async def fake_read(*, url, **kwargs):
@@ -453,3 +451,50 @@ def test_engine_sources_reuse_id_for_registered_url():
         [("https://www.geotab.com/blog/ev-battery-health/", out)], reg
     )
     assert built[0]["id"] == "src-geotab-ev"
+
+
+def test_parse_compose_two_part_resolved_with_hostile_body():
+    # The killer case that motivated the format: markdown bodies full of
+    # braces, quotes, and newlines must not touch any JSON string.
+    text = (
+        "```json\n"
+        '{"outcome": "resolved", "confidence": 0.8, "child_questions": [],\n'
+        ' "blocked_reason": "", "progress_note": "synthesized"}\n'
+        "```\n"
+        "---FINDING---\n"
+        'Degradation is ~1.8%/yr [src-a]. The study notes {"raw": "json"} and\n'
+        "unbalanced } braces { plus \"quotes\" everywhere [src-b].\n"
+    )
+    out = pipeline.parse_compose_output(text)
+    assert out.outcome == "resolved"
+    assert out.finding.confidence == 0.8
+    assert "unbalanced } braces {" in out.finding.body_markdown
+    assert out.progress_note == "synthesized"
+
+
+def test_parse_compose_blocked_needs_no_body():
+    text = (
+        '{"outcome": "blocked", "child_questions": [], '
+        '"blocked_reason": "summaries insufficient", "progress_note": "n"}'
+    )
+    out = pipeline.parse_compose_output(text)
+    assert out.outcome == "blocked"
+    assert out.finding is None
+
+
+def test_parse_compose_resolved_without_body_raises():
+    text = (
+        '{"outcome": "resolved", "confidence": 0.9, "child_questions": [], '
+        '"blocked_reason": "", "progress_note": "n"}'
+    )
+    with pytest.raises(ValueError):
+        pipeline.parse_compose_output(text)
+
+
+def test_parse_compose_resolved_without_confidence_raises():
+    text = (
+        '{"outcome": "resolved", "child_questions": [], "blocked_reason": "", '
+        '"progress_note": "n"}\n---FINDING---\nBody [src-a].'
+    )
+    with pytest.raises(ValueError):
+        pipeline.parse_compose_output(text)
