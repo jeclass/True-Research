@@ -527,3 +527,23 @@ def test_parse_compose_blocked_without_progress_note_derives_one():
     out = pipeline.parse_compose_output(text)
     assert out.outcome == "blocked"
     assert "thin sources" in out.progress_note
+
+
+def test_parse_compose_rejects_off_menu_citations_for_reroll():
+    # Observed smoke10 2026-06-10: a wholly hallucinated id (ceramic kilns in
+    # an EV question) passed parsing and died at apply, outside the reroll
+    # net. Menu validation now happens inside the retried parse.
+    text = (
+        '{"outcome": "resolved", "confidence": 0.8, "child_questions": [], '
+        '"blocked_reason": "", "progress_note": "n"}\n'
+        "---FINDING---\nClaim [src-real]. Fabricated claim [src-invented]."
+    )
+    with pytest.raises(ValueError, match="src-invented"):
+        pipeline.parse_compose_output(text, {"src-real"})
+    out = pipeline.parse_compose_output(
+        '{"outcome": "resolved", "confidence": 0.8, "child_questions": [], '
+        '"blocked_reason": "", "progress_note": "n"}\n'
+        "---FINDING---\nClaim [src-real].",
+        {"src-real"},
+    )
+    assert out.finding is not None

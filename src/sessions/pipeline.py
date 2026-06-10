@@ -121,9 +121,15 @@ class ComposeHeader(BaseModel):
 _FINDING_SENTINEL = "---FINDING---"
 
 
-def parse_compose_output(text: str) -> "ComposeOutput":
+def parse_compose_output(
+    text: str, valid_ids: set[str] | None = None
+) -> "ComposeOutput":
     """Split the two-part compose reply and build a validated ComposeOutput.
-    Raises ValueError on any defect so the single-shot retry net rerolls."""
+    Raises ValueError on any defect so the single-shot retry net rerolls —
+    including citations outside `valid_ids` (hallucinated source ids are a
+    bad roll like any other; observed smoke10 2026-06-10: a ceramic-kiln id
+    invented inside an EV-battery finding). The apply-phase registry check
+    remains as the final defense."""
     head, sep, body = text.partition(_FINDING_SENTINEL)
     header = parse_prompted_json(head, ComposeHeader)
     if not header.progress_note.strip():
@@ -148,6 +154,14 @@ def parse_compose_output(text: str) -> "ComposeOutput":
         finding = ProposedFinding(
             body_markdown=body, confidence=header.confidence
         )
+        if valid_ids is not None:
+            cited = set(common.CITATION_RE.findall(body))
+            off_menu = sorted(cited - valid_ids)
+            if off_menu:
+                raise ValueError(
+                    f"prompted-JSON parse failed: finding cites ids outside "
+                    f"the menu {off_menu}"
+                )
     return ComposeOutput(
         outcome=header.outcome,
         finding=finding,
@@ -526,7 +540,12 @@ async def _run_pipeline_async(
     )
     compose_spawn, output = await _single_shot_with_retry(
         "compose",
-        postprocess=lambda sp: (sp, parse_compose_output(sp.result_text)),
+        postprocess=lambda sp: (
+            sp,
+            parse_compose_output(
+                sp.result_text, {s["id"] for s in engine_sources}
+            ),
+        ),
         run=run, settings=settings, ledger=ledger, cycle=cycle,
         session_type="worker", role=_ROLE,
         system_prompt=_COMPOSE_SYSTEM, user_prompt=compose_prompt,
