@@ -309,3 +309,34 @@ def test_worker_run_branches_to_pipeline_when_enabled(run_env, monkeypatch):
     assert called["target"] == "q-001" and result.summary == "pipeline ran"
     # selection marked it in_progress before the pipeline took over
     assert run.load_questions().get("q-001").status == "in_progress"
+
+
+def test_compose_output_migrates_progress_note_nested_in_finding():
+    # Observed on qwen3.5-9b-32k (smoke 2026-06-10): valid content, but
+    # progress_note nested inside finding instead of top-level.
+    out = pipeline.ComposeOutput.model_validate(
+        {
+            "outcome": "resolved",
+            "finding": {
+                "body_markdown": "Degradation is ~1.8%/yr [src-a].",
+                "confidence": 0.8,
+                "progress_note": "Synthesized capacity degradation finding.",
+            },
+            "blocked_reason": "",
+        }
+    )
+    assert out.progress_note == "Synthesized capacity degradation finding."
+    assert out.finding is not None
+    assert out.finding.body_markdown.startswith("Degradation")
+
+
+def test_compose_output_does_not_clobber_existing_top_level():
+    out = pipeline.ComposeOutput.model_validate(
+        {
+            "outcome": "blocked",
+            "finding": None,
+            "blocked_reason": "summaries insufficient",
+            "progress_note": "top-level wins",
+        }
+    )
+    assert out.progress_note == "top-level wins"

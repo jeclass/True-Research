@@ -21,7 +21,7 @@ import re
 from typing import Any, Literal
 from urllib.parse import urlparse
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, model_validator
 
 from src.errors import ConfigError
 from src.ledger import Ledger
@@ -95,6 +95,20 @@ class ComposeOutput(BaseModel):
     child_questions: list[ChildQuestion] = []
     blocked_reason: str = ""
     progress_note: str
+
+    @model_validator(mode="before")
+    @classmethod
+    def _migrate_misplaced_fields(cls, data):
+        # Single-shot local models sometimes nest top-level fields inside
+        # `finding` (observed: progress_note, smoke 2026-06-10). Migrate the
+        # known fields out rather than fail the run on placement trivia; the
+        # content itself is untouched and still strictly validated.
+        if isinstance(data, dict) and isinstance(data.get("finding"), dict):
+            nested = data["finding"]
+            for key in ("progress_note", "outcome", "blocked_reason"):
+                if key in nested and key not in data:
+                    data[key] = nested.pop(key)
+        return data
 
 
 def _domain(url: str) -> str:
