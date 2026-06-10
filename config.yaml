@@ -36,6 +36,9 @@ roles:
   reader_subagent: {endpoint: anthropic, model: claude-haiku-4-5-20251001,  max_turns: 12}
   evaluator:       {endpoint: anthropic, model: claude-opus-4-8,            max_turns: 24}
   synthesizer:     {endpoint: anthropic, model: claude-opus-4-8,            max_turns: 40}
+  # vision_reader analyzes page captures (visual profile). Must stay on a
+  # vision-capable model; local text models will fail loudly here.
+  vision_reader:   {endpoint: anthropic, model: claude-haiku-4-5-20251001,  max_turns: 6}
 
 # --- Per-session limits (enforced in sessions/base.py from Phase 2) ---------
 session:
@@ -62,3 +65,10 @@ reader:
                                  # read in a prior cycle). Set false ONLY in
                                  # no-egress environments — logs a loud
                                  # DECISION that findings rest on unread sources.
+
+# --- MCP search fallback (§1 local-mode constraint) ---------------------------
+# WebSearch is Anthropic-hosted; a worker routed to a non-first-party endpoint
+# loses it. Point this at a SearXNG instance to restore web search there.
+search:
+  searxng_base_url: null         # e.g. http://localhost:8888
+  max_results: 8

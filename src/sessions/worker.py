@@ -19,6 +19,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict
 
 from src.ledger import Ledger
+from src.profiles import WorkerToolContext, get_profile
 from src.runspace import PLAN_FILE, Runspace
 from src.sessions import common, reader
 from src.sessions.base import (
@@ -31,7 +32,6 @@ from src.settings import Settings
 from src.state import FindingMeta, OpenQuestion
 
 _ROLE = "worker"
-_TOOLS = ["WebSearch", "Read", "Glob", "Grep"]
 _READ_TOOL = "mcp__reader__read_source"
 
 _SYSTEM_PROMPT = """\
@@ -39,8 +39,8 @@ You are a WORKER session of an autonomous research engine. You investigate
 exactly ONE assigned open question per session — never any other question.
 
 Method:
-1. Use WebSearch to find candidate sources for the assigned question. Prefer
-   primary/authoritative sources.
+1. Use the available search tools to find candidate sources for the assigned
+   question. Prefer primary/authoritative sources.
 2. For each promising URL, call read_source(url, why). A separate reader
    agent fetches and digests the page and returns a compressed summary plus
    metadata (title, kind, credibility, notes). Issue several read_source
@@ -110,6 +110,15 @@ class WorkerOutput(BaseModel):
     child_questions: list[ChildQuestion] = []
     blocked_reason: str = ""
     progress_note: str
+
+
+def build_system_prompt(profile) -> str:
+    """Stable per-run prompt: engine method + the profile's domain guidance."""
+    return (
+        _SYSTEM_PROMPT
+        + f"\n\n# Domain guidance (profile: {profile.name})\n"
+        + profile.worker_guidance()
+    )
 
 
 def _build_user_prompt(run: Runspace, target: OpenQuestion) -> str:
@@ -228,6 +237,15 @@ def run(run: Runspace, settings: Settings, cycle: int, ledger: Ledger) -> Sessio
         run, settings, ledger, cycle, target, stats, read_urls
     )
 
+    # Profile = domain tool set + worker guidance (§7). The reader is engine-
+    # owned and attached for every profile.
+    profile = get_profile(run.meta.profile)
+    ctx = WorkerToolContext(
+        run=run, settings=settings, ledger=ledger, cycle=cycle,
+        target=target, stats=stats, read_urls=read_urls,
+    )
+    toolset = profile.worker_toolset(ctx)
+
     spawn = run_role_session(
         run=run,
         settings=settings,
@@ -235,12 +253,12 @@ def run(run: Runspace, settings: Settings, cycle: int, ledger: Ledger) -> Sessio
         cycle=cycle,
         session_type="worker",
         role=_ROLE,
-        system_prompt=_SYSTEM_PROMPT,
+        system_prompt=build_system_prompt(profile),
         user_prompt=_build_user_prompt(run, target),
-        tools=_TOOLS,
+        tools=toolset.builtin,
         output_model=WorkerOutput,
-        mcp_servers={"reader": reader_server},
-        extra_allowed_tools=[_READ_TOOL],
+        mcp_servers={"reader": reader_server, **toolset.mcp_servers},
+        extra_allowed_tools=[_READ_TOOL] + toolset.extra_allowed,
     )
     output: WorkerOutput = spawn.structured
 

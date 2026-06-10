@@ -35,6 +35,7 @@ BASE_CONFIG: dict = {
         "fetch_timeout_seconds": 30,
         "require_reads": True,
     },
+    "search": {"searxng_base_url": None, "max_results": 8},
     "stub": {
         "seed_questions": 3,
         "worker_no_delta": False,

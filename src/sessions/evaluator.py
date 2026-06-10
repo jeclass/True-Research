@@ -18,6 +18,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict
 
 from src.ledger import Ledger
+from src.profiles import get_profile
 from src.runspace import PLAN_FILE, Runspace
 from src.sessions import common
 from src.sessions.base import EvalError, SessionResult, run_role_session
@@ -100,6 +101,15 @@ class EvaluatorOutput(BaseModel):
     new_questions: list[ProposedQuestion]
     close_questions: list[CloseQuestion]
     notes: str
+
+
+def build_system_prompt(profile) -> str:
+    """Stable per-run prompt: the default-FAIL gate + the profile's rubric."""
+    return (
+        _SYSTEM_PROMPT
+        + f"\n\n# Domain rubric (profile: {profile.name}) — additional demands\n"
+        + profile.rubric()
+    )
 
 
 def _budget_status(
@@ -190,6 +200,7 @@ def _apply_output(
 
 
 def run(run: Runspace, settings: Settings, cycle: int, ledger: Ledger) -> SessionResult:
+    profile = get_profile(run.meta.profile)
     spawn = run_role_session(
         run=run,
         settings=settings,
@@ -197,7 +208,7 @@ def run(run: Runspace, settings: Settings, cycle: int, ledger: Ledger) -> Sessio
         cycle=cycle,
         session_type="evaluator",
         role=_ROLE,
-        system_prompt=_SYSTEM_PROMPT,
+        system_prompt=build_system_prompt(profile),
         user_prompt=_build_user_prompt(run, settings, ledger, cycle),
         tools=_TOOLS,
         output_model=EvaluatorOutput,

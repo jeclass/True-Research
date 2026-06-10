@@ -47,6 +47,14 @@ class ReaderCfg(_Frozen):
     require_reads: bool = True
 
 
+class SearchCfg(_Frozen):
+    # MCP search fallback for local-routed workers (§1): WebSearch is an
+    # Anthropic-hosted tool and does not exist against non-first-party
+    # endpoints. A SearXNG instance fills the gap.
+    searxng_base_url: str | None = None
+    max_results: int = Field(ge=1)
+
+
 class StubCfg(_Frozen):
     seed_questions: int = Field(ge=1)
     worker_no_delta: bool
@@ -66,6 +74,7 @@ class Settings(_Frozen):
     roles: dict[str, RoleCfg] = Field(min_length=1)
     session: SessionCfg
     reader: ReaderCfg
+    search: SearchCfg
     stub: StubCfg
     # auth_env name -> secret value, from .env (and os.environ as fallback so
     # CI can inject keys). Never printed: SecretStr redacts in repr/str.
@@ -92,6 +101,18 @@ class Settings(_Frozen):
             self.endpoints[role.endpoint].base_url is not None
             for role in self.roles.values()
         )
+
+    def role(self, name: str) -> RoleCfg:
+        """Role lookup with a clear error — some roles (vision_reader) are
+        only required by specific profiles, so absence is a config error at
+        use time, not load time."""
+        role = self.roles.get(name)
+        if role is None:
+            raise ConfigError(
+                f"role {name!r} is not configured in config.yaml `roles:` — "
+                f"configured roles: {sorted(self.roles)}"
+            )
+        return role
 
     def secret_for(self, endpoint_name: str) -> SecretStr:
         """Secret for an endpoint's auth_env. Raises ConfigError if absent —

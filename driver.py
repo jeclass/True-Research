@@ -18,6 +18,7 @@ from rich.table import Table
 from src.errors import ConfigError, EngineError
 from src.ledger import Ledger
 from src.runspace import PLAN_FILE, REPORT_FILE, Runspace
+from src.profiles import get_profile
 from src.sessions import Backend, get_backend
 from src.sessions.base import EvalError
 from src.settings import Settings, load_settings
@@ -187,6 +188,7 @@ def main(argv: list[str] | None = None) -> int:
         runs_dir = Path(settings.runs_dir)
         if args.resume:
             run = Runspace.resume(runs_dir, args.resume)
+            get_profile(run.meta.profile)  # fail fast if unimplemented
             console.log(f"resumed run {run.meta.run_id} at cycle {run.last_cycle() + 1}")
         else:
             profile = args.profile or settings.default_profile
@@ -194,6 +196,7 @@ def main(argv: list[str] | None = None) -> int:
                 raise ConfigError(
                     f"unknown profile {profile!r}; configured: {settings.profiles}"
                 )
+            get_profile(profile)  # fail fast if unimplemented
             run = Runspace.create(runs_dir, args.question, profile)
             console.log(f"created run {run.meta.run_id} (profile: {profile})")
             if settings.is_full_local():
