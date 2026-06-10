@@ -68,6 +68,10 @@ Source rules:
   src-bmj-if-meta-2024. Reuse an existing registry id (listed in the task)
   only for the same URL. Use the identical id string in your [src-...]
   citations.
+- EXACT-MATCH rule: every [src-...] citation in body_markdown must be a
+  character-for-character copy of an id in your `sources` array (or the
+  registry). Before finishing, verify each citation string-matches a
+  registered id — a mismatched or abbreviated id fails the whole finding.
 
 Finding rules (when outcome=resolved):
 - finding.body_markdown: the finding as markdown. EVERY factual sentence ends
