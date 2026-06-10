@@ -396,3 +396,60 @@ async def test_single_shot_does_not_retry_other_errors(tmp_path, monkeypatch):
         )
     assert calls["n"] == 1
     run.release_lock()
+
+
+def test_engine_sources_unique_against_existing_registry():
+    # Observed smoke3 2026-06-10: two different domains with the same generic
+    # SEO title collided across cycles. The builder must consult the registry.
+    from src.state import SourceRegistry
+
+    reg = SourceRegistry.model_validate(
+        {
+            "src-how-long-do-electric-car-batteries-l": {
+                "url": "https://www.geotab.com/blog/ev-battery-health/",
+                "title": "How Long Do Electric Car Batteries Last?",
+                "kind": "web",
+                "credibility": 70,
+                "retrieved_at": "2026-06-10T00:00:00+00:00",
+                "notes": "",
+            }
+        }
+    )
+    out = ReaderOutput(
+        useful=True,
+        title="How Long Do Electric Car Batteries Last?",
+        kind="web",
+        credibility=60,
+        notes="",
+        summary_markdown="x",
+    )
+    built = pipeline.build_engine_sources(
+        [("https://coltura.org/electric-car-battery-life/", out)], reg
+    )
+    assert built[0]["id"] != "src-how-long-do-electric-car-batteries-l"
+    assert built[0]["url"] == "https://coltura.org/electric-car-battery-life/"
+
+
+def test_engine_sources_reuse_id_for_registered_url():
+    from src.state import SourceRegistry
+
+    reg = SourceRegistry.model_validate(
+        {
+            "src-geotab-ev": {
+                "url": "https://www.geotab.com/blog/ev-battery-health/",
+                "title": "EV Battery Health",
+                "kind": "web",
+                "credibility": 70,
+                "retrieved_at": "2026-06-10T00:00:00+00:00",
+                "notes": "",
+            }
+        }
+    )
+    out = ReaderOutput(
+        useful=True, title="EV Battery Health (updated)", kind="web",
+        credibility=72, notes="", summary_markdown="y",
+    )
+    built = pipeline.build_engine_sources(
+        [("https://www.geotab.com/blog/ev-battery-health/", out)], reg
+    )
+    assert built[0]["id"] == "src-geotab-ev"

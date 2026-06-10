@@ -41,7 +41,7 @@ from src.sessions.worker import (
     _apply_fragmented,
 )
 from src.settings import Settings
-from src.state import FindingMeta, OpenQuestion
+from src.state import FindingMeta, OpenQuestion, SourceRegistry
 
 _ROLE = "worker"
 
@@ -224,19 +224,33 @@ _SLUG_RE = re.compile(r"[^a-z0-9]+")
 
 def build_engine_sources(
     reads: list[tuple[str, reader.ReaderOutput]],
+    registry: SourceRegistry | None = None,
 ) -> list[dict[str, Any]]:
     """Spec step 5: the ENGINE builds the sources array from reader metadata.
-    Ids are slugified from titles and uniqued; urls are the URLs actually
-    read. Returns merge_sources-shaped dicts."""
-    sources: list[dict[str, Any]] = []
+    Ids are slugified from titles and uniqued against BOTH this batch and the
+    run's existing registry — generic SEO titles collide across cycles
+    (observed smoke 2026-06-10: two 'how long do electric car batteries
+    last' pages from different domains). A URL already in the registry
+    reuses its existing id; urls are always the URLs actually read."""
     taken: set[str] = set()
+    id_by_norm_url: dict[str, str] = {}
+    if registry is not None:
+        for sid, rec in registry.root.items():
+            taken.add(sid)
+            id_by_norm_url.setdefault(common.normalize_url(rec.url), sid)
+    sources: list[dict[str, Any]] = []
     for url, output in reads:
-        base = _SLUG_RE.sub("-", output.title.lower()).strip("-")[:40].strip("-") or "source"
-        source_id = f"src-{base}"
-        n = 2
-        while source_id in taken:
-            source_id = f"src-{base}-{n}"
-            n += 1
+        norm = common.normalize_url(url)
+        if norm in id_by_norm_url:
+            source_id = id_by_norm_url[norm]
+        else:
+            base = _SLUG_RE.sub("-", output.title.lower()).strip("-")[:40].strip("-") or "source"
+            source_id = f"src-{base}"
+            n = 2
+            while source_id in taken:
+                source_id = f"src-{base}-{n}"
+                n += 1
+            id_by_norm_url[norm] = source_id
         taken.add(source_id)
         sources.append(
             {
@@ -384,7 +398,7 @@ async def _run_pipeline_async(
         return _session_result(role_cfg, query_spawn, None, summary, summary_prefix)
 
     # --- step 5: ENGINE builds sources -------------------------------------------
-    engine_sources = build_engine_sources(reads)
+    engine_sources = build_engine_sources(reads, run.load_sources())
     merged = common.merge_sources(
         run, engine_sources, WorkerError,
         read_urls=read_urls, require_reads=settings.reader.require_reads,
