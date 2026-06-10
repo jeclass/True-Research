@@ -36,6 +36,38 @@ Every run lives in `runs/<id>/` (gitignored): question, plan,
 (including a DECISIONS log), `ledger.json` (cost per session per endpoint),
 and `REPORT.md`. Runs survive `kill -9` and continue with `--resume`.
 
+## Profiles
+
+`--profile general|scientific|visual` (CLAUDE.md §7) swaps the worker's tool
+set and the evaluator's rubric, never the loop:
+
+- **general** — web search + reader fan-out; rubric demands breadth, source
+  diversity, recency.
+- **scientific** — adds PubMed/OpenAlex/arXiv search tools; rubric demands
+  evidence tiers, primary sources, n/effect-size/CI on load-bearing claims.
+- **visual** — adds `capture_page` (Playwright screenshot + Claude-vision
+  analysis); rubric refuses imagery conclusions not grounded in ≥5 captured
+  pages (`kind=page_capture`). Needs `pip install playwright && playwright
+  install chromium`.
+
+## Hybrid / local backends
+
+Point any role at the `local` endpoint in `config.yaml` (Ollama ≥ 0.14 serves
+the Anthropic API natively). Recommended posture: readers local, judgment
+(evaluator/synthesizer) on cloud Opus. Local sessions ledger `usd: 0` with
+real token counts. Workers routed local need `search.searxng_base_url`
+(WebSearch is Anthropic-hosted). Full-local works but warns loudly.
+
+**Before the first hybrid run on a machine**, verify the endpoint AND that no
+ambient Claude Code credential leaks to it:
+
+```bash
+.venv/bin/python scripts/check_local_backend.py --model qwen3:4b-instruct-2507-q4_K_M
+```
+
+Do not run hybrid inside broker-managed sandboxes (e.g. Claude Code on the
+web) — see docs/SDK_NOTES.md "Host-broker auth override".
+
 ## Repo map
 
 - `driver.py` — the deterministic loop; zero prompts, zero model calls
