@@ -166,9 +166,16 @@ def _apply_output(
     for close in output.close_questions:
         question = questions.get(close.id)  # raises StateError if unknown
         if question.status == "resolved":
-            raise EvalError(
-                f"evaluator tried to close {close.id}, which is already resolved"
+            # Idempotent no-op: evaluators re-judge the whole questions file
+            # each cycle and may redundantly re-close a question a prior cycle
+            # already settled (observed: local evaluator, smoke5 2026-06-10).
+            # The fatal path is reserved for hallucinated ids (questions.get
+            # above). Log it — silence would hide evaluator confusion.
+            run.log(
+                f"evaluator (cycle {cycle}) re-closed {close.id} (already "
+                "resolved) — ignored as idempotent"
             )
+            continue
         question.status = "resolved"  # closed-as-immaterial; no finding attached
         closed_ids.append(close.id)
         run.log_decision(

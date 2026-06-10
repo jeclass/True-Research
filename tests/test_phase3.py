@@ -272,12 +272,16 @@ def test_evaluator_close_marks_resolved_and_logs_decision(run):
     assert any("closed q-002 as immaterial" in d for d in run.decisions())
 
 
-def test_evaluator_close_of_resolved_question_is_an_error(run):
+def test_evaluator_reclose_of_resolved_question_is_idempotent(run):
+    # Evaluators re-judge the whole questions file each cycle and may
+    # redundantly re-close a settled question (observed smoke5 2026-06-10).
+    # Harmless staleness is a logged no-op; only unknown ids stay fatal.
     _seed_questions(run)
-    with pytest.raises(EvalError, match="already resolved"):
-        evaluator._apply_output(
-            run, _eval_output(close_questions=[{"id": "q-001", "reason": "r"}]), 1
-        )
+    passed, _notes, _added, closed = evaluator._apply_output(
+        run, _eval_output(close_questions=[{"id": "q-001", "reason": "r"}]), 1
+    )
+    assert closed == []
+    assert run.load_questions().get("q-001").status == "resolved"
 
 
 def test_evaluator_close_of_unknown_question_is_an_error(run):
