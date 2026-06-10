@@ -113,7 +113,9 @@ class ComposeHeader(BaseModel):
     confidence: float | None = None
     child_questions: list[ChildQuestion] = []
     blocked_reason: str = ""
-    progress_note: str
+    # Optional: models reasonably treat blocked_reason as the note and omit
+    # this (observed smoke9 p2 2026-06-10) — parse_compose_output derives it.
+    progress_note: str = ""
 
 
 _FINDING_SENTINEL = "---FINDING---"
@@ -124,6 +126,13 @@ def parse_compose_output(text: str) -> "ComposeOutput":
     Raises ValueError on any defect so the single-shot retry net rerolls."""
     head, sep, body = text.partition(_FINDING_SENTINEL)
     header = parse_prompted_json(head, ComposeHeader)
+    if not header.progress_note.strip():
+        derived = {
+            "resolved": "composed finding from reader summaries",
+            "fragmented": f"fragmented into {len(header.child_questions)} child questions",
+            "blocked": f"blocked: {header.blocked_reason.strip() or 'no reason given'}",
+        }[header.outcome]
+        header = header.model_copy(update={"progress_note": derived})
     body = body.strip()
     finding = None
     if header.outcome == "resolved":

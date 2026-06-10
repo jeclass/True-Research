@@ -514,3 +514,16 @@ def test_select_urls_filters_blocked_domains():
     )
     urls = [s["url"] for s in selected]
     assert urls == ["https://geotab.com/blog/ev/"]
+
+
+def test_parse_compose_blocked_without_progress_note_derives_one():
+    # Observed smoke9 p2 2026-06-10: an honest blocked outcome rerolled to
+    # death because the model put its explanation in blocked_reason and
+    # omitted progress_note. Derivable fields must not kill a roll.
+    text = (
+        '{"outcome": "blocked", "child_questions": [], '
+        '"blocked_reason": "thin sources for capacity-fade linearity"}'
+    )
+    out = pipeline.parse_compose_output(text)
+    assert out.outcome == "blocked"
+    assert "thin sources" in out.progress_note
