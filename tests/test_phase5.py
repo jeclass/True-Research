@@ -197,6 +197,86 @@ def test_judge_ledger_is_separate_file(tmp_path):
         run.release_lock()
 
 
+# --- SDK bare-Exception classification (regression: structured-output crash) -----
+
+
+def test_cli_bare_exception_becomes_typed_after_retries(tmp_path, monkeypatch):
+    """The SDK raises a BARE Exception (not ClaudeSDKError) on a CLI error
+    result like 'Failed to provide valid structured output after N attempts'.
+    It must be caught, retried under the cap, then surface as a TYPED session
+    error — never escape as a bare Exception, never loop forever."""
+    import asyncio
+
+    from src.ledger import Ledger
+    from src.sessions import base as base_mod
+
+    settings = _settings(
+        tmp_path,
+        **{"secrets": {"ANTHROPIC_API_KEY": "sk-test"}},
+    )
+    run = Runspace.create(tmp_path / "runs", "q", "general")
+
+    calls = {"n": 0}
+
+    def fake_query(*, prompt, options):
+        async def _gen():
+            calls["n"] += 1
+            raise Exception(
+                "Claude Code returned an error result: Failed to provide valid "
+                "structured output after 5 attempts"
+            )
+            yield  # pragma: no cover — makes this an async generator
+
+        return _gen()
+
+    # Patch the symbol the spawn core imports lazily.
+    import claude_agent_sdk
+
+    monkeypatch.setattr(claude_agent_sdk, "query", fake_query)
+
+    try:
+        with pytest.raises(base_mod.WorkerError) as excinfo:
+            asyncio.run(
+                base_mod.run_role_session_async(
+                    run=run, settings=settings, ledger=Ledger(run), cycle=1,
+                    session_type="worker", role="worker",
+                    system_prompt="s", user_prompt="u", tools=[],
+                )
+            )
+    finally:
+        run.release_lock()
+
+    # Typed (not bare Exception), names the transient cause, and retried up to
+    # the configured cap (conftest: attempts=3) rather than once or forever.
+    assert "after 3 attempts" in str(excinfo.value)
+    assert "structured output" in str(excinfo.value)
+    assert calls["n"] == 3
+
+
+def test_eval_batch_survives_a_crashing_question(tmp_path, monkeypatch):
+    """run_one records a per-question crash and lets the batch continue."""
+    from evals import run_evals
+    from rich.console import Console
+
+    settings = _settings(tmp_path, **{"secrets": {"ANTHROPIC_API_KEY": "sk-test"}})
+
+    def boom(*args, **kwargs):
+        raise RuntimeError("simulated driver crash")
+
+    monkeypatch.setattr(run_evals, "_drive", boom, raising=False)
+    # _drive is imported lazily inside run_one; patch the driver module too.
+    import driver
+
+    monkeypatch.setattr(driver, "_drive", boom)
+
+    record = run_evals.run_one(
+        {"id": "x", "profile": "general", "question": "q", "must_address": []},
+        settings, tmp_path / "runs", Console(),
+    )
+    assert "error" in record and "simulated driver crash" in record["error"]
+    assert "scores" not in record
+
+
 # --- json-summary orchestrator hook ----------------------------------------------
 
 

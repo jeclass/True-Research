@@ -277,6 +277,16 @@ async def run_role_session_async(
             raise _TransientSpawnFailure(f"transport: {exc}") from exc
         except ClaudeSDKError as exc:
             raise error_cls(f"{session_type} session transport failure: {exc}") from exc
+        except Exception as exc:
+            # The SDK raises a BARE Exception (not a ClaudeSDKError) when the
+            # CLI returns an error result mid-stream — notably "Failed to
+            # provide valid structured output after N attempts". Treat as
+            # transient: a fresh session usually resamples to valid output, and
+            # this is bounded by retry.attempts + the per-session budget, after
+            # which it surfaces as a loud typed error. Never silent, never
+            # infinite (§0). asyncio.CancelledError is a BaseException, so it
+            # is not swallowed here.
+            raise _TransientSpawnFailure(f"CLI error result: {exc}") from exc
         if final is None:
             raise _TransientSpawnFailure("session ended without a result message")
         wall = time.monotonic() - started

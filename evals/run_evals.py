@@ -43,8 +43,13 @@ from src.settings import Settings, load_settings  # noqa: E402
 _QUESTIONS = Path(__file__).resolve().parent / "questions.yaml"
 
 
-def load_questions(subset: str | None) -> list[dict]:
+def load_questions(subset: str | None, only: str | None = None) -> list[dict]:
     items = yaml.safe_load(_QUESTIONS.read_text(encoding="utf-8"))
+    if only:
+        items = [q for q in items if q["id"] == only]
+        if not items:
+            raise SystemExit(f"no question with id {only!r}")
+        return items
     if subset:
         items = [q for q in items if subset in (q.get("subsets") or [])]
     if not items:
@@ -98,6 +103,10 @@ def run_one(
     except EngineError as exc:
         record["error"] = str(exc)
         console.print(f"[red]{item['id']} errored:[/red] {exc}")
+    except Exception as exc:  # noqa: BLE001 — one bad question must not kill the batch
+        # KeyboardInterrupt / SystemExit are BaseException and still propagate.
+        record["error"] = f"unexpected: {type(exc).__name__}: {exc}"
+        console.print(f"[red]{item['id']} crashed:[/red] {type(exc).__name__}: {exc}")
     finally:
         run.release_lock()
     return record
@@ -106,6 +115,7 @@ def run_one(
 def main() -> int:
     parser = argparse.ArgumentParser(description="Run the eval set + judge scoring.")
     parser.add_argument("--subset", help="only questions tagged with this subset (e.g. quick)")
+    parser.add_argument("--only", help="run a single question by id (e.g. sci-aspirin)")
     parser.add_argument("--config", default="config.yaml")
     parser.add_argument("--out", required=True, help="output dir for scores.json + per-run json")
     parser.add_argument("--max-cycles", type=int, dest="max_cycles")
@@ -134,7 +144,7 @@ def main() -> int:
     out_dir.mkdir(parents=True, exist_ok=True)
     runs_dir = Path(settings.runs_dir)
 
-    items = load_questions(args.subset)
+    items = load_questions(args.subset, args.only)
     console.print(
         f"running {len(items)} question(s); worker="
         f"{settings.roles['worker'].model}@{settings.roles['worker'].endpoint}, "
