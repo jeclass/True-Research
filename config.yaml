@@ -36,7 +36,10 @@ endpoints:
 roles:
   initializer:     {endpoint: anthropic, model: claude-opus-4-8,            max_turns: 16}
   worker:          {endpoint: anthropic, model: claude-sonnet-4-6,          max_turns: 50}
-  reader_subagent: {endpoint: anthropic, model: claude-haiku-4-5-20251001,  max_turns: 12}
+  # readers local (hybrid posture, RUNBOOK §1): gate-passed 2026-06-10 on
+  # gpt-oss:20b / qwen3.5:9b / gemma4:12b; baseline routed here, bake-off
+  # compares the three. Cloud fallback: claude-haiku-4-5-20251001.
+  reader_subagent: {endpoint: local,     model: gpt-oss:20b,                max_turns: 12}
   evaluator:       {endpoint: anthropic, model: claude-opus-4-8,            max_turns: 24}
   synthesizer:     {endpoint: anthropic, model: claude-opus-4-8,            max_turns: 40}
   # vision_reader analyzes page captures (visual profile). Must stay on a
@@ -75,7 +78,7 @@ reader:
 # WebSearch is Anthropic-hosted; a worker routed to a non-first-party endpoint
 # loses it. Point this at a SearXNG instance to restore web search there.
 search:
-  searxng_base_url: null         # e.g. http://localhost:8888
+  searxng_base_url: http://localhost:8888   # SearXNG in docker (local-worker legs)
   max_results: 8
 
 # --- Transient-failure retries (Phase 5 hardening) ----------------------------
