@@ -139,3 +139,59 @@ def test_cli_requires_exactly_one_mode(make_config):
         driver.parse_args([])
     with pytest.raises(SystemExit):
         driver.parse_args(["question", "--resume", "x"])
+
+
+def test_eval_fail_with_empty_queue_finishes_clean_stall(make_config, runs_dir, monkeypatch):
+    # Observed smoke6 2026-06-10: evaluator FAILs while closing the last open
+    # questions -> next worker would crash on an empty queue. The driver must
+    # finish cleanly (exhaustion-stall) with a partial report instead.
+    from src.state import Verdict
+
+    cfg = make_config()
+    real_backend = get_backend
+
+    def exhausting_backend(settings):
+        backend = dict(real_backend(settings))
+        real_worker = backend["worker"]
+
+        def worker(run, settings_, cycle, ledger_):
+            result = real_worker(run, settings_, cycle, ledger_)
+            qs = run.load_questions()
+            for q in qs.root:
+                q.status = "resolved"
+            run.save_questions(qs)
+            return result
+
+        def evaluator(run, settings_, cycle, ledger_):
+            run.write_verdict(
+                cycle,
+                Verdict(
+                    passed=False,
+                    unmet_criteria=["a criterion stands unmet"],
+                    contradictions=[],
+                    new_questions=[],
+                    notes="fail with nothing actionable",
+                ),
+            )
+            return backend_result(settings_, cycle, ledger_)
+
+        def backend_result(settings_, cycle, ledger_):
+            from src.sessions.stub import _result
+            import time as _t
+
+            return _result(settings_, "evaluator", "evaluator", _t.monotonic(), "fail", ledger_, cycle)
+
+        backend["worker"] = worker
+        backend["evaluator"] = evaluator
+        return backend
+
+    monkeypatch.setattr(driver, "get_backend", exhausting_backend)
+    rc = driver.main(["q", "--config", str(cfg)])
+    assert rc == 0
+
+    run_dir = only_run_dir(runs_dir)
+    meta = _meta(run_dir)
+    assert meta.finish_reason == "stall"
+    progress = (run_dir / "PROGRESS.md").read_text(encoding="utf-8")
+    assert "zero open questions" in progress
+    assert "PARTIAL" in (run_dir / REPORT_FILE).read_text(encoding="utf-8")

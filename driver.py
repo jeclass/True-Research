@@ -171,6 +171,19 @@ def _drive(
             run.complete_cycle(cycle, stalled=False)
             return _finish(backend, run, settings, ledger, console, "conclusive")
 
+        if run.no_open_questions():
+            # FAIL verdict with an empty queue: the evaluator closed the last
+            # open questions without opening new ones (observed smoke6
+            # 2026-06-10). Another worker cycle would crash on an empty queue;
+            # this is an exhaustion-stall — finish cleanly with the partial
+            # report, unmet criteria standing.
+            run.log_decision(
+                f"evaluator (cycle {cycle}) FAILED with zero open questions — "
+                "nothing actionable remains; finishing with a partial report."
+            )
+            run.complete_cycle(cycle, stalled=False)
+            return _finish(backend, run, settings, ledger, console, "stall")
+
         stalled = run.state_hash() == before
         stall_count = run.complete_cycle(cycle, stalled)
         if stalled:
