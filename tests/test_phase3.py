@@ -276,12 +276,35 @@ def test_evaluator_reclose_of_resolved_question_is_idempotent(run):
     # Evaluators re-judge the whole questions file each cycle and may
     # redundantly re-close a settled question (observed smoke5 2026-06-10).
     # Harmless staleness is a logged no-op; only unknown ids stay fatal.
-    _seed_questions(run)
+    run.save_questions(QuestionList([
+        OpenQuestion(id="q-010", question="explored", priority=2,
+                     created_by="evaluator", status="resolved",
+                     resolved_by_finding="q-010-c01"),
+        OpenQuestion(id="q-011", question="still open", priority=3,
+                     created_by="evaluator", status="open"),
+    ]))
     passed, _notes, _added, closed = evaluator._apply_output(
-        run, _eval_output(close_questions=[{"id": "q-001", "reason": "r"}]), 1
+        run, _eval_output(close_questions=[{"id": "q-010", "reason": "r"}]), 1
     )
     assert closed == []
-    assert run.load_questions().get("q-001").status == "resolved"
+    assert run.load_questions().get("q-010").status == "resolved"
+
+
+def test_evaluator_cannot_close_seed_questions(run):
+    # Observed smoke7 2026-06-10: the local evaluator closed a mandated-scope
+    # facet as "immaterial" and the judge scored completeness 5/10. Seed
+    # (initializer-created) questions are the run's contract — closes are
+    # refused loudly and the question stays open.
+    run.save_questions(QuestionList([
+        OpenQuestion(id="q-020", question="mandated facet", priority=4,
+                     created_by="initializer", status="open"),
+    ]))
+    passed, _notes, _added, closed = evaluator._apply_output(
+        run, _eval_output(close_questions=[{"id": "q-020", "reason": "immaterial"}]), 2
+    )
+    assert closed == []
+    assert run.load_questions().get("q-020").status == "open"
+    assert any("REFUSED" in d and "q-020" in d for d in run.decisions())
 
 
 def test_evaluator_close_of_unknown_question_is_an_error(run):

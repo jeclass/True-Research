@@ -64,7 +64,9 @@ Stopping discipline (you will be shown the run's remaining budget):
   conclusion (close_questions: id + reason). Use this to prune speculative
   questions — including ones a previous evaluator opened — once the evidence
   shows they no longer matter. Closing is for IMMATERIAL questions only,
-  never for hard-but-load-bearing ones.
+  never for hard-but-load-bearing ones. NEVER close a question created by
+  the initializer — seed questions are the run's mandated scope and the
+  engine will refuse the close.
 - As remaining budget shrinks, weigh depth against completion: a sharp,
   well-supported answer to the core question beats an unfinished sprawl.
 
@@ -165,6 +167,18 @@ def _apply_output(
     closed_ids: list[str] = []
     for close in output.close_questions:
         question = questions.get(close.id)  # raises StateError if unknown
+        if question.created_by == "initializer":
+            # Seed questions are the run's mandated scope. An evaluator
+            # pruning them trades completeness for convergence (observed
+            # smoke7 2026-06-10: warranty facet closed as "immaterial",
+            # judge scored completeness 5/10). Refuse, loudly; the question
+            # stays open and the loop keeps working it.
+            run.log_decision(
+                f"evaluator (cycle {cycle}) tried to close SEED question "
+                f"{close.id} ({close.reason!r}) — REFUSED: initializer "
+                "questions are the mandated scope"
+            )
+            continue
         if question.status == "resolved":
             # Idempotent no-op: evaluators re-judge the whole questions file
             # each cycle and may redundantly re-close a question a prior cycle

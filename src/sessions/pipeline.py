@@ -207,6 +207,25 @@ def _domain(url: str) -> str:
     return (urlparse(url).hostname or "").lower()
 
 
+# Social/UGC/video platforms: reliably 403, no extractable text, or
+# non-citable for research (observed smoke7 2026-06-10: 7 of 12 reads burned
+# on facebook posts and paywalled aggregators -> source_quality 5/10).
+# Profiles can extend via url_preferences()["blocked_domains"].
+_DEFAULT_BLOCKED_DOMAINS = (
+    "facebook.com",
+    "instagram.com",
+    "linkedin.com",
+    "pinterest.com",
+    "quora.com",
+    "reddit.com",
+    "threads.net",
+    "tiktok.com",
+    "twitter.com",
+    "x.com",
+    "youtube.com",
+)
+
+
 def _pipeline_cfg(settings: Settings, profile: Profile) -> dict[str, int]:
     cfg = {
         "queries_per_question": settings.worker_pipeline.queries_per_question,
@@ -236,6 +255,12 @@ def select_urls(
     domain (with profile overrides); cap total at max_reads."""
     preferred = list(preferences.get("preferred_domains", []))
     cap_overrides = dict(preferences.get("domain_cap_overrides", {}))
+    blocked = set(_DEFAULT_BLOCKED_DOMAINS) | set(
+        preferences.get("blocked_domains", [])
+    )
+
+    def is_blocked(domain: str) -> bool:
+        return any(domain == b or domain.endswith("." + b) for b in blocked)
 
     def rank(item: dict[str, Any]) -> int:
         domain = _domain(item["url"])
@@ -272,6 +297,8 @@ def select_urls(
         if per_query_kept.get(qi, 0) >= cfg["urls_per_query"]:
             continue
         domain = _domain(url)
+        if is_blocked(domain):
+            continue
         cap = int(cap_overrides.get(domain, cfg["per_domain_cap"]))
         if domain_counts.get(domain, 0) >= cap:
             continue

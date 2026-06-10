@@ -498,3 +498,19 @@ def test_parse_compose_resolved_without_confidence_raises():
     )
     with pytest.raises(ValueError):
         pipeline.parse_compose_output(text)
+
+
+def test_select_urls_filters_blocked_domains():
+    results = [[
+        {"url": "https://www.facebook.com/groups/x/posts/1/", "snippet": "s"},
+        {"url": "https://m.youtube.com/watch?v=abc", "snippet": "s"},
+        {"url": "https://example-paywall.com/article", "snippet": "s"},
+        {"url": "https://geotab.com/blog/ev/", "snippet": "s"},
+    ]]
+    selected = pipeline.select_urls(
+        results, set(), CFG,
+        {"preferred_domains": [], "domain_cap_overrides": {},
+         "blocked_domains": ["example-paywall.com"]},
+    )
+    urls = [s["url"] for s in selected]
+    assert urls == ["https://geotab.com/blog/ev/"]
