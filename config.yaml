@@ -48,3 +48,12 @@ stub:
   worker_no_delta: false   # true => worker changes nothing (forces stall path)
   sleep_seconds: 0.0       # per stub session; lets smoke tests kill mid-cycle
   cost_usd: 0.0            # fake per-session cost recorded in the ledger
+
+# --- Reader fan-out (Phase 3 cost lever) -------------------------------------
+# The engine fetches pages itself (httpx) and spawns one reader session per
+# source; the worker only ever sees compressed summaries. Point the
+# reader_subagent role at the `local` endpoint for zero-marginal-cost reads.
+reader:
+  max_page_chars: 24000          # page text truncated before the reader sees it
+  max_failures_per_session: 6    # then the worker session fails loudly (§1)
+  fetch_timeout_seconds: 30

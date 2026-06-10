@@ -1,7 +1,16 @@
-"""Worker session (Sonnet): investigate the single highest-priority open
-question with WebSearch/WebFetch (CLAUDE.md §6). The engine picks the target
-and applies all state changes; the model researches and returns structure.
-Claim→source traceability (invariant 3) is enforced here at write time."""
+"""Worker session (Sonnet driver + reader fan-out, CLAUDE.md §6 + Phase 3).
+
+The worker investigates ONE question. It searches with WebSearch, but it
+never reads pages itself: it calls the in-process MCP tool `read_source`,
+and the ENGINE fetches the page and spawns a cheap reader session
+(role `reader_subagent` — Haiku or a local model per config). The worker's
+expensive context only ever sees compressed summaries; every read is
+ledgered separately with its own endpoint attribution.
+
+Endpoint note (docs/SDK_NOTES.md): in-session subagents inherit the parent's
+process env, so endpoint mixing MUST happen via engine-spawned sessions —
+which is exactly what the MCP handler does.
+"""
 
 from __future__ import annotations
 
@@ -11,38 +20,48 @@ from pydantic import BaseModel, ConfigDict
 
 from src.ledger import Ledger
 from src.runspace import PLAN_FILE, Runspace
-from src.sessions import common
-from src.sessions.base import SessionResult, WorkerError, run_role_session
+from src.sessions import common, reader
+from src.sessions.base import (
+    SessionError,
+    SessionResult,
+    WorkerError,
+    run_role_session,
+)
 from src.settings import Settings
 from src.state import FindingMeta, OpenQuestion
 
 _ROLE = "worker"
-_TOOLS = ["WebSearch", "WebFetch", "Read", "Glob", "Grep"]
+_TOOLS = ["WebSearch", "Read", "Glob", "Grep"]
+_READ_TOOL = "mcp__reader__read_source"
 
 _SYSTEM_PROMPT = """\
 You are a WORKER session of an autonomous research engine. You investigate
 exactly ONE assigned open question per session — never any other question.
 
 Method:
-1. Search the web (WebSearch) for the assigned question; follow the strongest
-   leads with WebFetch. Prefer primary/authoritative sources.
-2. Cross-check load-bearing claims across at least two independent sources
-   when feasible.
-3. Produce your structured result (enforced JSON schema). No file writes —
+1. Use WebSearch to find candidate sources for the assigned question. Prefer
+   primary/authoritative sources.
+2. For each promising URL, call read_source(url, why). A separate reader
+   agent fetches and digests the page and returns a compressed summary plus
+   metadata (title, kind, credibility, notes). Issue several read_source
+   calls in ONE message when you have several candidates — they run in
+   parallel. Do NOT try to fetch pages yourself; read_source is your only
+   window into page content.
+3. Cross-check load-bearing claims across at least two independent sources
+   when feasible. If a read fails or a page is not useful, move to the next
+   candidate.
+4. Produce your structured result (enforced JSON schema). No file writes —
    the engine persists your output.
 
 Source rules:
-- Register EVERY source your finding relies on, in `sources`.
+- Register EVERY source your finding relies on, in `sources`, copying
+  title/kind/credibility/notes from the read_source results.
 - id format: ^src-[a-z0-9-]+$ — STRICTLY ASCII lowercase letters a-z, digits,
   hyphens. No accents or non-ASCII characters: transliterate them
   (Sundfør -> sundfor, Müller -> muller). Descriptive and unique, e.g.
   src-bmj-if-meta-2024. Reuse an existing registry id (listed in the task)
   only for the same URL. Use the identical id string in your [src-...]
   citations.
-- kind: web | paper | page_capture.
-- credibility 0-100: 90+ peer-reviewed/primary data; 70-89 major
-  institutions/quality press; 40-69 expert blogs/industry; <40 weak. Note
-  paywalls or access limits in `notes`.
 
 Finding rules (when outcome=resolved):
 - finding.body_markdown: the finding as markdown. EVERY factual sentence ends
@@ -55,8 +74,8 @@ outcome:
 - "resolved"   — you answered the question. finding + sources required.
 - "fragmented" — the question is too broad; return 2-4 child_questions
   (priority 1-5) that decompose it. No finding required.
-- "blocked"    — you cannot make progress (paywalls, no sources, ambiguity);
-  explain in blocked_reason. Do NOT fabricate.
+- "blocked"    — you cannot make progress (reads failing, no sources,
+  ambiguity); explain in blocked_reason. Do NOT fabricate.
 
 progress_note: one line for the run log describing what you did."""
 
@@ -110,6 +129,85 @@ def _build_user_prompt(run: Runspace, target: OpenQuestion) -> str:
     )
 
 
+def _build_reader_mcp(
+    run: Runspace,
+    settings: Settings,
+    ledger: Ledger,
+    cycle: int,
+    target: OpenQuestion,
+    stats: dict[str, int],
+):
+    """In-process MCP server exposing read_source to the worker session.
+    Lazy SDK import keeps stub-backend paths SDK-free."""
+    from claude_agent_sdk import create_sdk_mcp_server, tool
+
+    @tool(
+        "read_source",
+        "Fetch ONE URL and get a compressed, citation-ready digest from a "
+        "reader agent: returns TITLE/KIND/CREDIBILITY/NOTES plus a faithful "
+        "summary of the page's facts relevant to the assigned question. Call "
+        "it once per URL; batch several calls in one message to read in "
+        "parallel.",
+        {"url": str, "why": str},
+    )
+    async def read_source_tool(args: dict) -> dict:
+        url = str(args.get("url", "")).strip()
+        why = str(args.get("why", "")).strip()
+        if not url:
+            return {
+                "content": [{"type": "text", "text": "READ FAILED: empty url"}],
+                "is_error": True,
+            }
+        if stats["failures"] >= settings.reader.max_failures_per_session:
+            return {
+                "content": [
+                    {
+                        "type": "text",
+                        "text": (
+                            f"READERS DISABLED: {stats['failures']} reads failed this "
+                            "session (engine limit). Stop reading; report what you "
+                            "have or outcome=blocked."
+                        ),
+                    }
+                ],
+                "is_error": True,
+            }
+        try:
+            output, _spawn = await reader.read_source(
+                run=run,
+                settings=settings,
+                ledger=ledger,
+                cycle=cycle,
+                url=url,
+                question=target.question,
+                why=why,
+            )
+        except SessionError as exc:
+            stats["failures"] += 1
+            return {
+                "content": [{"type": "text", "text": f"READ FAILED: {exc}"}],
+                "is_error": True,
+            }
+        stats["reads"] += 1
+        if not output.useful:
+            return {
+                "content": [
+                    {"type": "text", "text": f"PAGE NOT USEFUL: {output.notes}"}
+                ]
+            }
+        text = (
+            f"TITLE: {output.title}\n"
+            f"KIND: {output.kind}\n"
+            f"CREDIBILITY: {output.credibility}\n"
+            f"NOTES: {output.notes}\n"
+            f"URL: {url}\n"
+            f"SUMMARY:\n{output.summary_markdown}"
+        )
+        return {"content": [{"type": "text", "text": text}]}
+
+    return create_sdk_mcp_server("reader", tools=[read_source_tool])
+
+
 def run(run: Runspace, settings: Settings, cycle: int, ledger: Ledger) -> SessionResult:
     questions = run.load_questions()
     target = common.pick_target_question(questions)
@@ -120,6 +218,9 @@ def run(run: Runspace, settings: Settings, cycle: int, ledger: Ledger) -> Sessio
         )
     target.status = "in_progress"
     run.save_questions(questions)
+
+    stats = {"reads": 0, "failures": 0}
+    reader_server = _build_reader_mcp(run, settings, ledger, cycle, target, stats)
 
     spawn = run_role_session(
         run=run,
@@ -132,8 +233,17 @@ def run(run: Runspace, settings: Settings, cycle: int, ledger: Ledger) -> Sessio
         user_prompt=_build_user_prompt(run, target),
         tools=_TOOLS,
         output_model=WorkerOutput,
+        mcp_servers={"reader": reader_server},
+        extra_allowed_tools=[_READ_TOOL],
     )
     output: WorkerOutput = spawn.structured
+
+    if stats["failures"] >= settings.reader.max_failures_per_session:
+        run.log_decision(
+            f"worker (cycle {cycle}): reader failure limit hit "
+            f"({stats['failures']} failed reads) — reader backend/model may be "
+            "unsuitable (§1 local-mode constraint)"
+        )
 
     if output.outcome == "resolved":
         summary = _apply_resolved(run, target, output, cycle)
@@ -142,7 +252,10 @@ def run(run: Runspace, settings: Settings, cycle: int, ledger: Ledger) -> Sessio
     else:
         summary = _apply_blocked(run, target, output)
 
-    run.log(f"worker (cycle {cycle}): {output.progress_note}")
+    run.log(
+        f"worker (cycle {cycle}): {output.progress_note} "
+        f"[{stats['reads']} reads, {stats['failures']} failed]"
+    )
 
     role_cfg = settings.roles[_ROLE]
     return SessionResult(
@@ -154,7 +267,7 @@ def run(run: Runspace, settings: Settings, cycle: int, ledger: Ledger) -> Sessio
         cached_tokens=spawn.cached_tokens,
         usd=spawn.usd,
         wall_seconds=spawn.wall_seconds,
-        summary=f"{summary} ({spawn.num_turns} turns)",
+        summary=f"{summary} ({stats['reads']} reads, {spawn.num_turns} turns)",
     )
 
 

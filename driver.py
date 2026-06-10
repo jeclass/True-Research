@@ -175,6 +175,15 @@ def main(argv: list[str] | None = None) -> int:
     }
     try:
         settings = load_settings(config_path=args.config, overrides=overrides)
+        if settings.is_full_local():
+            # §1: full-local is permitted but must be LOUD — judgment roles
+            # (evaluator/adjudication/synthesis) degrade most on local models.
+            console.print(
+                "[bold yellow]WARNING: FULL-LOCAL posture — every role routes to a "
+                "non-first-party endpoint. Conclusiveness judgment degrades most "
+                "on local models (CLAUDE.md §1); hybrid is the recommended "
+                "posture.[/bold yellow]"
+            )
         runs_dir = Path(settings.runs_dir)
         if args.resume:
             run = Runspace.resume(runs_dir, args.resume)
@@ -187,6 +196,11 @@ def main(argv: list[str] | None = None) -> int:
                 )
             run = Runspace.create(runs_dir, args.question, profile)
             console.log(f"created run {run.meta.run_id} (profile: {profile})")
+            if settings.is_full_local():
+                run.log_decision(
+                    "run started in FULL-LOCAL posture — all roles on "
+                    "non-first-party endpoints (§1 warning issued)"
+                )
     except EngineError as exc:
         console.print("error: ", style="red", end="")
         console.print(str(exc), markup=False, highlight=False)

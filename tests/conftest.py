@@ -29,6 +29,11 @@ BASE_CONFIG: dict = {
         "synthesizer": {"endpoint": "anthropic", "model": "claude-opus-4-8", "max_turns": 40},
     },
     "session": {"backend": "stub", "max_budget_usd_per_session": 2.0},
+    "reader": {
+        "max_page_chars": 24000,
+        "max_failures_per_session": 6,
+        "fetch_timeout_seconds": 30,
+    },
     "stub": {
         "seed_questions": 3,
         "worker_no_delta": False,

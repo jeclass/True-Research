@@ -17,7 +17,7 @@ from pydantic import BaseModel, ConfigDict, Field, SecretStr, ValidationError, m
 
 from src.errors import ConfigError
 
-SessionType = Literal["initializer", "worker", "evaluator", "synthesizer"]
+SessionType = Literal["initializer", "worker", "evaluator", "synthesizer", "reader"]
 
 
 class _Frozen(BaseModel):
@@ -40,6 +40,12 @@ class SessionCfg(_Frozen):
     max_budget_usd_per_session: float = Field(ge=0)
 
 
+class ReaderCfg(_Frozen):
+    max_page_chars: int = Field(ge=1000)
+    max_failures_per_session: int = Field(ge=1)
+    fetch_timeout_seconds: float = Field(gt=0)
+
+
 class StubCfg(_Frozen):
     seed_questions: int = Field(ge=1)
     worker_no_delta: bool
@@ -58,6 +64,7 @@ class Settings(_Frozen):
     endpoints: dict[str, EndpointCfg] = Field(min_length=1)
     roles: dict[str, RoleCfg] = Field(min_length=1)
     session: SessionCfg
+    reader: ReaderCfg
     stub: StubCfg
     # auth_env name -> secret value, from .env (and os.environ as fallback so
     # CI can inject keys). Never printed: SecretStr redacts in repr/str.
@@ -76,6 +83,14 @@ class Settings(_Frozen):
                     f"(known: {sorted(self.endpoints)})"
                 )
         return self
+
+    def is_full_local(self) -> bool:
+        """True when EVERY role routes to a non-first-party endpoint — §1
+        requires a loud warning at run start in that posture."""
+        return all(
+            self.endpoints[role.endpoint].base_url is not None
+            for role in self.roles.values()
+        )
 
     def secret_for(self, endpoint_name: str) -> SecretStr:
         """Secret for an endpoint's auth_env. Raises ConfigError if absent —

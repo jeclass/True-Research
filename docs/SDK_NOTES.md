@@ -128,6 +128,31 @@ All from [src: `types.py:1579-1930`], CLI flag mapping from [src: `subprocess_cl
   usage on subscription plans draws from a separate monthly Agent SDK credit [docs overview].
   CLAUDE.md §1's "API key, not subscription" rule matches the docs.
 
+## Host-broker auth override (verified empirically, 2026-06-10)
+
+Tested by spawning real CLI subprocesses against a recording mock server in
+the Claude-Code-on-the-web container:
+
+- `options.env` **base_url and model injection are honored** — requests
+  arrived at the injected `ANTHROPIC_BASE_URL` with the routed model.
+- **Auth selection is host-pinned**: in environments with
+  `CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST` (+ an fd-delivered OAuth token via
+  `CLAUDE_CODE_OAUTH_TOKEN_FILE_DESCRIPTOR`), the spawned CLI authenticates
+  with the host broker token and **ignores injected `ANTHROPIC_AUTH_TOKEN`
+  and even `ANTHROPIC_API_KEY`** — empty-string overrides and a fresh
+  `CLAUDE_CONFIG_DIR` do not defeat it.
+- Consequences: (1) engine runs inside such sandboxes bill the sandbox's
+  credentials, not the configured API key (client-side cost estimates remain
+  valid); (2) on such hosts the broker token would also be presented to
+  non-first-party endpoints — a credential-leak hazard for hybrid/local
+  routing. **Do not run hybrid/local profiles inside broker-managed
+  sandboxes.**
+- On standard machines the documented precedence applies (env-vars docs:
+  API key beats subscription login), and `scripts/check_local_backend.py`
+  now verifies the actual wire auth through a recording proxy before any
+  hybrid run — fail-loud if any non-placeholder credential heads to a local
+  endpoint.
+
 ## Explicitly unverified (deferred, not skipped silently)
 
 - **WebFetch/WebSearch behavior against a local endpoint** (CLAUDE.md §1 asks for this in
