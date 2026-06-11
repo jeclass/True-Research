@@ -488,7 +488,16 @@ async def _run_pipeline_async(
     profile: Profile,
 ) -> SessionResult:
     cfg = _pipeline_cfg(settings, profile)
+    # Community-track questions search forums via their lens; factual questions
+    # use the profile's providers (docs/COMMUNITY_LENS_SPEC.md). Default runs
+    # only ever have factual questions, so this is the profile path as before.
     providers = profile.pipeline_search_providers(settings)
+    if target.track != "factual":
+        from src.lenses import lens_for_track
+
+        lens = lens_for_track(target.track, settings.lenses)
+        if lens is not None:
+            providers = lens.search_providers(settings)
     role_cfg = settings.roles[_ROLE]
 
     # --- step 1: one-shot query-gen --------------------------------------------
@@ -649,6 +658,7 @@ async def _run_pipeline_async(
                 question_id=target.id,
                 source_ids=sorted(set(cited)),
                 confidence=output.finding.confidence,
+                track=target.track,  # quarantine inherited from the question
             ),
             body,
         )

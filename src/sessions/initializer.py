@@ -86,9 +86,35 @@ def run(run: Runspace, settings: Settings, cycle: int, ledger: Ledger) -> Sessio
                 created_by="initializer",
             )
         )
+
+    # Evidence lenses (orthogonal axis): each active lens contributes seed
+    # questions on its own track (docs/COMMUNITY_LENS_SPEC.md). No-op when
+    # settings.lenses is empty — the default factual-only run is unchanged.
+    lens_count = 0
+    if settings.lenses:
+        from src.lenses import get_lens
+
+        for lens_name in settings.lenses:
+            lens = get_lens(lens_name)
+            for q_text, prio in lens.seed_questions(run.meta.question):
+                common.check_priority(prio, PlanningError, f"{lens_name} seed")
+                questions.root.append(
+                    OpenQuestion(
+                        id=common.next_question_id(questions),
+                        question=q_text,
+                        priority=prio,
+                        created_by="initializer",
+                        track=lens.track(),
+                    )
+                )
+                lens_count += 1
+
     run.save_questions(questions)
     run.write_text(PLAN_FILE, output.plan_markdown.strip() + "\n")
-    run.log(f"initializer: wrote PLAN.md + {len(questions.root)} open questions")
+    lens_note = f" (+{lens_count} lens)" if lens_count else ""
+    run.log(
+        f"initializer: wrote PLAN.md + {len(questions.root)} open questions{lens_note}"
+    )
 
     role_cfg = settings.roles[_ROLE]
     return SessionResult(

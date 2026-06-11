@@ -51,21 +51,42 @@ def _build_user_prompt(run: Runspace) -> str:
         else f"The run ended EARLY (reason: {reason}) — this is a PARTIAL report; "
         "scope your claims to what the findings actually cover."
     )
+    # Only factual-track findings are admissible material for the synthesis;
+    # community findings (if any) are appended by the engine into a separate
+    # quarantined section the model never sees (docs/COMMUNITY_LENS_SPEC.md).
     return (
         f"# Research question\n{run.meta.question}\n\n"
         f"# Run status\n{status_note}\n\n"
         f"# Question ledger\n{common.questions_digest(questions)}\n\n"
         f"# Source registry\n{common.sources_digest(sources)}\n\n"
         f"# Findings (full text — your only admissible material)\n"
-        f"{common.findings_digest(run, full_bodies=True)}\n"
+        f"{common.findings_digest(run, full_bodies=True, only_tracks={'factual'})}\n"
     )
 
 
-def run(run: Runspace, settings: Settings, cycle: int, ledger: Ledger) -> SessionResult:
-    findings = run.load_findings()
-    sources = run.load_sources()
+def _community_section(run: Runspace, settings: Settings, community: dict) -> str:
+    """Engine-built, model-never-saw-it section for community-track findings.
+    Returns '' when there are none (default runs) — so the report is unchanged."""
+    if not community:
+        return ""
+    from src.lenses import lens_for_track
 
-    if findings:
+    lens = lens_for_track("community", settings.lenses)
+    title = lens.report_section_title() if lens else "Community & practitioner perspective"
+    framing = lens.report_section_framing() if lens else ""
+    blocks = [f"\n\n## {title}\n\n{framing}\n"]
+    for _slug, (meta, body) in sorted(community.items()):
+        blocks.append(f"\n{body.strip()}\n")
+    return "".join(blocks)
+
+
+def run(run: Runspace, settings: Settings, cycle: int, ledger: Ledger) -> SessionResult:
+    all_findings = run.load_findings()
+    sources = run.load_sources()
+    factual = {s: p for s, p in all_findings.items() if p[0].track == "factual"}
+    community = {s: p for s, p in all_findings.items() if p[0].track == "community"}
+
+    if factual:
         spawn = run_role_session(
             run=run,
             settings=settings,
@@ -78,17 +99,22 @@ def run(run: Runspace, settings: Settings, cycle: int, ledger: Ledger) -> Sessio
             tools=_TOOLS,
             output_model=SynthesizerOutput,
         )
-        report_body = spawn.structured.report_markdown.strip()
+        factual_body = spawn.structured.report_markdown.strip()
         metrics = spawn
     else:
-        # Nothing to synthesize from — writing an honest empty report needs no
-        # model call (and must not invent content).
-        report_body = (
+        # No factual findings — honest empty body, no model call. A
+        # community-only run still gets its quarantined section below.
+        factual_body = (
             f"# Report: {run.meta.question}\n\n"
-            "No findings were produced before the run ended. There is nothing "
-            "to report."
+            "No factual findings were produced before the run ended. There is "
+            "nothing to report in the evidence sections."
         )
         metrics = None
+
+    # Community section is engine-appended (quarantined); the model never saw
+    # these findings, so it cannot fold anecdote into the factual synthesis.
+    community_md = _community_section(run, settings, community)
+    report_body = factual_body + community_md
 
     # --- deterministic citation pass (invariant 3) ---------------------------
     cited = common.CITATION_RE.findall(report_body)
@@ -98,11 +124,12 @@ def run(run: Runspace, settings: Settings, cycle: int, ledger: Ledger) -> Sessio
             f"report cites source ids missing from sources.json: {unknown}; "
             "refusing to emit (invariant 3)"
         )
-    if findings and not cited:
+    if factual and not common.CITATION_RE.findall(factual_body):
         raise SynthesisError(
             "report contains no [src-...] citations despite findings existing; "
             "refusing to emit (invariant 3)"
         )
+    findings = all_findings  # downstream logging counts all tracks
 
     reason = run.meta.finish_reason or "unknown"
     banner = (

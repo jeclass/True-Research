@@ -134,6 +134,7 @@ def main() -> int:
     parser.add_argument("--evaluator-endpoint")
     parser.add_argument("--final-evaluator-model")
     parser.add_argument("--final-evaluator-endpoint")
+    parser.add_argument("--lens", action="append", metavar="NAME")
     args = parser.parse_args()
 
     console = Console()
@@ -141,6 +142,7 @@ def main() -> int:
         "max_cycles": args.max_cycles,
         "max_budget_usd": args.max_budget_usd,
         "max_wall_hours": args.max_wall_hours,
+        "lenses": args.lens,
     }
     try:
         settings = load_settings(config_path=args.config, overrides=overrides)

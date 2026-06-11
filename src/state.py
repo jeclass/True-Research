@@ -41,6 +41,11 @@ class OpenQuestion(_Strict):
     # questions on fragmentation — "worker" added to keep both sections true.
     created_by: Literal["initializer", "evaluator", "worker"]
     resolved_by_finding: str | None = None
+    # Evidence track (lens axis, orthogonal to the domain profile). "factual"
+    # is the default and the only track a normal run produces; "community"
+    # questions route to community search providers and their findings are
+    # quarantined into a separate report section (docs/COMMUNITY_LENS_SPEC.md).
+    track: Literal["factual", "community"] = "factual"
     # Worker sessions that ended BLOCKED on this question (no usable sources).
     # Gates the evaluator's exhausted-scope close of SEED questions (observed
     # 2026-06-10: an unanswerable seed facet + absolute seed protection ground
@@ -85,6 +90,10 @@ class FindingMeta(_Strict):
     question_id: str = Field(min_length=1)
     source_ids: list[str] = Field(min_length=1)  # invariant 3: no sourceless findings
     confidence: float = Field(ge=0.0, le=1.0)
+    # Inherited from the answered question; quarantines community findings out
+    # of the factual synthesis (docs/COMMUNITY_LENS_SPEC.md). Defaulted so
+    # every existing finding file loads unchanged.
+    track: Literal["factual", "community"] = "factual"
 
 
 # --- ledger.json ---------------------------------------------------------------

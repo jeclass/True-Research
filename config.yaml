@@ -17,8 +17,14 @@ max_final_evaluations: 4  # Opus final-gate firings/run (budget posture's main
 stall_cycles: 2           # consecutive cycles with no state delta => halt
 
 # --- Research profiles (selected via --profile; implementations land Phase 4)
-profiles: [general, scientific, visual]
+profiles: [general, scientific, visual, legal]   # legal = v1 future-domain scaffold
 default_profile: general
+
+# --- Evidence lenses (orthogonal to profile; docs/COMMUNITY_LENS_SPEC.md) -----
+# Composable add-on tracks. Empty => factual-only (normal run). `community`
+# adds forum/Q&A search on a quarantined track + a separate report section.
+# Set per-run via --lens, or list defaults here.
+lenses: []
 
 # --- Model backends (CLAUDE.md §1) ------------------------------------------
 # base_url null => SDK/CLI default (api.anthropic.com), auth injected as

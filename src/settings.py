@@ -9,7 +9,7 @@ injection").
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Literal
+from typing import ClassVar, Literal
 
 import yaml
 from dotenv import dotenv_values
@@ -116,6 +116,11 @@ class Settings(_Frozen):
     max_final_evaluations: int = Field(ge=1)
     profiles: list[str] = Field(min_length=1)
     default_profile: str
+    # Active evidence lenses (orthogonal to profile; docs/COMMUNITY_LENS_SPEC).
+    # Empty by default — a normal run produces only factual-track findings.
+    # Validated against the known set here to avoid importing the lens package
+    # (which imports Settings).
+    lenses: list[str] = Field(default_factory=list)
     endpoints: dict[str, EndpointCfg] = Field(min_length=1)
     roles: dict[str, RoleCfg] = Field(min_length=1)
     session: SessionCfg
@@ -128,12 +133,21 @@ class Settings(_Frozen):
     # CI can inject keys). Never printed: SecretStr redacts in repr/str.
     secrets: dict[str, SecretStr] = Field(default_factory=dict, repr=False)
 
+    # Known lens names — kept here (not imported from src.lenses) so settings
+    # has no dependency on the lens package. Keep in sync when adding a lens.
+    _KNOWN_LENSES: ClassVar[frozenset[str]] = frozenset({"community"})
+
     @model_validator(mode="after")
     def _cross_check(self) -> "Settings":
         if self.default_profile not in self.profiles:
             raise ValueError(
                 f"default_profile {self.default_profile!r} not in profiles {self.profiles}"
             )
+        for lens in self.lenses:
+            if lens not in self._KNOWN_LENSES:
+                raise ValueError(
+                    f"unknown lens {lens!r} (known: {sorted(self._KNOWN_LENSES)})"
+                )
         for name, role in self.roles.items():
             if role.endpoint not in self.endpoints:
                 raise ValueError(

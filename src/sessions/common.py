@@ -141,10 +141,19 @@ def sources_digest(registry: SourceRegistry) -> str:
     )
 
 
-def findings_digest(run: Runspace, full_bodies: bool) -> str:
+def findings_digest(
+    run: Runspace, full_bodies: bool, only_tracks: set[str] | None = None
+) -> str:
     """Compact index for the worker; full bodies for evaluator/synthesizer
-    (Phase 2 runs are bounded; Phase 3 adds fan-out/compaction)."""
+    (Phase 2 runs are bounded; Phase 3 adds fan-out/compaction). only_tracks
+    filters by finding track — None (default) includes every track and is
+    byte-identical to the pre-lens behavior; the synthesizer passes
+    {"factual"} so community findings never enter the factual synthesis."""
     findings = run.load_findings()
+    if only_tracks is not None:
+        findings = {
+            slug: pair for slug, pair in findings.items() if pair[0].track in only_tracks
+        }
     if not findings:
         return "(no findings yet)"
     parts = []

@@ -37,6 +37,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--max-budget-usd", type=float, dest="max_budget_usd")
     parser.add_argument("--max-wall-hours", type=float, dest="max_wall_hours")
     parser.add_argument(
+        "--lens",
+        action="append",
+        metavar="NAME",
+        help="activate an evidence lens (e.g. community); repeatable",
+    )
+    parser.add_argument(
         "--json-summary",
         metavar="PATH",
         help="write a machine-readable run summary here (orchestrator hook)",
@@ -230,6 +236,7 @@ def main(argv: list[str] | None = None) -> int:
         "max_cycles": args.max_cycles,
         "max_budget_usd": args.max_budget_usd,
         "max_wall_hours": args.max_wall_hours,
+        "lenses": args.lens,  # None when unset => config default (empty)
     }
     try:
         settings = load_settings(config_path=args.config, overrides=overrides)

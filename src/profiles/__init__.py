@@ -10,6 +10,7 @@ from src.profiles.base import Profile, WorkerToolContext, WorkerToolset
 
 def get_profile(name: str) -> Profile:
     from src.profiles.general import GeneralProfile
+    from src.profiles.legal import LegalProfile
     from src.profiles.scientific import ScientificProfile
     from src.profiles.visual import VisualProfile
 
@@ -17,6 +18,7 @@ def get_profile(name: str) -> Profile:
         GeneralProfile.name: GeneralProfile,
         ScientificProfile.name: ScientificProfile,
         VisualProfile.name: VisualProfile,
+        LegalProfile.name: LegalProfile,  # FUTURE DOMAIN — v1 scaffold
     }
     profile_cls = registry.get(name)
     if profile_cls is None:
