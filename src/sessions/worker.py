@@ -403,15 +403,24 @@ def _apply_fragmented(run: Runspace, target: OpenQuestion, output: WorkerOutput)
     return f"fragmented {target.id} -> {', '.join(child_ids)}"
 
 
-def _apply_blocked(run: Runspace, target: OpenQuestion, output: WorkerOutput) -> str:
+def _apply_blocked(
+    run: Runspace, target: OpenQuestion, output: WorkerOutput, hard_block: bool = False
+) -> str:
     reason = output.blocked_reason.strip() or "no reason given"
     questions = run.load_questions()
     fresh_target = questions.get(target.id)
     fresh_target.status = "open"  # stays open; stall guard ends repeat blocks
-    fresh_target.blocked_count += 1  # gates evaluator's exhausted-scope close
+    # A HARD block — the engine read real pages this cycle and the reader
+    # judged NONE useful — is strong evidence the facet is unanswerable on the
+    # open web, so it counts double: one hard block reaches the evaluator's
+    # exhausted-scope close threshold (2), letting the run converge instead of
+    # grinding a dead facet into a stall (observed round 17, 2026-06-11). A
+    # SOFT block (transient fetch failures only) still needs two.
+    fresh_target.blocked_count += 2 if hard_block else 1
     run.save_questions(questions)
+    kind = "HARD" if hard_block else "soft"
     run.log_decision(
         f"worker BLOCKED on {target.id} "
-        f"(block #{fresh_target.blocked_count}): {reason}"
+        f"({kind}, count={fresh_target.blocked_count}): {reason}"
     )
     return f"blocked on {target.id}"

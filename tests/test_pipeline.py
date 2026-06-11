@@ -603,3 +603,25 @@ def test_rerank_scores_survives_reranker_exception(monkeypatch):
     monkeypatch.setattr(pipeline, "_get_reranker", lambda: Boom())
     # A reranker fault must degrade to rules, never raise.
     assert pipeline.rerank_scores("q", [{"url": "https://x.com", "title": "t", "snippet": "s"}]) == {}
+
+
+def test_apply_blocked_hard_vs_soft_increment(tmp_path):
+    from src.sessions.worker import _apply_blocked
+    from src.state import OpenQuestion, QuestionList
+
+    run = Runspace.create(tmp_path / "runs", "q", "general")
+    run.save_questions(QuestionList([
+        OpenQuestion(id="q-001", question="seed", priority=4, created_by="initializer"),
+    ]))
+    target = run.load_questions().get("q-001")
+
+    class _Out:
+        blocked_reason = "no useful reads"
+
+    # soft block: +1
+    _apply_blocked(run, target, _Out(), hard_block=False)
+    assert run.load_questions().get("q-001").blocked_count == 1
+    # hard block: +2 -> now at 3, past the exhausted-scope threshold of 2
+    _apply_blocked(run, target, _Out(), hard_block=True)
+    assert run.load_questions().get("q-001").blocked_count == 3
+    run.release_lock()

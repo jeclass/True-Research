@@ -575,19 +575,25 @@ async def _run_pipeline_async(
 
     # --- engine pre-emption: nothing useful was read -----------------------------
     if not reads:
+        # HARD block when the engine actually READ pages this cycle (fetched
+        # successfully) and the reader judged none useful — the facet isn't
+        # answerable from what's out there, not merely a transient fetch blip.
+        pages_read = len(selected) - failures
+        hard_block = pages_read >= 3
         run.log_decision(
             f"pipeline (cycle {cycle}): 0/{len(selected)} useful reads for "
-            f"{target.id} — engine-blocked without compose"
+            f"{target.id} ({pages_read} read, none useful) — engine-blocked "
+            f"without compose ({'HARD' if hard_block else 'soft'})"
         )
         fake = ComposeOutput(
             outcome="blocked",
             blocked_reason=(
                 f"no useful reads: {len(selected)} URLs selected, "
-                f"{failures} reads failed"
+                f"{pages_read} read but none useful, {failures} fetch-failed"
             ),
             progress_note=summary_prefix,
         )
-        summary = _apply_blocked(run, target, fake)
+        summary = _apply_blocked(run, target, fake, hard_block=hard_block)
         run.log(f"worker (cycle {cycle}, pipeline): {summary_prefix}")
         return _session_result(role_cfg, query_spawn, None, summary, summary_prefix)
 
