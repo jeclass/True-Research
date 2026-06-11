@@ -168,6 +168,23 @@ def _apply_output(
     for close in output.close_questions:
         question = questions.get(close.id)  # raises StateError if unknown
         if question.created_by == "initializer":
+            if question.blocked_count >= 2:
+                # Exhausted-scope release valve: the worker has blocked on
+                # this seed facet repeatedly with no usable sources. Closing
+                # it as a DOCUMENTED LIMITATION beats grinding the run into a
+                # partial finish (observed 2026-06-10: unanswerable seed +
+                # absolute protection = structural non-convergence). The
+                # synthesizer surfaces DECISIONS entries in the report.
+                question.status = "resolved"
+                closed_ids.append(close.id)
+                run.log_decision(
+                    f"evaluator (cycle {cycle}) closed SEED question "
+                    f"{close.id} as EXHAUSTED SCOPE after "
+                    f"{question.blocked_count} blocked worker attempts "
+                    f"({close.reason!r}) — record as a limitation, not "
+                    "answered"
+                )
+                continue
             # Seed questions are the run's mandated scope. An evaluator
             # pruning them trades completeness for convergence (observed
             # smoke7 2026-06-10: warranty facet closed as "immaterial",
@@ -176,7 +193,8 @@ def _apply_output(
             run.log_decision(
                 f"evaluator (cycle {cycle}) tried to close SEED question "
                 f"{close.id} ({close.reason!r}) — REFUSED: initializer "
-                "questions are the mandated scope"
+                "questions are the mandated scope (blocked "
+                f"{question.blocked_count}x; exhausted-scope close needs 2)"
             )
             continue
         if question.status == "resolved":

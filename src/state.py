@@ -41,6 +41,11 @@ class OpenQuestion(_Strict):
     # questions on fragmentation — "worker" added to keep both sections true.
     created_by: Literal["initializer", "evaluator", "worker"]
     resolved_by_finding: str | None = None
+    # Worker sessions that ended BLOCKED on this question (no usable sources).
+    # Gates the evaluator's exhausted-scope close of SEED questions (observed
+    # 2026-06-10: an unanswerable seed facet + absolute seed protection ground
+    # runs into partial finishes instead of converging).
+    blocked_count: int = Field(ge=0, default=0)
 
 
 class QuestionList(RootModel[list[OpenQuestion]]):

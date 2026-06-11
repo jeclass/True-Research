@@ -408,6 +408,10 @@ def _apply_blocked(run: Runspace, target: OpenQuestion, output: WorkerOutput) ->
     questions = run.load_questions()
     fresh_target = questions.get(target.id)
     fresh_target.status = "open"  # stays open; stall guard ends repeat blocks
+    fresh_target.blocked_count += 1  # gates evaluator's exhausted-scope close
     run.save_questions(questions)
-    run.log_decision(f"worker BLOCKED on {target.id}: {reason}")
+    run.log_decision(
+        f"worker BLOCKED on {target.id} "
+        f"(block #{fresh_target.blocked_count}): {reason}"
+    )
     return f"blocked on {target.id}"

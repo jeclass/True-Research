@@ -452,3 +452,30 @@ def test_evaluator_retries_parse_failures(run, tmp_path, monkeypatch):
     result = evaluator.run(run, settings, 1, Ledger(run))
     assert calls["n"] == 3
     assert result.session_type == "evaluator"
+
+
+def test_evaluator_seed_close_refused_below_blocked_threshold(run):
+    qs = run.load_questions() if (run.root / "open_questions.yaml").exists() else None
+    run.save_questions(QuestionList([
+        OpenQuestion(id="q-001", question="seed facet", priority=4,
+                     created_by="initializer", status="open", blocked_count=1),
+    ]))
+    passed, _n, _a, closed = evaluator._apply_output(
+        run, _eval_output(close_questions=[{"id": "q-001", "reason": "thin"}]), 1
+    )
+    assert closed == []
+    assert run.load_questions().get("q-001").status == "open"
+    assert any("REFUSED" in d for d in run.decisions())
+
+
+def test_evaluator_seed_close_allowed_after_two_blocks(run):
+    run.save_questions(QuestionList([
+        OpenQuestion(id="q-001", question="seed facet", priority=4,
+                     created_by="initializer", status="open", blocked_count=2),
+    ]))
+    passed, _n, _a, closed = evaluator._apply_output(
+        run, _eval_output(close_questions=[{"id": "q-001", "reason": "no sources exist"}]), 3
+    )
+    assert closed == ["q-001"]
+    assert run.load_questions().get("q-001").status == "resolved"
+    assert any("EXHAUSTED SCOPE" in d for d in run.decisions())
