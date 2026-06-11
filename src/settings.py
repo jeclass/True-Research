@@ -91,6 +91,10 @@ class WorkerPipelineCfg(_Frozen):
     urls_per_query: int = Field(ge=1)
     max_reads: int = Field(ge=1)
     per_domain_cap: int = Field(ge=1)
+    # Pre-read relevance reranking of search snippets vs the question
+    # (FlashRank, CPU). Optional dependency; unavailable => authority-first
+    # rules only. Relevance becomes the primary selection sort key.
+    rerank: bool = True
 
 
 class StubCfg(_Frozen):

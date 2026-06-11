@@ -249,6 +249,50 @@ _DEFAULT_BLOCKED_DOMAINS = (
 )
 
 
+_UNSET = object()
+_RERANKER: Any = _UNSET
+
+
+def _get_reranker():
+    """Lazy FlashRank cross-encoder singleton (CPU/ONNX — never touches the
+    GPU, so it can't contend with the resident worker/reader models). None if
+    the optional dependency is missing."""
+    global _RERANKER
+    if _RERANKER is _UNSET:
+        try:
+            from rerankers import Reranker
+
+            _RERANKER = Reranker("flashrank", verbose=0)
+        except Exception:
+            _RERANKER = None
+    return _RERANKER
+
+
+def rerank_scores(question: str, items: list[dict[str, Any]]) -> dict[str, float]:
+    """normalized-url -> relevance score for each candidate's title+snippet
+    against the question. Empty dict when reranking is unavailable or errors —
+    selection then falls back to the pure authority/diversity rules. CPU-only
+    and best-effort; a reranker fault must never fail a run."""
+    ranker = _get_reranker()
+    if ranker is None or not items:
+        return {}
+    docs: list[str] = []
+    urls: list[str] = []
+    for it in items:
+        snippet = (str(it.get("title", "")) + " " + str(it.get("snippet", ""))).strip()
+        url = (it.get("url") or "").strip()
+        if snippet and url:
+            docs.append(snippet[:500])
+            urls.append(common.normalize_url(url))
+    if not docs:
+        return {}
+    try:
+        ranked = ranker.rank(query=question, docs=docs)
+        return {urls[r.document.doc_id]: float(r.score) for r in ranked.results}
+    except Exception:
+        return {}
+
+
 def _pipeline_cfg(settings: Settings, profile: Profile) -> dict[str, int]:
     cfg = {
         "queries_per_question": settings.worker_pipeline.queries_per_question,
@@ -270,12 +314,16 @@ def select_urls(
     registry_urls: set[str],
     cfg: dict[str, int],
     preferences: dict[str, Any],
+    question: str | None = None,
+    rerank_fn: Any = None,
 ) -> list[dict[str, Any]]:
     """Rule-based URL selection (pure; spec step 3).
 
-    Order: preferred domains first, then provider order, round-robin across
-    queries. Dedupe by normalized URL; skip already-registered URLs; cap per
-    domain (with profile overrides); cap total at max_reads."""
+    Order: when a reranker is supplied, by question-relevance FIRST (so the
+    read budget goes to the most on-target pages), then preferred domains as
+    the tie-breaker; otherwise preferred domains first. Round-robin across
+    queries either way. Dedupe by normalized URL; skip already-registered
+    URLs; cap per domain (with profile overrides); cap total at max_reads."""
     preferred = list(preferences.get("preferred_domains", []))
     cap_overrides = dict(preferences.get("domain_cap_overrides", {}))
     blocked = set(_DEFAULT_BLOCKED_DOMAINS) | set(
@@ -291,6 +339,13 @@ def select_urls(
             if domain == pref or domain.endswith("." + pref):
                 return i
         return len(preferred)
+
+    # Pre-read relevance: score every candidate's snippet against the question
+    # so on-target pages outrank merely high-authority but tangential ones.
+    relevance: dict[str, float] = {}
+    if question and rerank_fn is not None:
+        all_items = [it for results in results_per_query for it in results]
+        relevance = rerank_fn(question, all_items)
 
     seen: set[str] = set(registry_urls)
     domain_counts: dict[str, int] = {}
@@ -308,7 +363,14 @@ def select_urls(
                 ordered.append((qi, results[indexes[qi]]))
                 indexes[qi] += 1
                 progressed = True
-    ordered.sort(key=lambda pair: rank(pair[1]))
+    # Relevance descending (primary), domain-authority ascending (tie-break).
+    # When relevance is empty (reranker off/unavailable), all scores are 0.0
+    # and this reduces exactly to the prior authority-first ordering.
+    def sort_key(pair: tuple[int, dict[str, Any]]):
+        norm = common.normalize_url((pair[1].get("url") or "").strip())
+        return (-relevance.get(norm, 0.0), rank(pair[1]))
+
+    ordered.sort(key=sort_key)
 
     for qi, item in ordered:
         url = (item.get("url") or "").strip()
@@ -463,7 +525,11 @@ async def _run_pipeline_async(
     results_per_query = await _gather_results(providers, queries, run)
     total_results = sum(len(r) for r in results_per_query)
     registry_urls = {common.normalize_url(rec.url) for rec in registry.root.values()}
-    selected = select_urls(results_per_query, registry_urls, cfg, profile.url_preferences())
+    rerank_fn = rerank_scores if settings.worker_pipeline.rerank else None
+    selected = select_urls(
+        results_per_query, registry_urls, cfg, profile.url_preferences(),
+        question=target.question, rerank_fn=rerank_fn,
+    )
     if total_results > 0 and len(selected) == cfg["max_reads"]:
         run.log_decision(
             f"pipeline (cycle {cycle}): read budget {cfg['max_reads']} truncated "

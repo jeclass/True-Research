@@ -557,3 +557,49 @@ def test_build_engine_sources_derives_title_for_untitled_pages():
     sources = pipeline.build_engine_sources([("https://example.com/page-x", out)])
     assert sources[0]["title"].startswith("example.com")
     assert sources[0]["id"].startswith("src-example-com")
+
+
+def test_select_urls_relevance_outranks_authority_when_reranked():
+    # Two candidates: a high-authority page that's off-topic, and a blog that's
+    # a bull's-eye. With reranking, the bull's-eye is read first.
+    results = [[
+        {"url": "https://stanford.edu/unrelated-page", "title": "campus map", "snippet": "directions"},
+        {"url": "https://someblog.com/ev-degradation", "title": "EV battery fade rates", "snippet": "1.8%/yr"},
+    ]]
+    prefs = {"preferred_domains": ["edu"], "domain_cap_overrides": {}}
+    cfg = {"queries_per_question": 4, "urls_per_query": 4, "max_reads": 2, "per_domain_cap": 2}
+
+    def fake_rerank(question, items):
+        return {pipeline.common.normalize_url(it["url"]):
+                (0.9 if "ev-degradation" in it["url"] else 0.01) for it in items}
+
+    out = pipeline.select_urls(results, set(), cfg, prefs,
+                               question="EV battery degradation rate",
+                               rerank_fn=fake_rerank)
+    assert "ev-degradation" in out[0]["url"]  # bull's-eye first despite blog domain
+
+
+def test_select_urls_without_reranker_is_authority_first():
+    # No reranker -> identical to prior behavior (edu domain first).
+    results = [[
+        {"url": "https://someblog.com/x", "title": "x", "snippet": "x"},
+        {"url": "https://stanford.edu/y", "title": "y", "snippet": "y"},
+    ]]
+    prefs = {"preferred_domains": ["edu"], "domain_cap_overrides": {}}
+    cfg = {"queries_per_question": 4, "urls_per_query": 4, "max_reads": 2, "per_domain_cap": 2}
+    out = pipeline.select_urls(results, set(), cfg, prefs)
+    assert "stanford.edu" in out[0]["url"]
+
+
+def test_rerank_scores_empty_when_reranker_unavailable(monkeypatch):
+    monkeypatch.setattr(pipeline, "_get_reranker", lambda: None)
+    assert pipeline.rerank_scores("q", [{"url": "https://x.com", "title": "t", "snippet": "s"}]) == {}
+
+
+def test_rerank_scores_survives_reranker_exception(monkeypatch):
+    class Boom:
+        def rank(self, **kw):
+            raise RuntimeError("model fault")
+    monkeypatch.setattr(pipeline, "_get_reranker", lambda: Boom())
+    # A reranker fault must degrade to rules, never raise.
+    assert pipeline.rerank_scores("q", [{"url": "https://x.com", "title": "t", "snippet": "s"}]) == {}

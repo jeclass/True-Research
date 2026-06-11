@@ -117,3 +117,6 @@ worker_pipeline:
   urls_per_query: 4
   max_reads: 12
   per_domain_cap: 2
+  rerank: true                   # FlashRank (CPU) scores snippet-vs-question
+                                 # relevance; on-target pages outrank merely
+                                 # high-authority tangential ones
