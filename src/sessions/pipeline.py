@@ -356,10 +356,14 @@ def build_engine_sources(
     sources: list[dict[str, Any]] = []
     for url, output in reads:
         norm = common.normalize_url(url)
+        # Readers occasionally return an empty title (untitled pages —
+        # observed smoke14 2026-06-11: SourceRecord.title min_length=1 killed
+        # the run). Derive one from the URL; the URL is always real.
+        title = output.title.strip() or _domain(url) + urlparse(url).path[:60]
         if norm in id_by_norm_url:
             source_id = id_by_norm_url[norm]
         else:
-            base = _SLUG_RE.sub("-", output.title.lower()).strip("-")[:40].strip("-") or "source"
+            base = _SLUG_RE.sub("-", title.lower()).strip("-")[:40].strip("-") or "source"
             source_id = f"src-{base}"
             n = 2
             while source_id in taken:
@@ -371,7 +375,7 @@ def build_engine_sources(
             {
                 "id": source_id,
                 "url": url,
-                "title": output.title,
+                "title": title,
                 "kind": output.kind,
                 "credibility": output.credibility,
                 "notes": output.notes,

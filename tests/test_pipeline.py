@@ -547,3 +547,13 @@ def test_parse_compose_rejects_off_menu_citations_for_reroll():
         {"src-real"},
     )
     assert out.finding is not None
+
+
+def test_build_engine_sources_derives_title_for_untitled_pages():
+    # Observed smoke14 2026-06-11: empty reader title -> SourceRecord
+    # validation death. Title falls back to domain+path.
+    out = ReaderOutput(useful=True, title="", kind="web", credibility=50,
+                       notes="n", summary_markdown="s")
+    sources = pipeline.build_engine_sources([("https://example.com/page-x", out)])
+    assert sources[0]["title"].startswith("example.com")
+    assert sources[0]["id"].startswith("src-example-com")
