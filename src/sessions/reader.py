@@ -81,10 +81,17 @@ def extract_text(html: str) -> str:
     return parser.text()
 
 
-async def fetch_page(url: str, settings: Settings) -> str:
-    """Fetch one URL and return extracted text, truncated to the configured
-    budget. Raises ReaderError on any fetch problem — callers surface it to
-    the worker as a failed read, never as fabricated content."""
+def _finalize_text(body: str, content_type: str, url: str, settings: Settings) -> str:
+    text = extract_text(body) if "html" in content_type else body
+    if not text.strip():
+        raise ReaderError(f"no extractable text at {url} (content-type {content_type})")
+    limit = settings.reader.max_page_chars
+    if len(text) > limit:
+        text = text[:limit] + "\n\n[TRUNCATED by engine at page-char budget]"
+    return text
+
+
+async def _fetch_via_httpx(url: str, settings: Settings) -> str:
     from src.tools import http_get_with_retry
 
     try:
@@ -96,16 +103,67 @@ async def fetch_page(url: str, settings: Settings) -> str:
         )
     except httpx.HTTPError as exc:
         raise ReaderError(f"fetch failed for {url}: {exc}") from exc
-
     content_type = response.headers.get("content-type", "")
-    body = response.text
-    text = extract_text(body) if "html" in content_type else body
-    if not text.strip():
-        raise ReaderError(f"no extractable text at {url} (content-type {content_type})")
-    limit = settings.reader.max_page_chars
-    if len(text) > limit:
-        text = text[:limit] + "\n\n[TRUNCATED by engine at page-char budget]"
-    return text
+    return _finalize_text(response.text, content_type, url, settings)
+
+
+def _stealth_fetch_sync(url: str, timeout_seconds: float) -> str:
+    """Scrapling StealthyFetcher (browser-rendered, anti-bot). Sync — run via
+    asyncio.to_thread. Import is lazy so the engine runs without the optional
+    dependency."""
+    from scrapling.fetchers import StealthyFetcher
+
+    # network_idle lets client-rendered pages finish loading (the common
+    # tier-1 failure: JS-only sites that return an empty shell to httpx).
+    # Enterprise-captcha walls (e.g. PubMed reCAPTCHA) stay unrescuable — the
+    # scientific profile routes around them to PMC/Europe-PMC mirrors.
+    page = StealthyFetcher.fetch(
+        url, headless=True, network_idle=True, timeout=int(timeout_seconds * 1000)
+    )
+    status = getattr(page, "status", 200)
+    if status >= 400:
+        raise ReaderError(f"stealth fetch for {url} returned HTTP {status}")
+    body = getattr(page, "html_content", None) or getattr(page, "body", "") or ""
+    if not isinstance(body, str):
+        body = body.decode("utf-8", errors="replace")
+    return body
+
+
+def _stealth_available() -> bool:
+    try:
+        import scrapling.fetchers  # noqa: F401
+        return True
+    except Exception:
+        return False
+
+
+async def fetch_page(url: str, settings: Settings) -> str:
+    """Fetch one URL and return extracted text, truncated to the configured
+    budget. Tier 1 is plain httpx (1-5s). On ANY tier-1 failure — bot-walls
+    (403/406/429), JS-only pages with no extractable text, timeouts — tier 2
+    makes ONE Scrapling stealth-browser attempt when reader.stealth_fallback
+    is enabled (2026-06-11: ~5-7 of 12 selected reads were failing on exactly
+    these). If both tiers fail, the ORIGINAL error surfaces. Raises
+    ReaderError on any fetch problem — callers surface it to the worker as a
+    failed read, never as fabricated content."""
+    import asyncio
+
+    try:
+        return await _fetch_via_httpx(url, settings)
+    except ReaderError as primary:
+        if not settings.reader.stealth_fallback or not _stealth_available():
+            raise
+        try:
+            stealth_timeout = max(settings.reader.fetch_timeout_seconds, 30)
+            body = await asyncio.to_thread(_stealth_fetch_sync, url, stealth_timeout)
+            return _finalize_text(body, "text/html", url, settings)
+        except ReaderError:
+            raise primary  # stealth was best-effort; report the real failure
+        except Exception as exc:  # browser/driver faults must not crash a run
+            raise ReaderError(
+                f"fetch failed for {url}: {primary} (stealth fallback also "
+                f"failed: {type(exc).__name__}: {exc})"
+            ) from primary
 
 
 async def read_source(

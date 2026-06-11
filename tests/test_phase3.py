@@ -479,3 +479,65 @@ def test_evaluator_seed_close_allowed_after_two_blocks(run):
     assert closed == ["q-001"]
     assert run.load_questions().get("q-001").status == "resolved"
     assert any("EXHAUSTED SCOPE" in d for d in run.decisions())
+
+
+def test_fetch_page_stealth_fallback_rescues_bot_walled_page(tmp_path, monkeypatch):
+    # 2026-06-11: ~5-7 of 12 selected reads failed on 403/JS-only pages.
+    # Tier-2 stealth converts them into usable reads.
+    from src.sessions import reader as reader_mod
+
+    settings = _settings(tmp_path, **{"reader.fetch_timeout_seconds": 2})
+
+    async def httpx_403(url, s):
+        raise ReaderError(f"fetch failed for {url}: 403 Forbidden")
+
+    monkeypatch.setattr(reader_mod, "_fetch_via_httpx", httpx_403)
+    monkeypatch.setattr(reader_mod, "_stealth_available", lambda: True)
+    monkeypatch.setattr(
+        reader_mod, "_stealth_fetch_sync",
+        lambda url, t: "<html><body><p>rescued content</p></body></html>",
+    )
+    text = asyncio.run(reader_mod.fetch_page("https://blocked.example/x", settings))
+    assert "rescued content" in text
+
+
+def test_fetch_page_surfaces_original_error_when_stealth_fails(tmp_path, monkeypatch):
+    from src.sessions import reader as reader_mod
+
+    settings = _settings(tmp_path, **{"reader.fetch_timeout_seconds": 2})
+
+    async def httpx_403(url, s):
+        raise ReaderError("fetch failed for x: 403 Forbidden")
+
+    def stealth_also_blocked(url, t):
+        raise ReaderError("stealth fetch for x returned HTTP 403")
+
+    monkeypatch.setattr(reader_mod, "_fetch_via_httpx", httpx_403)
+    monkeypatch.setattr(reader_mod, "_stealth_available", lambda: True)
+    monkeypatch.setattr(reader_mod, "_stealth_fetch_sync", stealth_also_blocked)
+    with pytest.raises(ReaderError, match="403 Forbidden"):
+        asyncio.run(reader_mod.fetch_page("https://blocked.example/x", settings))
+
+
+def test_fetch_page_no_stealth_when_disabled(tmp_path, monkeypatch):
+    from src.sessions import reader as reader_mod
+
+    settings = _settings(
+        tmp_path,
+        **{"reader.fetch_timeout_seconds": 2, "reader.stealth_fallback": False},
+    )
+    calls = {"stealth": 0}
+
+    async def httpx_403(url, s):
+        raise ReaderError("fetch failed: 403")
+
+    def count_stealth(url, t):
+        calls["stealth"] += 1
+        return "<html>x</html>"
+
+    monkeypatch.setattr(reader_mod, "_fetch_via_httpx", httpx_403)
+    monkeypatch.setattr(reader_mod, "_stealth_available", lambda: True)
+    monkeypatch.setattr(reader_mod, "_stealth_fetch_sync", count_stealth)
+    with pytest.raises(ReaderError):
+        asyncio.run(reader_mod.fetch_page("https://x.example/", settings))
+    assert calls["stealth"] == 0

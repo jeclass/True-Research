@@ -60,6 +60,9 @@ class ReaderCfg(_Frozen):
     max_failures_per_session: int = Field(ge=1)
     fetch_timeout_seconds: float = Field(gt=0)
     require_reads: bool = True
+    # One Scrapling stealth-browser retry per failed fetch (bot-walls,
+    # JS-only pages). Optional dependency; unavailable => tier 1 only.
+    stealth_fallback: bool = True
 
 
 class RetryCfg(_Frozen):
