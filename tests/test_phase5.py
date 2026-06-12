@@ -171,6 +171,26 @@ def test_bakeoff_override_to_unknown_endpoint_is_rejected(tmp_path):
         apply_overrides(settings, args)
 
 
+def test_bakeoff_overrides_repoint_compose_role(tmp_path):
+    import argparse
+
+    from evals.run_evals import apply_overrides
+
+    settings = _settings(tmp_path, **{
+        "roles.compose": {"endpoint": "anthropic",
+                          "model": "claude-haiku-4-5-20251001", "max_turns": 4},
+        "secrets": {"OLLAMA_AUTH": "ollama"},
+    })
+    args = argparse.Namespace(
+        compose_model="gpt-oss-20b-32k", compose_endpoint="local",
+    )
+    out = apply_overrides(settings, args)
+    assert out.roles["compose"].model == "gpt-oss-20b-32k"
+    assert out.roles["compose"].endpoint == "local"
+    # untouched roles preserved
+    assert out.roles["worker"].model == settings.roles["worker"].model
+
+
 # --- judge ledger isolation ------------------------------------------------------
 
 

@@ -70,6 +70,8 @@ def apply_overrides(settings: Settings, args: argparse.Namespace) -> Settings:
         ("evaluator", getattr(args, "evaluator_model", None), getattr(args, "evaluator_endpoint", None)),
         ("final_evaluator", getattr(args, "final_evaluator_model", None),
          getattr(args, "final_evaluator_endpoint", None)),
+        ("compose", getattr(args, "compose_model", None),
+         getattr(args, "compose_endpoint", None)),
     ):
         if role not in raw["roles"]:
             continue
@@ -134,6 +136,8 @@ def main() -> int:
     parser.add_argument("--evaluator-endpoint")
     parser.add_argument("--final-evaluator-model")
     parser.add_argument("--final-evaluator-endpoint")
+    parser.add_argument("--compose-model")
+    parser.add_argument("--compose-endpoint")
     parser.add_argument("--lens", action="append", metavar="NAME")
     args = parser.parse_args()
 
