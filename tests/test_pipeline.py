@@ -625,3 +625,70 @@ def test_apply_blocked_hard_vs_soft_increment(tmp_path):
     _apply_blocked(run, target, _Out(), hard_block=True)
     assert run.load_questions().get("q-001").blocked_count == 3
     run.release_lock()
+
+
+# --- compose role routing (COMPREHENSIVE_RESEARCH_SPEC §1) -----------------------------
+
+
+def _role_capturing_fakes(roles_used: dict[str, str]):
+    """fake_session records which role each single-shot call was routed to;
+    fake_read returns one useful page so compose actually runs."""
+
+    async def fake_session(**kwargs):
+        if kwargs["output_model"] is pipeline.QueryGenOutput:
+            roles_used["query-gen"] = kwargs["role"]
+            return FakeSpawn(pipeline.QueryGenOutput(queries=["q"], notes="n"))
+        roles_used["compose"] = kwargs["role"]
+        menu_id = kwargs["user_prompt"].split("[", 1)[1].split("]", 1)[0]
+        return FakeSpawn(None, result_text=(
+            '{"outcome": "resolved", "confidence": 0.8, "child_questions": [],'
+            ' "blocked_reason": "", "progress_note": "composed"}\n'
+            f"---FINDING---\nA composed claim. [{menu_id}]"
+        ))
+
+    async def fake_read(*, url, **kwargs):
+        return _ro("Real Title"), FakeSpawn(None)
+
+    return fake_session, fake_read
+
+
+def test_compose_routes_to_compose_role_when_configured(tmp_path, monkeypatch):
+    # Spec §1 (COMPREHENSIVE_RESEARCH_SPEC): an optional `compose` role routes
+    # ONLY the one-shot compose; query-gen stays on the worker role.
+    settings = _settings(tmp_path, **{"roles.compose": {
+        "endpoint": "anthropic", "model": "claude-haiku-4-5-20251001",
+        "max_turns": 4, "max_wall_seconds": 600,
+    }})
+    run = Runspace.create(tmp_path / "runs", "overall q", "general")
+    run.write_text("PLAN.md", "# plan\n")
+    target = OpenQuestion(id="q-001", question="assigned?", priority=5,
+                          created_by="initializer", status="in_progress")
+    run.save_questions(QuestionList([target]))
+    roles_used: dict[str, str] = {}
+    fake_session, fake_read = _role_capturing_fakes(roles_used)
+    monkeypatch.setattr(pipeline, "run_role_session_async", fake_session)
+    monkeypatch.setattr(pipeline.reader, "read_source", fake_read)
+
+    result = pipeline.run_pipeline(
+        run, settings, 1, Ledger(run), target, FakeProfile([_r("https://a.com/1")])
+    )
+
+    assert roles_used == {"query-gen": "worker", "compose": "compose"}
+    assert "resolved q-001" in result.summary
+    run.release_lock()
+
+
+def test_compose_falls_back_to_worker_role_when_unconfigured(run_env, monkeypatch):
+    # Guarded fallback: BASE_CONFIG has no `compose` role, so behavior must be
+    # byte-identical to the certified posture (compose on the worker role).
+    run, settings, target = run_env
+    roles_used: dict[str, str] = {}
+    fake_session, fake_read = _role_capturing_fakes(roles_used)
+    monkeypatch.setattr(pipeline, "run_role_session_async", fake_session)
+    monkeypatch.setattr(pipeline.reader, "read_source", fake_read)
+
+    pipeline.run_pipeline(
+        run, settings, 1, Ledger(run), target, FakeProfile([_r("https://a.com/1")])
+    )
+
+    assert roles_used == {"query-gen": "worker", "compose": "worker"}

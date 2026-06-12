@@ -46,6 +46,12 @@ from src.state import FindingMeta, OpenQuestion, SourceRegistry
 
 _ROLE = "worker"
 
+# Optional compose role (COMPREHENSIVE_RESEARCH_SPEC §1): when configured in
+# config.yaml `roles:`, the ONE one-shot compose call per resolved question
+# routes there (a stronger synthesis model); query-gen and readers stay on
+# the worker posture. Absent => compose uses _ROLE — the certified behavior.
+_COMPOSE_ROLE = "compose"
+
 _QUERY_GEN_SYSTEM = """\
 You generate web-search queries for ONE research question. You have no tools
 and make exactly one response.
@@ -606,6 +612,7 @@ async def _run_pipeline_async(
     id_by_url = {s["url"]: s["id"] for s in engine_sources}
 
     # --- step 6: one-shot compose --------------------------------------------------
+    compose_role = _COMPOSE_ROLE if _COMPOSE_ROLE in settings.roles else _ROLE
     menu_lines = []
     for url, output in reads:
         sid = id_by_url[url]
@@ -632,7 +639,7 @@ async def _run_pipeline_async(
             ),
         ),
         run=run, settings=settings, ledger=ledger, cycle=cycle,
-        session_type="worker", role=_ROLE,
+        session_type="worker", role=compose_role,
         system_prompt=_COMPOSE_SYSTEM, user_prompt=compose_prompt,
         tools=[], output_model=None,
     )
