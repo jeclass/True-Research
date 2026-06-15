@@ -98,6 +98,12 @@ class FindingMeta(_Strict):
     # of the factual synthesis (docs/COMMUNITY_LENS_SPEC.md). Defaulted so
     # every existing finding file loads unchanged.
     track: Literal["factual", "community"] = "factual"
+    # Adversarial verification (docs/COMMUNITY_LENS_SPEC sibling: COMPREHENSIVE
+    # item 3). An independent session tries to REFUTE the finding's claim:
+    # verified = survived; refuted = contradicted (synthesizer demotes it);
+    # unverified = not checked (default — normal runs don't verify).
+    verification_status: Literal["unverified", "verified", "refuted"] = "unverified"
+    verification_note: str = ""
 
 
 # --- ledger.json ---------------------------------------------------------------

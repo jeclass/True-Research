@@ -30,6 +30,11 @@ Report rules:
   from the findings. A claim you cannot cite does not go in the report.
 - If the run ended early (you will be told), say plainly what was and was not
   covered. Do not pad.
+- Some findings carry a VERIFICATION tag (an independent adversarial check).
+  Present VERIFIED findings normally. For a REFUTED finding, do NOT lead with
+  its claim — present it as contested, state plainly that an independent check
+  contradicted it, and weight the conclusion away from it. Unverified findings
+  are presented normally (absence of a check is not a mark against them).
 - Do NOT write a 'Limitations & decisions' section or a source list — the
   engine appends both from its own records.
 
@@ -80,6 +85,38 @@ def _community_section(run: Runspace, settings: Settings, community: dict) -> st
     return "".join(blocks)
 
 
+def _verification_section(factual: dict) -> str:
+    """Engine-built summary of the adversarial verification wave (§3). Lists
+    REFUTED findings explicitly so a contradicted claim is surfaced even if the
+    model under-weights it. Returns '' when nothing was verified (default runs
+    unchanged)."""
+    checked = [
+        (slug, m, b)
+        for slug, (m, b) in factual.items()
+        if m.verification_status in ("verified", "refuted")
+    ]
+    if not checked:
+        return ""
+    verified = [c for c in checked if c[1].verification_status == "verified"]
+    refuted = [c for c in checked if c[1].verification_status == "refuted"]
+    out = [
+        "\n\n## Verification",
+        "",
+        f"_An independent adversarial check tried to refute the load-bearing "
+        f"findings: {len(verified)} survived (verified), {len(refuted)} were "
+        f"contradicted (refuted). Refuted claims are demoted above and listed "
+        f"here._",
+        "",
+    ]
+    if refuted:
+        out.append("**Refuted / contested claims:**")
+        for slug, meta, _body in sorted(refuted):
+            out.append(f"- `{slug}` (question {meta.question_id}): {meta.verification_note}")
+    else:
+        out.append("No load-bearing finding was refuted by independent verification.")
+    return "\n".join(out) + "\n"
+
+
 def run(run: Runspace, settings: Settings, cycle: int, ledger: Ledger) -> SessionResult:
     all_findings = run.load_findings()
     sources = run.load_sources()
@@ -114,7 +151,8 @@ def run(run: Runspace, settings: Settings, cycle: int, ledger: Ledger) -> Sessio
     # Community section is engine-appended (quarantined); the model never saw
     # these findings, so it cannot fold anecdote into the factual synthesis.
     community_md = _community_section(run, settings, community)
-    report_body = factual_body + community_md
+    verification_md = _verification_section(factual)
+    report_body = factual_body + verification_md + community_md
 
     # --- deterministic citation pass (invariant 3) ---------------------------
     cited = common.CITATION_RE.findall(report_body)

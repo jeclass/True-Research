@@ -120,6 +120,14 @@ class ComprehensiveCfg(_Frozen):
     seed_target: int = Field(ge=1)
 
 
+class VerificationCfg(_Frozen):
+    # Adversarial verification wave (COMPREHENSIVE_RESEARCH_SPEC §3). Opt-in;
+    # --comprehensive turns it on. Off by default — normal runs are unchanged.
+    enabled: bool
+    max_findings: int = Field(ge=1)         # top-N by confidence (cost bound)
+    min_confidence: float = Field(ge=0.0, le=1.0)  # only verify load-bearing
+
+
 class StubCfg(_Frozen):
     seed_questions: int = Field(ge=1)
     worker_no_delta: bool
@@ -153,6 +161,7 @@ class Settings(_Frozen):
     worker_pipeline: WorkerPipelineCfg
     question_tree: QuestionTreeCfg
     comprehensive: ComprehensiveCfg
+    verification: VerificationCfg
     stub: StubCfg
     # auth_env name -> secret value, from .env (and os.environ as fallback so
     # CI can inject keys). Never printed: SecretStr redacts in repr/str.
@@ -251,6 +260,12 @@ def load_settings(
         for key in ("max_depth", "max_questions", "seed_target"):
             if key in comp:
                 qt[key] = comp[key]
+        # Comprehensive runs verify by default (the trust differentiator).
+        raw.setdefault("verification", {})["enabled"] = True
+
+    # --verify: enable the verification wave independent of comprehensive.
+    if overrides.pop("verify", False):
+        raw.setdefault("verification", {})["enabled"] = True
 
     for key, value in overrides.items():
         if value is not None:

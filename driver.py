@@ -50,6 +50,13 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="activate an evidence lens (e.g. community); repeatable",
     )
     parser.add_argument(
+        "--verify",
+        action="store_true",
+        help="run the adversarial verification wave before synthesis (an "
+        "independent verifier tries to refute each load-bearing finding). "
+        "Implied by --comprehensive.",
+    )
+    parser.add_argument(
         "--json-summary",
         metavar="PATH",
         help="write a machine-readable run summary here (orchestrator hook)",
@@ -93,6 +100,72 @@ def _run_session(
     )
 
 
+def _verify_phase(
+    run: Runspace, settings: Settings, ledger: Ledger, console: Console
+) -> None:
+    """Adversarial verification wave (COMPREHENSIVE_RESEARCH_SPEC §3): before
+    synthesis, an independent verifier tries to REFUTE each load-bearing
+    finding; the verdict is written into the finding's meta so the synthesizer
+    can demote refuted claims. Opt-in (settings.verification.enabled). Skips
+    already-verified findings, so a resumed finish re-enters cleanly. Budget-
+    guarded: verification spends Opus, so it stops at the budget breaker rather
+    than blowing past it in the breaker-exempt finish path."""
+    if not settings.verification.enabled or settings.session.backend != "sdk":
+        return
+    from src.profiles import get_profile
+    from src.sessions import verifier
+
+    vcfg = settings.verification
+    findings = run.load_findings()
+    candidates = sorted(
+        (
+            (slug, m, b)
+            for slug, (m, b) in findings.items()
+            if m.track == "factual"
+            and m.verification_status == "unverified"
+            and m.confidence >= vcfg.min_confidence
+        ),
+        key=lambda t: t[1].confidence,
+        reverse=True,
+    )[: vcfg.max_findings]
+    if not candidates:
+        return
+
+    profile = get_profile(run.meta.profile)
+    cycle = run.last_cycle()
+    console.log(f"verification wave: challenging {len(candidates)} findings")
+    counts = {"verified": 0, "refuted": 0, "unverified": 0}
+    for slug, meta, body in candidates:
+        if ledger.spend_usd >= settings.max_budget_usd:
+            run.log_decision(
+                "verification wave halted: budget breaker reached "
+                f"({len(candidates) - sum(counts.values())} findings left unverified)"
+            )
+            break
+        try:
+            status, note = verifier.verify_finding(
+                run, settings, ledger, cycle, profile, slug, meta, body
+            )
+        except Exception as exc:  # noqa: BLE001 — one bad verify must not kill the report
+            run.log_decision(f"verification of {slug} errored: {exc}")
+            continue
+        run.write_finding(
+            slug,
+            meta.model_copy(
+                update={"verification_status": status, "verification_note": note}
+            ),
+            body,
+        )
+        ledger.checkpoint()
+        counts[status] = counts.get(status, 0) + 1
+        run.log_decision(f"verification {slug}: {status.upper()} — {note}")
+        console.log(f"[verify] {slug}: {status}")
+    run.log(
+        f"verification wave: {counts['verified']} verified, "
+        f"{counts['refuted']} refuted, {counts['unverified']} inconclusive"
+    )
+
+
 def _finish(
     backend: Backend,
     run: Runspace,
@@ -102,10 +175,12 @@ def _finish(
     reason: FinishReason,
 ) -> FinishReason:
     """Every exit path lands here: reason is recorded first, then the
-    synthesizer ALWAYS writes a (possibly partial) report — it is the one
-    session exempt from breakers, by design (§3.4)."""
+    verification wave (opt-in) annotates findings, then the synthesizer ALWAYS
+    writes a (possibly partial) report — it is the one session exempt from
+    breakers, by design (§3.4)."""
     run.log(f"Run ending: {reason}")
     run.mark_finishing(reason)
+    _verify_phase(run, settings, ledger, console)
     _run_session(backend, "synthesizer", run, settings, run.last_cycle(), ledger, console)
     run.mark_finished()
     return reason
@@ -245,6 +320,7 @@ def main(argv: list[str] | None = None) -> int:
         "max_wall_hours": args.max_wall_hours,
         "lenses": args.lens,  # None when unset => config default (empty)
         "comprehensive": args.comprehensive,  # promotes the deep bundle
+        "verify": args.verify,  # enables the verification wave
     }
     try:
         settings = load_settings(config_path=args.config, overrides=overrides)

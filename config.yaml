@@ -36,6 +36,16 @@ comprehensive:
   max_questions: 120
   seed_target: 12
 
+# --- Verification wave (COMPREHENSIVE_RESEARCH_SPEC §3) -----------------------
+# Opt-in (--verify, or implied by --comprehensive). After the loop resolves the
+# question tree, an independent verifier tries to REFUTE each load-bearing
+# finding; refuted findings are demoted in the report (verified > unverified >
+# refuted). Off by default — normal runs are unchanged.
+verification:
+  enabled: false
+  max_findings: 8        # verify the top-N highest-confidence findings (cost bound)
+  min_confidence: 0.6    # only verify load-bearing (confident) findings
+
 # --- Research profiles (selected via --profile; implementations land Phase 4)
 profiles: [general, scientific, visual, legal]   # legal = v1 future-domain scaffold
 default_profile: general
@@ -93,6 +103,10 @@ roles:
   vision_reader:   {endpoint: anthropic, model: claude-opus-4-8,    max_turns: 6,  max_wall_seconds: 600}
   # judge scores eval-set reports (evals/run_evals.py); fresh context, Opus.
   judge:           {endpoint: anthropic, model: claude-opus-4-8,    max_turns: 8,  max_wall_seconds: 900}
+  # adversarial verifier (COMPREHENSIVE_RESEARCH_SPEC §3): an independent,
+  # amnesiac session that tries to REFUTE a finding. The verdict is judgment
+  # work => Opus; its refutation query-gen + reads reuse the local pipeline.
+  verifier:        {endpoint: anthropic, model: claude-opus-4-8,    max_turns: 8,  max_wall_seconds: 900}
 
 # --- Per-session limits (enforced in sessions/base.py from Phase 2) ---------
 session:

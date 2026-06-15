@@ -189,9 +189,15 @@ def findings_digest(
         return "(no findings yet)"
     parts = []
     for slug, (meta, body) in sorted(findings.items()):
+        ver = (
+            ""
+            if meta.verification_status == "unverified"
+            else f", VERIFICATION: {meta.verification_status.upper()}"
+        )
         head = (
             f"### findings/{slug}.md (question {meta.question_id}, "
-            f"confidence {meta.confidence:.2f}, sources: {', '.join(meta.source_ids)})"
+            f"confidence {meta.confidence:.2f}{ver}, "
+            f"sources: {', '.join(meta.source_ids)})"
         )
         parts.append(f"{head}\n{body.strip()}" if full_bodies else head)
     return "\n\n".join(parts)

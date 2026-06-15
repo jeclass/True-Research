@@ -28,6 +28,7 @@ BASE_CONFIG: dict = {
         },
         "evaluator": {"endpoint": "anthropic", "model": "claude-opus-4-8", "max_turns": 24},
         "judge": {"endpoint": "anthropic", "model": "claude-opus-4-8", "max_turns": 8},
+        "verifier": {"endpoint": "anthropic", "model": "claude-opus-4-8", "max_turns": 8},
         "synthesizer": {"endpoint": "anthropic", "model": "claude-opus-4-8", "max_turns": 40},
     },
     "session": {"backend": "stub", "max_budget_usd_per_session": 2.0,
@@ -56,6 +57,7 @@ BASE_CONFIG: dict = {
         "max_questions": 120,
         "seed_target": 12,
     },
+    "verification": {"enabled": False, "max_findings": 8, "min_confidence": 0.6},
     "stub": {
         "seed_questions": 3,
         "worker_no_delta": False,
