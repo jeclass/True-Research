@@ -139,6 +139,10 @@ def main() -> int:
     parser.add_argument("--compose-model")
     parser.add_argument("--compose-endpoint")
     parser.add_argument("--lens", action="append", metavar="NAME")
+    parser.add_argument(
+        "--comprehensive", action="store_true",
+        help="promote the config comprehensive: bundle (deep-research posture)",
+    )
     args = parser.parse_args()
 
     console = Console()
@@ -147,6 +151,7 @@ def main() -> int:
         "max_budget_usd": args.max_budget_usd,
         "max_wall_hours": args.max_wall_hours,
         "lenses": args.lens,
+        "comprehensive": args.comprehensive,
     }
     try:
         settings = load_settings(config_path=args.config, overrides=overrides)

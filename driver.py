@@ -37,6 +37,13 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--max-budget-usd", type=float, dest="max_budget_usd")
     parser.add_argument("--max-wall-hours", type=float, dest="max_wall_hours")
     parser.add_argument(
+        "--comprehensive",
+        action="store_true",
+        help="deep-research posture: promote the config `comprehensive:` bundle "
+        "(more cycles/wall/budget, deeper question tree, more seed questions). "
+        "Explicit --max-* flags still win.",
+    )
+    parser.add_argument(
         "--lens",
         action="append",
         metavar="NAME",
@@ -237,9 +244,20 @@ def main(argv: list[str] | None = None) -> int:
         "max_budget_usd": args.max_budget_usd,
         "max_wall_hours": args.max_wall_hours,
         "lenses": args.lens,  # None when unset => config default (empty)
+        "comprehensive": args.comprehensive,  # promotes the deep bundle
     }
     try:
         settings = load_settings(config_path=args.config, overrides=overrides)
+        if args.comprehensive:
+            console.print(
+                f"[bold cyan]COMPREHENSIVE mode — deep bounds applied: "
+                f"max_cycles={settings.max_cycles}, "
+                f"max_wall_hours={settings.max_wall_hours}, "
+                f"max_budget_usd=${settings.max_budget_usd}, "
+                f"tree depth<={settings.question_tree.max_depth}, "
+                f"<={settings.question_tree.max_questions} questions, "
+                f"seed_target={settings.question_tree.seed_target}.[/bold cyan]"
+            )
         if settings.is_full_local():
             # §1: full-local is permitted but must be LOUD — judgment roles
             # (evaluator/adjudication/synthesis) degrade most on local models.

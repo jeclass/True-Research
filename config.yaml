@@ -16,6 +16,26 @@ max_final_evaluations: 4  # Opus final-gate firings/run (budget posture's main
 # --- Stall detection (CLAUDE.md §3.5) ---------------------------------------
 stall_cycles: 2           # consecutive cycles with no state delta => halt
 
+# --- Question-tree bounds (item 2 — deeper trees) ---------------------------
+# PERMISSIVE defaults: bound runaway recursion/breadth without changing
+# certified-run behavior (~12 questions, depth <=2). --comprehensive promotes
+# the deeper bundle below.
+question_tree:
+  max_depth: 4            # fragmentation refused past this depth (leaf instead)
+  max_questions: 50       # total questions a run may create
+  seed_target: 6          # questions the initializer aims for (was hardcoded 3-6)
+
+# --- Comprehensive mode (--comprehensive: one switch for "go deep") ---------
+# Promoted over the breakers + question_tree at load time. Explicit CLI flags
+# still win. This is the 8-hour-research posture; default runs are unaffected.
+comprehensive:
+  max_cycles: 150
+  max_wall_hours: 8.0
+  max_budget_usd: 25.0
+  max_depth: 6
+  max_questions: 120
+  seed_target: 12
+
 # --- Research profiles (selected via --profile; implementations land Phase 4)
 profiles: [general, scientific, visual, legal]   # legal = v1 future-domain scaffold
 default_profile: general

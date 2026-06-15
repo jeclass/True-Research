@@ -682,7 +682,7 @@ async def _run_pipeline_async(
         run.save_questions(questions)
         summary = f"resolved {target.id} -> findings/{slug}.md ({len(set(cited))} sources)"
     elif output.outcome == "fragmented":
-        summary = _apply_fragmented(run, target, output)
+        summary = _apply_fragmented(run, settings, target, output)
     else:  # "blocked" — the only remaining Literal variant
         summary = _apply_blocked(run, target, output)
 

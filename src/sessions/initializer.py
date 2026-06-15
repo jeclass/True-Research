@@ -25,7 +25,7 @@ resolved with source-backed findings.
 Your job, given one research question:
 1. plan_markdown — a research plan in markdown: scope, what conclusive looks
    like, the angles of attack, likely source types, known pitfalls.
-2. questions — 3 to 6 open questions that decompose the research question.
+2. questions — {count_line}
 
 Rules for questions:
 - Each must be independently investigable through web research by a worker
@@ -33,8 +33,35 @@ Rules for questions:
 - Cover breadth first: together they must span the research question.
 - No overlapping or duplicate questions.
 - priority is an integer 1-5; 5 = most load-bearing for the final answer.
-
+{comprehensive_note}
 You have NO tools. Respond ONLY via the enforced JSON schema."""
+
+
+def build_system_prompt(seed_target: int) -> str:
+    """Scale the initializer's decomposition by the question-tree seed target:
+    normal runs get a tight 3–6 spread; comprehensive runs (high target) get a
+    broad, deliberately-fragmentable facet set (item 2)."""
+    if seed_target > 7:
+        lo = max(6, seed_target - 4)
+        count_line = (
+            f"{lo} to {seed_target} open questions that decompose the research\n"
+            "   question for a COMPREHENSIVE, multi-hour investigation."
+        )
+        comprehensive_note = (
+            "\nThis is a COMPREHENSIVE run — cover the FULL breadth of every "
+            "major facet. Where a facet is itself broad, phrase it so a worker "
+            "will decompose it further; the engine fragments broad questions "
+            "into sub-questions automatically, so do not pre-expand them. Favor "
+            "complete coverage over a short list.\n"
+        )
+    else:
+        count_line = "3 to {0} open questions that decompose the research question.".format(
+            seed_target
+        )
+        comprehensive_note = ""
+    return _SYSTEM_PROMPT.format(
+        count_line=count_line, comprehensive_note=comprehensive_note
+    )
 
 
 class PlannedQuestion(BaseModel):
@@ -50,11 +77,18 @@ class InitializerOutput(BaseModel):
 
 
 def run(run: Runspace, settings: Settings, cycle: int, ledger: Ledger) -> SessionResult:
+    seed_target = settings.question_tree.seed_target
+    constraint = (
+        "Constraints: this is a COMPREHENSIVE run with a large budget — favor "
+        "thorough breadth across every facet over a short list."
+        if seed_target > 7
+        else "Constraints: the run is budget- and time-bounded, so prefer "
+        "fewer, sharper questions over many shallow ones."
+    )
     user_prompt = (
         f"Research question:\n\n{run.meta.question}\n\n"
         f"Active research profile: {run.meta.profile}\n"
-        "Constraints: the run is budget- and time-bounded, so prefer fewer, "
-        "sharper questions over many shallow ones."
+        f"{constraint}"
     )
     spawn = run_role_session(
         run=run,
@@ -63,7 +97,7 @@ def run(run: Runspace, settings: Settings, cycle: int, ledger: Ledger) -> Sessio
         cycle=cycle,
         session_type="initializer",
         role=_ROLE,
-        system_prompt=_SYSTEM_PROMPT,
+        system_prompt=build_system_prompt(seed_target),
         user_prompt=user_prompt,
         tools=[],
         output_model=InitializerOutput,

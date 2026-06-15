@@ -97,6 +97,29 @@ class WorkerPipelineCfg(_Frozen):
     rerank: bool = True
 
 
+class QuestionTreeCfg(_Frozen):
+    # Bounds on the open-question tree (docs/COMPREHENSIVE_RESEARCH_SPEC item 2).
+    # Defaults are PERMISSIVE — they bound runaway recursion/breadth without
+    # changing certified-run behavior (~12 questions, depth <=2). The
+    # comprehensive bundle below raises them for deep runs.
+    max_depth: int = Field(ge=0)        # fragmentation refused past this depth
+    max_questions: int = Field(ge=1)    # total questions a run may create
+    seed_target: int = Field(ge=1)      # questions the initializer aims for
+
+
+class ComprehensiveCfg(_Frozen):
+    # "Go deep" bundle promoted by --comprehensive. Values live in config (no
+    # magic numbers in code); load_settings copies them over the top-level
+    # breakers + question_tree when the flag is set. Explicit CLI overrides
+    # still win over these.
+    max_cycles: int = Field(ge=1)
+    max_wall_hours: float = Field(gt=0)
+    max_budget_usd: float = Field(ge=0)
+    max_depth: int = Field(ge=0)
+    max_questions: int = Field(ge=1)
+    seed_target: int = Field(ge=1)
+
+
 class StubCfg(_Frozen):
     seed_questions: int = Field(ge=1)
     worker_no_delta: bool
@@ -128,6 +151,8 @@ class Settings(_Frozen):
     search: SearchCfg
     retry: RetryCfg
     worker_pipeline: WorkerPipelineCfg
+    question_tree: QuestionTreeCfg
+    comprehensive: ComprehensiveCfg
     stub: StubCfg
     # auth_env name -> secret value, from .env (and os.environ as fallback so
     # CI can inject keys). Never printed: SecretStr redacts in repr/str.
@@ -210,7 +235,24 @@ def load_settings(
     if not isinstance(raw, dict):
         raise ConfigError(f"config file {config_file} must be a YAML mapping")
 
-    for key, value in (overrides or {}).items():
+    overrides = dict(overrides or {})
+
+    # --comprehensive: promote the comprehensive bundle over the top-level
+    # breakers + question_tree BEFORE the generic override loop, so explicit
+    # CLI flags (--max-budget-usd, etc.) still win over the bundle.
+    if overrides.pop("comprehensive", False):
+        comp = raw.get("comprehensive")
+        if not isinstance(comp, dict):
+            raise ConfigError("--comprehensive requires a `comprehensive:` config block")
+        for key in ("max_cycles", "max_wall_hours", "max_budget_usd"):
+            if key in comp:
+                raw[key] = comp[key]
+        qt = raw.setdefault("question_tree", {})
+        for key in ("max_depth", "max_questions", "seed_target"):
+            if key in comp:
+                qt[key] = comp[key]
+
+    for key, value in overrides.items():
         if value is not None:
             raw[key] = value
 

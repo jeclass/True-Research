@@ -291,7 +291,7 @@ def run(run: Runspace, settings: Settings, cycle: int, ledger: Ledger) -> Sessio
     if output.outcome == "resolved":
         summary = _apply_resolved(run, settings, target, output, cycle, read_urls)
     elif output.outcome == "fragmented":
-        summary = _apply_fragmented(run, target, output)
+        summary = _apply_fragmented(run, settings, target, output)
     else:
         summary = _apply_blocked(run, target, output)
 
@@ -375,10 +375,38 @@ def _apply_resolved(
     return f"resolved {target.id} -> findings/{slug}.md ({len(set(cited))} sources)"
 
 
-def _apply_fragmented(run: Runspace, target: OpenQuestion, output: WorkerOutput) -> str:
+def _apply_fragmented(
+    run: Runspace, settings: Settings, target: OpenQuestion, output: WorkerOutput
+) -> str:
     if not output.child_questions:
         raise WorkerError(f"{target.id}: outcome=fragmented but no child_questions")
     questions = run.load_questions()
+    tree = settings.question_tree
+    child_depth = target.depth + 1
+
+    # Bound the question tree (docs/COMPREHENSIVE_RESEARCH_SPEC item 2). When a
+    # fragment would breach the depth limit or the total-question cap, refuse
+    # it: the question becomes a LEAF (resolved, no finding) and the choice is
+    # surfaced to DECISIONS (invariant 8). Permissive defaults mean normal runs
+    # never hit these — they bound deep/comprehensive runs from runaway growth.
+    def _cap_as_leaf(reason: str) -> str:
+        fresh = questions.get(target.id)
+        fresh.status = "resolved"
+        run.save_questions(questions)
+        run.log_decision(f"fragmentation of {target.id} REFUSED: {reason}")
+        return f"capped {target.id}"
+
+    if child_depth > tree.max_depth:
+        return _cap_as_leaf(
+            f"question-tree depth {tree.max_depth} reached; treated as a leaf "
+            "(no finding)"
+        )
+    if len(questions.root) + len(output.child_questions) > tree.max_questions:
+        return _cap_as_leaf(
+            f"question cap {tree.max_questions} reached "
+            f"({len(questions.root)} existing); treated as a leaf (no finding)"
+        )
+
     child_ids = []
     for child in output.child_questions:
         common.check_priority(child.priority, WorkerError, f"child of {target.id}")
@@ -390,6 +418,8 @@ def _apply_fragmented(run: Runspace, target: OpenQuestion, output: WorkerOutput)
                 priority=child.priority,
                 parent_id=target.id,
                 created_by="worker",
+                depth=child_depth,
+                track=target.track,  # children stay on the parent's lens track
             )
         )
         child_ids.append(child_id)
@@ -397,8 +427,8 @@ def _apply_fragmented(run: Runspace, target: OpenQuestion, output: WorkerOutput)
     fresh_target.status = "resolved"  # decomposed; the children carry it forward
     run.save_questions(questions)
     run.log_decision(
-        f"worker fragmented {target.id} into {', '.join(child_ids)} — "
-        "parent marked resolved without a finding"
+        f"worker fragmented {target.id} (depth {target.depth}->{child_depth}) "
+        f"into {', '.join(child_ids)} — parent resolved without a finding"
     )
     return f"fragmented {target.id} -> {', '.join(child_ids)}"
 

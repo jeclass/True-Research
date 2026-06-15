@@ -47,6 +47,15 @@ BASE_CONFIG: dict = {
         "max_reads": 12,
         "per_domain_cap": 2,
     },
+    "question_tree": {"max_depth": 4, "max_questions": 50, "seed_target": 6},
+    "comprehensive": {
+        "max_cycles": 150,
+        "max_wall_hours": 8.0,
+        "max_budget_usd": 25.0,
+        "max_depth": 6,
+        "max_questions": 120,
+        "seed_target": 12,
+    },
     "stub": {
         "seed_questions": 3,
         "worker_no_delta": False,

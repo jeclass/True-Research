@@ -51,6 +51,10 @@ class OpenQuestion(_Strict):
     # 2026-06-10: an unanswerable seed facet + absolute seed protection ground
     # runs into partial finishes instead of converging).
     blocked_count: int = Field(ge=0, default=0)
+    # Question-tree depth: initializer/evaluator seeds are 0; a fragmentation
+    # child is parent.depth + 1. Bounds recursive decomposition for deep
+    # ("comprehensive") runs (docs/COMPREHENSIVE_RESEARCH_SPEC.md item 2).
+    depth: int = Field(ge=0, default=0)
 
 
 class QuestionList(RootModel[list[OpenQuestion]]):
