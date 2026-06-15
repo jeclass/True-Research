@@ -18,6 +18,21 @@
 > Ablation flags: `--compose-model/--compose-endpoint` on run_evals.py.
 > Next up: roadmap item 2 (deeper question trees).
 
+> **UPDATE 2026-06-15 — roadmap item 2 (deeper question trees) — machinery shipped + a real bug fixed.**
+> Built: question `depth` field, tree bounds (`question_tree.max_depth/max_questions`),
+> `--comprehensive` switch (promotes a deep cycles/wall/budget/seed bundle), richer
+> 12-facet seeding. THE bigger win came from running it for real: the local
+> evaluator was **re-emitting existing questions as "new" every cycle** (a
+> comprehensive run had 35 questions = 13 real facets + 22 near-verbatim
+> duplicates), which blocked convergence. Fixed with engine-side dedup
+> (`common.duplicate_question_id`, difflib ≥0.90). Re-validation: **17 distinct
+> questions, 0 duplicates** (was 13/35), 4 dup-drops logged. 155 tests.
+> CAVEAT: hierarchical *depth* stays flat — local workers don't fragment and the
+> local evaluator won't set `parent_id` even when instructed; guaranteed depth
+> needs the Opus initializer to seed a 2-level tree (open decision). Comprehensive
+> runs still need real wall-clock (hours) to reach `conclusive` — short test caps
+> finish on `time`. Commits: 76ff2d9, cf812e4, 833c165.
+
 Pick up in VSCode: `git pull` on branch `claude/tender-keller-gdae8u`, then read
 this file. Everything below is current as of the certification run that
 finished 2026-06-11 10:18.
