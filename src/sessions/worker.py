@@ -410,6 +410,12 @@ def _apply_fragmented(
     child_ids = []
     for child in output.child_questions:
         common.check_priority(child.priority, WorkerError, f"child of {target.id}")
+        dup = common.duplicate_question_id(child.question, questions)
+        if dup is not None:
+            run.log_decision(
+                f"worker fragmenting {target.id}: child near-duplicates {dup}; dropped"
+            )
+            continue
         child_id = common.next_question_id(questions)
         questions.root.append(
             OpenQuestion(

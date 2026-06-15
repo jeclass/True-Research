@@ -227,6 +227,13 @@ def _apply_output(
     added_ids: list[str] = []
     for proposed in output.new_questions:
         common.check_priority(proposed.priority, EvalError, f"new question {proposed.question!r}")
+        dup = common.duplicate_question_id(proposed.question, questions)
+        if dup is not None:
+            run.log_decision(
+                f"evaluator (cycle {cycle}) proposed a near-duplicate of {dup}; "
+                f"dropped {proposed.question[:60]!r}"
+            )
+            continue
         if len(questions.root) >= max_questions:
             run.log_decision(
                 f"evaluator (cycle {cycle}) hit question cap {max_questions}; "

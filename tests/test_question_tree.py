@@ -146,17 +146,18 @@ def test_evaluator_gap_inherits_depth_from_parent(tmp_path):
         )
     )
 
-    def _gap(parent):
+    def _gap(parent, text):
         return evaluator.EvaluatorOutput(
             passed=False, unmet_criteria=["gap"], contradictions=[],
             new_questions=[
-                evaluator.ProposedQuestion(question="deeper", priority=3, parent_id=parent)
+                evaluator.ProposedQuestion(question=text, priority=3, parent_id=parent)
             ],
             close_questions=[], notes="n",
         )
 
-    evaluator._apply_output(run, _gap("q-001"), 1, s)   # linked -> depth 1
-    evaluator._apply_output(run, _gap(None), 2, s)      # top-level -> depth 0
+    # distinct texts (the dedup guard drops verbatim repeats)
+    evaluator._apply_output(run, _gap("q-001", "refine the seed with effect sizes"), 1, s)
+    evaluator._apply_output(run, _gap(None, "a brand new top-level facet entirely"), 2, s)
     qs = run.load_questions()
     linked = [q for q in qs.root if q.parent_id == "q-001"]
     top = [q for q in qs.root if q.created_by == "evaluator" and q.parent_id is None]
@@ -170,3 +171,50 @@ def test_initializer_prompt_scales_with_seed_target():
     comp = initializer.build_system_prompt(12)
     assert "3 to 6" in normal and "COMPREHENSIVE" not in normal
     assert "12" in comp and "COMPREHENSIVE" in comp
+
+
+def test_duplicate_question_detection():
+    from src.sessions import common
+
+    qs = QuestionList([
+        OpenQuestion(
+            id="q-001",
+            question="What is the evidence for creatine's effect on cognition in healthy adults?",
+            priority=3, created_by="initializer",
+        )
+    ])
+    # verbatim, and near-verbatim (case/punctuation) => duplicate
+    assert common.duplicate_question_id(
+        "What is the evidence for creatine's effect on cognition in healthy adults?", qs
+    ) == "q-001"
+    assert common.duplicate_question_id(
+        "what is the evidence for creatines effect on cognition in healthy adults", qs
+    ) == "q-001"
+    # genuinely different facet => not a duplicate
+    assert common.duplicate_question_id(
+        "What is the biochemical mechanism of creatine phosphorylation in muscle?", qs
+    ) is None
+
+
+def test_evaluator_drops_duplicate_gaps(tmp_path):
+    # The core fix: local evaluator re-emits existing questions as "new"; the
+    # engine must drop them (observed comprehensive run 2026-06-15).
+    from src.sessions import evaluator
+
+    s = _settings(tmp_path)
+    run = Runspace.create(tmp_path / "runs", "q", "general")
+    run.save_questions(QuestionList([
+        OpenQuestion(id="q-001", question="Creatine effects on muscle strength and power output?",
+                     priority=4, created_by="initializer"),
+    ]))
+    out = evaluator.EvaluatorOutput(
+        passed=False, unmet_criteria=["x"], contradictions=[],
+        new_questions=[
+            evaluator.ProposedQuestion(question="Creatine effects on muscle strength and power output?", priority=3),
+            evaluator.ProposedQuestion(question="Creatine effects on bone mineral density in older adults?", priority=3),
+        ],
+        close_questions=[], notes="n",
+    )
+    _p, _n, added, _c = evaluator._apply_output(run, out, 1, s)
+    assert len(added) == 1  # only the genuinely-new gap survived
+    run.release_lock()

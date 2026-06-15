@@ -53,6 +53,37 @@ def next_question_id(questions: QuestionList) -> str:
     return f"q-{highest + 1:03d}"
 
 
+# Conservative — catches verbatim / near-verbatim re-emissions without
+# dropping meaningfully-different questions (e.g. same facet, different
+# population). The bulk of observed duplicates are exact repeats (ratio 1.0).
+_DUP_THRESHOLD = 0.90
+
+
+def _normalize_question(text: str) -> str:
+    return re.sub(r"\s+", " ", re.sub(r"[^a-z0-9 ]", " ", text.lower())).strip()
+
+
+def duplicate_question_id(text: str, questions: QuestionList) -> str | None:
+    """Id of an existing question that `text` substantially duplicates
+    (normalized exact match or difflib ratio >= _DUP_THRESHOLD), else None.
+
+    Guards against the local evaluator re-emitting existing questions as
+    'new' ones every cycle, which pollutes the queue and blocks convergence
+    (observed comprehensive run 2026-06-15: 22 of 35 questions were near-
+    verbatim duplicates of the 13 seeds). Compares against ALL questions —
+    re-asking a resolved question is as wasteful as re-asking an open one."""
+    from difflib import SequenceMatcher
+
+    norm = _normalize_question(text)
+    if not norm:
+        return None
+    for q in questions.root:
+        existing = _normalize_question(q.question)
+        if norm == existing or SequenceMatcher(None, norm, existing).ratio() >= _DUP_THRESHOLD:
+            return q.id
+    return None
+
+
 def pick_target_question(questions: QuestionList) -> OpenQuestion | None:
     """Orphaned in_progress questions first, then highest-priority open.
 
