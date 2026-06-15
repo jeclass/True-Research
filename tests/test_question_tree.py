@@ -132,6 +132,39 @@ def test_comprehensive_promotes_deep_bundle(tmp_path):
     assert win.max_budget_usd == 7.0
 
 
+def test_evaluator_gap_inherits_depth_from_parent(tmp_path):
+    # The fail-and-deepen loop is the engine's real depth mechanism (local
+    # workers rarely fragment). A gap linked to a parent is one level deeper;
+    # an unlinked top-level gap stays at 0.
+    from src.sessions import evaluator
+
+    s = _settings(tmp_path)
+    run = Runspace.create(tmp_path / "runs", "q", "general")
+    run.save_questions(
+        QuestionList(
+            [OpenQuestion(id="q-001", question="seed", priority=4, created_by="initializer")]
+        )
+    )
+
+    def _gap(parent):
+        return evaluator.EvaluatorOutput(
+            passed=False, unmet_criteria=["gap"], contradictions=[],
+            new_questions=[
+                evaluator.ProposedQuestion(question="deeper", priority=3, parent_id=parent)
+            ],
+            close_questions=[], notes="n",
+        )
+
+    evaluator._apply_output(run, _gap("q-001"), 1, s)   # linked -> depth 1
+    evaluator._apply_output(run, _gap(None), 2, s)      # top-level -> depth 0
+    qs = run.load_questions()
+    linked = [q for q in qs.root if q.parent_id == "q-001"]
+    top = [q for q in qs.root if q.created_by == "evaluator" and q.parent_id is None]
+    assert linked and linked[0].depth == 1
+    assert top and top[0].depth == 0
+    run.release_lock()
+
+
 def test_initializer_prompt_scales_with_seed_target():
     normal = initializer.build_system_prompt(6)
     comp = initializer.build_system_prompt(12)

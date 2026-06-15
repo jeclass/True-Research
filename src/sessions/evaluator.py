@@ -58,8 +58,11 @@ Check, in order:
 
 Stopping discipline (you will be shown the run's remaining budget):
 - Open a new question ONLY if its answer could plausibly CHANGE the report's
-  conclusion — not merely enrich it. Max 3 per cycle, priority 1-5,
-  parent_id when refining an existing question.
+  conclusion — not merely enrich it. Max 3 per cycle, priority 1-5.
+- parent_id is REQUIRED whenever a new question deepens, refines, or follows up
+  on an existing question — set it to that question's id. New questions almost
+  always deepen an existing one; leave parent_id null ONLY for a genuinely new
+  top-level facet the seed set missed. This builds the investigation's depth.
 - You may CLOSE unresolved questions that have become immaterial to the
   conclusion (close_questions: id + reason). Use this to prune speculative
   questions — including ones a previous evaluator opened — once the evidence
@@ -158,11 +161,18 @@ def _build_user_prompt(
 
 
 def _apply_output(
-    run: Runspace, output: EvaluatorOutput, cycle: int
+    run: Runspace,
+    output: EvaluatorOutput,
+    cycle: int,
+    settings: Settings | None = None,
 ) -> tuple[bool, str, list[str], list[str]]:
     """Apply closes + new questions deterministically; enforce invariant 2.
-    Returns (passed, notes, added_ids, closed_ids)."""
+    Returns (passed, notes, added_ids, closed_ids). settings supplies the
+    question-tree bounds (item 2); absent => permissive (tests that don't
+    exercise the caps)."""
     questions = run.load_questions()
+    max_depth = settings.question_tree.max_depth if settings else 10**6
+    max_questions = settings.question_tree.max_questions if settings else 10**9
 
     closed_ids: list[str] = []
     for close in output.close_questions:
@@ -217,16 +227,30 @@ def _apply_output(
     added_ids: list[str] = []
     for proposed in output.new_questions:
         common.check_priority(proposed.priority, EvalError, f"new question {proposed.question!r}")
-        if proposed.parent_id is not None:
-            questions.get(proposed.parent_id)
+        if len(questions.root) >= max_questions:
+            run.log_decision(
+                f"evaluator (cycle {cycle}) hit question cap {max_questions}; "
+                f"dropped gap {proposed.question[:60]!r}"
+            )
+            break
+        # Depth accrues through the fail-and-deepen loop: a gap that refines an
+        # existing question is one level deeper (clamped to the cap). This is
+        # the engine's real deepening mechanism — local workers rarely fragment
+        # (observed comprehensive run 2026-06-15: 11 eval gaps, 0 fragments).
+        depth = 0
+        parent_id = proposed.parent_id
+        if parent_id is not None:
+            parent = questions.get(parent_id)  # validates existence
+            depth = min(parent.depth + 1, max_depth)
         new_id = common.next_question_id(questions)
         questions.root.append(
             OpenQuestion(
                 id=new_id,
                 question=proposed.question,
                 priority=proposed.priority,
-                parent_id=proposed.parent_id,
+                parent_id=parent_id,
                 created_by="evaluator",
+                depth=depth,
             )
         )
         added_ids.append(new_id)
@@ -303,7 +327,7 @@ def _run_tier(
         raise last
     output: EvaluatorOutput = spawn.structured
 
-    passed, notes, added_ids, closed_ids = _apply_output(run, output, cycle)
+    passed, notes, added_ids, closed_ids = _apply_output(run, output, cycle, settings)
 
     contradiction_lines = [
         f"{c.description} — ADJUDICATION [{c.resolution}]: {c.adjudication}"
