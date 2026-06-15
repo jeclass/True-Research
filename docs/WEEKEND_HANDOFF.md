@@ -1,5 +1,23 @@
 # Weekend handoff — START HERE (2026-06-11)
 
+> **UPDATE 2026-06-12 — roadmap item 1 (stronger compose model) SHIPPED + ACCEPTED.**
+> The pipeline's one-shot compose now routes to an optional `compose` role
+> (config.yaml ships it on Haiku 4.5; delete the role to restore the certified
+> full-local posture). Acceptance re-runs vs the certified baseline:
+>
+> | Question | Score (was) | Finish (was) | Spend (was) | Haiku share |
+> |---|---|---|---|---|
+> | sci-aspirin | **8.2** (7.8) | conclusive (time) | $1.13 ($0.35) | $0.26, 6 calls |
+> | gen-evbattery | **8.0** (6.6) | conclusive (max_cycles) | $0.95 ($0.77) | $0.26, 5 calls |
+>
+> Two-question mean **8.1 vs 7.2** (bar: ≥7.7) — and BOTH runs ended
+> `conclusive` through the final-evaluator gate, a first. The compose model
+> itself costs ~$0.26/question (bar: ≤ +$0.30); the rest of the spend growth
+> is Opus bookends doing MORE work because runs now converge instead of dying
+> at breakers. Scores: `evals/results/compose-haiku-{sci,gen}/scores.json`.
+> Ablation flags: `--compose-model/--compose-endpoint` on run_evals.py.
+> Next up: roadmap item 2 (deeper question trees).
+
 Pick up in VSCode: `git pull` on branch `claude/tender-keller-gdae8u`, then read
 this file. Everything below is current as of the certification run that
 finished 2026-06-11 10:18.

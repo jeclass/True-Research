@@ -1,6 +1,15 @@
 # Run state — never commit research runs
 runs/
 
+# Eval outputs (scores + per-run reports stay local, like runs/)
+evals/results/
+
+# Reranker model cache (FlashRank ONNX, downloaded on first use)
+.flashrank_cache/
+
+# Local working notes from skill-driven planning (not deliverable docs)
+docs/superpowers/
+
 # Secrets
 .env
 
