@@ -33,6 +33,18 @@
 > runs still need real wall-clock (hours) to reach `conclusive` — short test caps
 > finish on `time`. Commits: 76ff2d9, cf812e4, 833c165.
 
+> **UPDATE 2026-06-15 (pm) — roadmap item 3 (verification wave) SHIPPED + ACCEPTED.**
+> The trust differentiator vs one-pass deep research: before synthesis, an
+> INDEPENDENT verifier tries to REFUTE each load-bearing finding (local
+> refutation query-gen → reads sources the finding did NOT use → Opus verdict),
+> and the synthesizer demotes refuted claims + lists them in a "Verification"
+> section. Opt-in: `--verify` (auto-on with `--comprehensive`); off by default.
+> Acceptance (real run): seeded a FALSE claim (EV batteries lose 15%/yr) and a
+> TRUE one (~2%/yr) — verifier returned **refuted** vs **verified**, ~$0.02 each,
+> citing Geotab's 22,700-EV telemetry study. `verifier` role = Opus; config
+> `verification` block. 160 tests. Commit 36fc4a8. Only item 4 (wave
+> orchestration) remains.
+
 Pick up in VSCode: `git pull` on branch `claude/tender-keller-gdae8u`, then read
 this file. Everything below is current as of the certification run that
 finished 2026-06-11 10:18.
