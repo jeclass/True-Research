@@ -358,6 +358,19 @@ def load_settings(
     if verify_depth is not None:
         raw.setdefault("verification", {})["max_findings"] = verify_depth
 
+    # --volume {groq,deepseek,local}: swap the 4 high-volume roles to a fallback
+    # backend (provider outage / rate-cap) without touching judgment/gate routing.
+    # volume_options is meta-config — pop unconditionally (extra="forbid").
+    volume_block = raw.pop("volume_options", None)
+    volume_choice = overrides.pop("volume", None)
+    if volume_choice is not None:
+        if not isinstance(volume_block, dict) or volume_choice not in volume_block:
+            raise ConfigError(
+                f"--volume {volume_choice} requires a `volume_options.{volume_choice}` config block"
+            )
+        for role, cfg in volume_block[volume_choice].items():
+            raw["roles"][role] = cfg
+
     for key, value in overrides.items():
         if value is not None:
             raw[key] = value

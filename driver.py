@@ -96,6 +96,15 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "at low cost. Wins over --cheap/--accurate (cheap=3, accurate=10).",
     )
     parser.add_argument(
+        "--volume",
+        choices=["groq", "deepseek", "local"],
+        default=None,
+        help="override the volume-tier backend (worker/reader/compose/per-cycle "
+        "gate) independent of the preset: groq=gpt-oss-120b (default), "
+        "deepseek=V4 Flash (cloud stopgap when Groq is rate-capped/gated), "
+        "local=Ollama gpt-oss-20b-32k ($0, slower). Wins over the preset.",
+    )
+    parser.add_argument(
         "--waves",
         action="store_true",
         help="orchestrate waves: after BREADTH resolves the seed tree, seed a "
@@ -407,6 +416,7 @@ def main(argv: list[str] | None = None) -> int:
         "accurate": args.accurate,  # same build; once-firing gate on Opus 4.8
         "gate": args.gate,  # override terminal auditor (qwen|opus), wins over preset
         "verify_depth": args.verify_depth,  # override verifier pass count, wins over preset
+        "volume": args.volume,  # override volume backend (groq|deepseek|local), wins over preset
     }
     try:
         settings = load_settings(config_path=args.config, overrides=overrides)

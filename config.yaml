@@ -134,6 +134,31 @@ gate_options:
   qwen: {endpoint: qwen,      model: qwen-3.7-max,    max_turns: 24, max_wall_seconds: 1200}
   opus: {endpoint: anthropic, model: claude-opus-4-8, max_turns: 24, max_wall_seconds: 1200}
 
+# --- Volume backend (--volume {groq,deepseek,local}): the 4 high-volume roles ---
+# Same independent-knob idea: provider choice for the volume tier (worker/reader/
+# compose/per-cycle gate) is its own axis. Groq is the design default, but its free
+# tier rate-caps gpt-oss-120b at 8k TPM (research sessions are ~33k) and Dev tier
+# can be externally gated — so this knob swaps the volume tier to a fallback WITHOUT
+# touching judgment/gate routing. deepseek = V4 Flash (cloud, no rate gate, thinking
+# off, ~same price — the stopgap that keeps cloud speed); local = Ollama
+# gpt-oss-20b-32k ($0, slower). Overrides the preset's volume cells when passed.
+volume_options:
+  groq:
+    worker:          {endpoint: groq,           model: gpt-oss-120b,     max_turns: 4, max_wall_seconds: 300}
+    reader_subagent: {endpoint: groq,           model: gpt-oss-120b,     max_turns: 4, max_wall_seconds: 300}
+    compose:         {endpoint: groq,           model: gpt-oss-120b,     max_turns: 4, max_wall_seconds: 300}
+    evaluator:       {endpoint: groq,           model: gpt-oss-120b,     max_turns: 8, max_wall_seconds: 300}
+  deepseek:
+    worker:          {endpoint: deepseek_flash, model: deepseek-v4-flash, max_turns: 4, max_wall_seconds: 300}
+    reader_subagent: {endpoint: deepseek_flash, model: deepseek-v4-flash, max_turns: 4, max_wall_seconds: 300}
+    compose:         {endpoint: deepseek_flash, model: deepseek-v4-flash, max_turns: 4, max_wall_seconds: 300}
+    evaluator:       {endpoint: deepseek_flash, model: deepseek-v4-flash, max_turns: 8, max_wall_seconds: 300}
+  local:
+    worker:          {endpoint: local,          model: gpt-oss-20b-32k,  max_turns: 4, max_wall_seconds: 600}
+    reader_subagent: {endpoint: local,          model: gpt-oss-20b-32k,  max_turns: 4, max_wall_seconds: 600}
+    compose:         {endpoint: local,          model: gpt-oss-20b-32k,  max_turns: 4, max_wall_seconds: 600}
+    evaluator:       {endpoint: local,          model: gpt-oss-20b-32k,  max_turns: 8, max_wall_seconds: 600}
+
 # --- Research profiles (selected via --profile; implementations land Phase 4)
 profiles: [general, scientific, visual, legal]   # legal = v1 future-domain scaffold
 default_profile: general

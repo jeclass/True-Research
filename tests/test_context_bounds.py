@@ -144,6 +144,42 @@ def test_gate_and_verify_depth_override_presets_independently():
         load_settings(overrides={"gate": "bogus"})
 
 
+def test_volume_override_swaps_backend_independently():
+    # Provider-outage knob (Groq Dev gated 2026-06-16): --volume swaps the 4 volume
+    # roles to a fallback backend WITHOUT touching judgment/gate routing — same
+    # independent-knob pattern as --gate.
+    import pytest
+
+    from src.errors import ConfigError
+    from src.settings import load_settings
+
+    # default: --cheap keeps groq volume
+    assert load_settings(overrides={"cheap": True}).roles["reader_subagent"].endpoint == "groq"
+
+    # --volume deepseek: 4 volume roles -> V4 Flash; gate + synth untouched
+    ds = load_settings(overrides={"cheap": True, "volume": "deepseek"})
+    for role in ("worker", "reader_subagent", "compose", "evaluator"):
+        assert ds.roles[role].endpoint == "deepseek_flash", role
+        assert ds.roles[role].model == "deepseek-v4-flash", role
+    assert ds.roles["final_evaluator"].model == "qwen-3.7-max"   # gate unchanged
+    assert ds.roles["synthesizer"].model == "deepseek-v4-pro"    # judgment unchanged
+
+    # --volume local: $0 Ollama; accurate gate still Opus
+    loc = load_settings(overrides={"accurate": True, "volume": "local"})
+    assert loc.roles["reader_subagent"].endpoint == "local"
+    assert loc.roles["reader_subagent"].model == "gpt-oss-20b-32k"
+    assert loc.roles["final_evaluator"].model == "claude-opus-4-8"
+
+    # composes with --gate (orthogonal knobs both override their cells)
+    combo = load_settings(overrides={"cheap": True, "volume": "deepseek", "gate": "opus"})
+    assert combo.roles["worker"].endpoint == "deepseek_flash"
+    assert combo.roles["final_evaluator"].model == "claude-opus-4-8"
+
+    # unknown volume -> loud ConfigError
+    with pytest.raises(ConfigError):
+        load_settings(overrides={"volume": "bogus"})
+
+
 def test_evaluator_per_cycle_prompt_is_bounded_final_is_full(tmp_path):
     # The wiring: the per-cycle gate (final=False, local 32k model) excerpts
     # findings; the Opus final gate (final=True) gets full text.
