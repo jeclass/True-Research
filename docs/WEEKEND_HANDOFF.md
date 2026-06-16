@@ -1,5 +1,32 @@
 # Weekend handoff — START HERE (2026-06-11)
 
+> **UPDATE 2026-06-16 — Config A (all-DeepSeek `--cheap`) SHIPPED as the under-$1 marathon posture.**
+> Integrated DeepSeek V4 (native Anthropic endpoint `api.deepseek.com/anthropic`;
+> `deepseek-v4-flash` for init, `deepseek-v4-pro` for verify/synth/final gate;
+> compose + readers stay local). New `--cheap` preset routes all paid roles to
+> DeepSeek and pins a **structural $1 hard cap** (explicit `--max-budget-usd`
+> still wins). `--cheap`/`--budget` now also flags on `run_evals.py`.
+>
+> **Why DeepSeek holds the bookends — measured, not assumed:**
+> - DeepSeek V4 is **1M-context** (8× V3's 128K), same class as Opus — the
+>   final gate cannot overflow at marathon scale (150 findings = 25% of window).
+> - A 150-finding 6-8h Config-A run projects to **~$0.62 cloud** (volume work is
+>   local/$0); the same run on Opus-final ≈ $15-20. At marathon scale a *single*
+>   Opus terminal gate over ~170k findings tokens is ~$1.2-1.6 — it busts $1 by
+>   itself, so all-DeepSeek is the only posture that fits the 6-8h goal.
+> - **Gate A/B battery (5 finished runs, Opus vs DeepSeek on the terminal gate):**
+>   3/5 pass-call agreement, identical pass-rate (2/5 each), DeepSeek 32× cheaper
+>   ($0.07 vs $2.36). Disagreements cluster on the 2 *smallest* runs (borderline
+>   calls); they agree on the 3 developed runs — good for marathon scale. The one
+>   real gap: Opus catches ~33% more contradictions (12 vs 8), concentrated on
+>   the densest runs. ACCEPTED as the price of 32× cheaper; the gap is the trust
+>   dimension to revisit if it bites. Full data: `evals/results/gate-battery.md`.
+>
+> Run it: `driver.py "<q>" --comprehensive --cheap --verify` (under $1, unattended).
+> Next: roadmap item 4 (wave orchestration) — the last approved expansion item.
+
+
+
 > **UPDATE 2026-06-12 — roadmap item 1 (stronger compose model) SHIPPED + ACCEPTED.**
 > The pipeline's one-shot compose now routes to an optional `compose` role
 > (config.yaml ships it on Haiku 4.5; delete the role to restore the certified
