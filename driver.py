@@ -71,6 +71,14 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "the gate A/B before trusting it for conclusiveness.",
     )
     parser.add_argument(
+        "--waves",
+        action="store_true",
+        help="orchestrate waves: after BREADTH resolves the seed tree, seed a "
+        "DEPTH wave that re-investigates the top findings (primary-source "
+        "insistence + cross-validation) before verify/synthesis. Implied by "
+        "--comprehensive; use this to enable it on a shorter run.",
+    )
+    parser.add_argument(
         "--json-summary",
         metavar="PATH",
         help="write a machine-readable run summary here (orchestrator hook)",
@@ -368,6 +376,7 @@ def main(argv: list[str] | None = None) -> int:
         "lenses": args.lens,  # None when unset => config default (empty)
         "comprehensive": args.comprehensive,  # promotes the deep bundle
         "verify": args.verify,  # enables the verification wave
+        "waves": args.waves,  # enables BREADTH->DEPTH wave orchestration
         "budget": args.budget,  # swaps in the Haiku role overrides
         "cheap": args.cheap,  # swaps in the DeepSeek role overrides (Config A)
     }

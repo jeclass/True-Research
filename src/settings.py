@@ -290,6 +290,11 @@ def load_settings(
     if overrides.pop("verify", False):
         raw.setdefault("verification", {})["enabled"] = True
 
+    # --waves: enable BREADTH->DEPTH orchestration independent of comprehensive
+    # (lets a shorter run exercise the depth wave without the deep seed bundle).
+    if overrides.pop("waves", False):
+        raw.setdefault("waves", {})["enabled"] = True
+
     # --budget: swap the Opus judgment roles (compose/synthesis/verifier) to
     # cheaper backends + cap verification, to keep a comprehensive run under
     # ~$1 (an explicit cost/quality trade). The `budget:` block is meta-config,

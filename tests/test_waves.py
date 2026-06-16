@@ -108,6 +108,14 @@ def test_waves_on_breadth_concludes_into_depth(make_config, runs_dir):
     assert "BREADTH concluded; entering DEPTH wave" in progress
 
 
+def test_waves_flag_enables_independent_of_comprehensive():
+    from src.settings import load_settings
+
+    assert not load_settings().waves.enabled               # off by default
+    assert load_settings(overrides={"waves": True}).waves.enabled
+    assert load_settings(overrides={"comprehensive": True}).waves.enabled  # implied
+
+
 def test_waves_off_never_enters_depth(make_config, runs_dir):
     # The guard: a normal run never seeds depth questions or leaves BREADTH.
     cfg = make_config(**{"stub.seed_questions": 2})  # waves.enabled defaults False
