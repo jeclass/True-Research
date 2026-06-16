@@ -156,11 +156,15 @@ def test_volume_override_swaps_backend_independently():
     # default: --cheap keeps groq volume
     assert load_settings(overrides={"cheap": True}).roles["reader_subagent"].endpoint == "groq"
 
-    # --volume deepseek: 4 volume roles -> V4 Flash; gate + synth untouched
+    # --volume deepseek: extraction roles -> V4 Flash; the multi-turn per-cycle
+    # evaluator (judgment) -> V4 Pro (Flash exhausts its turn budget); gate + synth
+    # untouched.
     ds = load_settings(overrides={"cheap": True, "volume": "deepseek"})
-    for role in ("worker", "reader_subagent", "compose", "evaluator"):
+    for role in ("worker", "reader_subagent", "compose"):
         assert ds.roles[role].endpoint == "deepseek_flash", role
         assert ds.roles[role].model == "deepseek-v4-flash", role
+    assert ds.roles["evaluator"].endpoint == "deepseek"          # per-cycle gate -> Pro (reliable)
+    assert ds.roles["evaluator"].model == "deepseek-v4-pro"
     assert ds.roles["final_evaluator"].model == "qwen-3.7-max"   # gate unchanged
     assert ds.roles["synthesizer"].model == "deepseek-v4-pro"    # judgment unchanged
 

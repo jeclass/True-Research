@@ -149,10 +149,15 @@ volume_options:
     compose:         {endpoint: groq,           model: gpt-oss-120b,     max_turns: 4, max_wall_seconds: 300}
     evaluator:       {endpoint: groq,           model: gpt-oss-120b,     max_turns: 8, max_wall_seconds: 300}
   deepseek:
-    worker:          {endpoint: deepseek_flash, model: deepseek-v4-flash, max_turns: 4, max_wall_seconds: 300}
-    reader_subagent: {endpoint: deepseek_flash, model: deepseek-v4-flash, max_turns: 4, max_wall_seconds: 300}
-    compose:         {endpoint: deepseek_flash, model: deepseek-v4-flash, max_turns: 4, max_wall_seconds: 300}
-    evaluator:       {endpoint: deepseek_flash, model: deepseek-v4-flash, max_turns: 8, max_wall_seconds: 300}
+    # Extraction (worker/reader/compose) on Flash — cheap + fast. BUT the per-cycle
+    # evaluator is multi-turn tool-using JUDGMENT; Flash burns its turn budget
+    # without converging (observed 2026-06-16: "Reached maximum number of turns").
+    # So the per-cycle gate goes to Pro — the same extraction-vs-judgment split the
+    # whole architecture rests on. One call/cycle, negligible cost, reliable.
+    worker:          {endpoint: deepseek_flash, model: deepseek-v4-flash, max_turns: 4,  max_wall_seconds: 300}
+    reader_subagent: {endpoint: deepseek_flash, model: deepseek-v4-flash, max_turns: 4,  max_wall_seconds: 300}
+    compose:         {endpoint: deepseek_flash, model: deepseek-v4-flash, max_turns: 4,  max_wall_seconds: 300}
+    evaluator:       {endpoint: deepseek,       model: deepseek-v4-pro,   max_turns: 12, max_wall_seconds: 600}
   local:
     worker:          {endpoint: local,          model: gpt-oss-20b-32k,  max_turns: 4, max_wall_seconds: 600}
     reader_subagent: {endpoint: local,          model: gpt-oss-20b-32k,  max_turns: 4, max_wall_seconds: 600}
