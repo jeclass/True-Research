@@ -68,25 +68,36 @@ def test_budget_flag_swaps_judgment_roles_to_cheap():
 
 
 def test_cheap_and_accurate_presets_route_correctly():
-    # 4-report consolidation (2026-06-16): --cheap = Variant A (Groq volume +
-    # DeepSeek judgment/gate); --accurate = Opus on ALL judgment+auditing + Groq
-    # volume. Both put the volume tier on gpt-oss-120b @ Groq.
+    # Architect review (2026-06-16): both presets are ONE efficient build — Groq
+    # volume + DeepSeek V4 Pro on init/verify/synth (grounded stages). They differ
+    # in exactly one cell — the once-firing, ungrounded final gate (cheap = Qwen
+    # 3.7 Max, accurate = Opus) — plus more verify passes on accurate. Frontier
+    # spend touches only the gate, never the expensive grounded verify stage.
     from src.settings import load_settings
 
     cheap = load_settings(overrides={"cheap": True})
-    assert cheap.roles["reader_subagent"].endpoint == "groq"        # volume → Groq
-    assert cheap.roles["reader_subagent"].model == "gpt-oss-120b"
-    assert cheap.roles["final_evaluator"].model == "qwen-3.7-max"   # gate auditor → Qwen (not DeepSeek)
-    assert cheap.roles["verifier"].model == "qwen-3.7-max"          # verify auditor → Qwen
-    assert cheap.roles["synthesizer"].model == "deepseek-v4-pro"    # grounded synth stays DeepSeek
-    assert cheap.roles["initializer"].model == "deepseek-v4-pro"    # planning stays DeepSeek
-    assert cheap.max_budget_usd == 2.0
+    accurate = load_settings(overrides={"accurate": True})
 
-    acc = load_settings(overrides={"accurate": True})
-    assert acc.roles["reader_subagent"].endpoint == "groq"          # volume → Groq
-    for role in ("initializer", "verifier", "synthesizer", "final_evaluator"):
-        assert acc.roles[role].model == "claude-opus-4-8", role     # judgment+gate → Opus
-    assert acc.max_budget_usd == 6.0
+    # Shared efficient build: identical on every stage EXCEPT the gate.
+    for s in (cheap, accurate):
+        assert s.roles["reader_subagent"].endpoint == "groq"        # volume → Groq
+        assert s.roles["reader_subagent"].model == "gpt-oss-120b"
+        assert s.roles["initializer"].model == "deepseek-v4-pro"    # planning → DeepSeek
+        assert s.roles["verifier"].model == "deepseek-v4-pro"       # verify is GROUNDED → DeepSeek
+        assert s.roles["synthesizer"].model == "deepseek-v4-pro"    # synth → DeepSeek
+
+    # The one differing cell: the ungrounded "is this conclusive?" gate.
+    assert cheap.roles["final_evaluator"].model == "qwen-3.7-max"        # cheap arm → Qwen
+    assert cheap.roles["final_evaluator"].endpoint == "qwen"
+    assert accurate.roles["final_evaluator"].model == "claude-opus-4-8"  # accurate arm → Opus
+    assert accurate.roles["final_evaluator"].endpoint == "anthropic"
+
+    # Accuracy lever = more (cheap, grounded) DeepSeek verify passes, not a pricier model.
+    assert cheap.verification.max_findings == 3
+    assert accurate.verification.max_findings == 10
+
+    assert cheap.max_budget_usd == 2.0
+    assert accurate.max_budget_usd == 3.0
 
     # explicit --max-budget-usd still wins over any preset
     assert load_settings(overrides={"cheap": True, "max_budget_usd": 0.5}).max_budget_usd == 0.5

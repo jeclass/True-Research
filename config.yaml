@@ -80,10 +80,11 @@ budget:
     verifier:    {endpoint: anthropic, model: claude-haiku-4-5-20251001,   max_turns: 8,  max_wall_seconds: 900}
   verification_max_findings: 3   # cap the verify wave to the top-3 claims
 
-# --- Cheap posture (--cheap): Variant A from the 4-report consolidation --------
+# --- Cheap posture (--cheap): the efficient frontier (architect review 2026-06-16)
 # Volume tier on gpt-oss-120b @ Groq (concise, JSON-reliable, cache-friendly);
-# judgment (init/verify/synth) + the final gate on DeepSeek V4 Pro — accepts the
-# higher gate hallucination (94%) to save the Opus premium. ~$0.6-1/run.
+# init/verify/synth on DeepSeek V4 Pro (grounded stages; cache ~free). ONLY the
+# once-firing gate goes to a non-hallucinating auditor — Qwen 3.7 Max (high-
+# abstention, ~$0.06). Frontier touches exactly one cell. ~$0.7-1/run.
 cheap:
   roles:
     initializer:     {endpoint: deepseek, model: deepseek-v4-pro, max_turns: 16, max_wall_seconds: 600}
@@ -91,32 +92,35 @@ cheap:
     reader_subagent: {endpoint: groq,     model: gpt-oss-120b,    max_turns: 4,  max_wall_seconds: 300}
     compose:         {endpoint: groq,     model: gpt-oss-120b,    max_turns: 4,  max_wall_seconds: 300}
     evaluator:       {endpoint: groq,     model: gpt-oss-120b,    max_turns: 8,  max_wall_seconds: 300}
-    # AUDITORS -> Qwen 3.7 Max (high-abstention, low rubber-stamp): DeepSeek's 94%
-    # hallucination disqualifies it from the ungrounded judgment stages (gate +
-    # verify), per the report. Grounded stages (init/synth) stay DeepSeek (cache).
-    verifier:        {endpoint: qwen,     model: qwen-3.7-max,    max_turns: 8,  max_wall_seconds: 900}
+    # Only the GATE goes to a non-hallucinating auditor — it's the ungrounded
+    # "is this conclusive?" call that fires ONCE (pennies). Verify stays DeepSeek:
+    # it's GROUNDED (reads sources to refute), the reports agree V4 Pro is adequate,
+    # and it's the expensive multi-call stage — don't pay frontier there. The
+    # accuracy lever for verify is MORE DeepSeek passes, not a pricier model.
+    verifier:        {endpoint: deepseek, model: deepseek-v4-pro, max_turns: 8,  max_wall_seconds: 900}
     synthesizer:     {endpoint: deepseek, model: deepseek-v4-pro, max_turns: 40, max_wall_seconds: 1800}
     final_evaluator: {endpoint: qwen,     model: qwen-3.7-max,    max_turns: 24, max_wall_seconds: 1200}
   verification_max_findings: 3
-  max_budget_usd: 2.0      # Variant A + Qwen auditors ~$0.8-1.2; $2 is runaway headroom
+  max_budget_usd: 2.0      # ~$0.7-1.0/run; $2 is runaway headroom
 
-# --- High-accuracy posture (--accurate): max accuracy regardless of cost -------
-# Volume on gpt-oss-120b @ Groq; ALL judgment + auditing (init/verify/synth/gate)
-# on Opus 4.8 — lowest hallucination (~36% vs DeepSeek's 94%), the load-bearing
-# accuracy lever for the auditors (verify+gate) and the output (synth). Opus
-# verify over the top-N lead claims drives cost: ~$3-5/run.
+# --- High-accuracy posture (--accurate): the efficient build + Opus gate -------
+# IDENTICAL to --cheap except two cells: the once-firing gate (Opus 4.8 vs Qwen)
+# and more verify passes (10 vs 3). Frontier earns its cost ONLY at the gate —
+# verify is grounded + V4 Pro-adequate + the expensive multi-call stage, so it
+# stays DeepSeek and the accuracy lever there is MORE passes, not a pricier model.
+# This is the Opus arm of the gate A/B (vs --cheap's Qwen arm). ~$1-1.5/run.
 accurate:
   roles:
-    initializer:     {endpoint: anthropic, model: claude-opus-4-8, max_turns: 16, max_wall_seconds: 900}
+    initializer:     {endpoint: deepseek,  model: deepseek-v4-pro, max_turns: 16, max_wall_seconds: 600}
     worker:          {endpoint: groq,      model: gpt-oss-120b,    max_turns: 4,  max_wall_seconds: 300}
     reader_subagent: {endpoint: groq,      model: gpt-oss-120b,    max_turns: 4,  max_wall_seconds: 300}
     compose:         {endpoint: groq,      model: gpt-oss-120b,    max_turns: 4,  max_wall_seconds: 300}
     evaluator:       {endpoint: groq,      model: gpt-oss-120b,    max_turns: 8,  max_wall_seconds: 300}
-    verifier:        {endpoint: anthropic, model: claude-opus-4-8, max_turns: 8,  max_wall_seconds: 900}
-    synthesizer:     {endpoint: anthropic, model: claude-opus-4-8, max_turns: 40, max_wall_seconds: 1800}
+    verifier:        {endpoint: deepseek,  model: deepseek-v4-pro, max_turns: 8,  max_wall_seconds: 900}
+    synthesizer:     {endpoint: deepseek,  model: deepseek-v4-pro, max_turns: 40, max_wall_seconds: 1800}
     final_evaluator: {endpoint: anthropic, model: claude-opus-4-8, max_turns: 24, max_wall_seconds: 1200}
-  verification_max_findings: 10    # verify more lead claims (accuracy over cost)
-  max_budget_usd: 6.0
+  verification_max_findings: 10    # MORE DeepSeek verify passes = the accuracy lever (cheap, grounded)
+  max_budget_usd: 3.0
 
 # --- Research profiles (selected via --profile; implementations land Phase 4)
 profiles: [general, scientific, visual, legal]   # legal = v1 future-domain scaffold
