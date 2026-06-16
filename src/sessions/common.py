@@ -163,23 +163,47 @@ def questions_digest(questions: QuestionList) -> str:
     return "\n".join(lines)
 
 
-def sources_digest(registry: SourceRegistry) -> str:
+def _source_line(sid, rec) -> str:
+    return f"- {sid}: {rec.title} ({rec.kind}, credibility {rec.credibility}) {rec.url}"
+
+
+def sources_digest(registry: SourceRegistry, max_sources: int | None = None) -> str:
+    """Full registry by default. max_sources caps the list to the most-credible
+    N (with a count of what was omitted) — used by the per-cycle evaluator so a
+    large registry can't overflow its local context (root-cause fix
+    2026-06-15). The evaluator judges source quality, so the best are kept."""
     if not registry.root:
         return "(none registered yet)"
-    return "\n".join(
-        f"- {sid}: {rec.title} ({rec.kind}, credibility {rec.credibility}) {rec.url}"
-        for sid, rec in sorted(registry.root.items())
-    )
+    items = sorted(registry.root.items())
+    if max_sources is not None and len(items) > max_sources:
+        top = sorted(items, key=lambda kv: -kv[1].credibility)[:max_sources]
+        lines = [_source_line(sid, rec) for sid, rec in sorted(top)]
+        lines.append(
+            f"- …and {len(items) - max_sources} more lower-credibility "
+            "sources (omitted to fit context)"
+        )
+        return "\n".join(lines)
+    return "\n".join(_source_line(sid, rec) for sid, rec in items)
 
 
 def findings_digest(
-    run: Runspace, full_bodies: bool, only_tracks: set[str] | None = None
+    run: Runspace,
+    full_bodies: bool,
+    only_tracks: set[str] | None = None,
+    max_total_chars: int | None = None,
 ) -> str:
-    """Compact index for the worker; full bodies for evaluator/synthesizer
-    (Phase 2 runs are bounded; Phase 3 adds fan-out/compaction). only_tracks
-    filters by finding track — None (default) includes every track and is
-    byte-identical to the pre-lens behavior; the synthesizer passes
-    {"factual"} so community findings never enter the factual synthesis."""
+    """Compact index for the worker; full bodies for evaluator/synthesizer.
+    only_tracks filters by finding track — None (default) includes every track
+    (byte-identical to pre-lens behavior); the synthesizer passes {"factual"}.
+
+    max_total_chars caps the TOTAL body text by distributing the budget across
+    findings (per-finding excerpt = budget // count), so the digest cannot
+    overflow a limited context regardless of how many findings accrue
+    (root-cause fix 2026-06-15: the per-cycle local evaluator hit ~30.7k tokens
+    at 13 full findings and 5xx-ed). Headers (question id, confidence,
+    verification, source ids) are always shown in full — the evaluator's core
+    job is judging resolution + traceability, which the headers carry. None =>
+    no cap (the Opus final gate and synthesizer keep full text)."""
     findings = run.load_findings()
     if only_tracks is not None:
         findings = {
@@ -187,6 +211,11 @@ def findings_digest(
         }
     if not findings:
         return "(no findings yet)"
+    per_finding = (
+        max_total_chars // len(findings)
+        if full_bodies and max_total_chars is not None
+        else None
+    )
     parts = []
     for slug, (meta, body) in sorted(findings.items()):
         ver = (
@@ -199,7 +228,13 @@ def findings_digest(
             f"confidence {meta.confidence:.2f}{ver}, "
             f"sources: {', '.join(meta.source_ids)})"
         )
-        parts.append(f"{head}\n{body.strip()}" if full_bodies else head)
+        if not full_bodies:
+            parts.append(head)
+            continue
+        text = body.strip()
+        if per_finding is not None and len(text) > per_finding:
+            text = text[:per_finding].rstrip() + "\n…[truncated to fit evaluator context]"
+        parts.append(f"{head}\n{text}")
     return "\n\n".join(parts)
 
 

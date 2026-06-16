@@ -142,19 +142,35 @@ def _budget_status(
 
 
 def _build_user_prompt(
-    run: Runspace, settings: Settings, ledger: Ledger, cycle: int
+    run: Runspace, settings: Settings, ledger: Ledger, cycle: int, final: bool = False
 ) -> str:
     plan = (run.root / PLAN_FILE).read_text(encoding="utf-8")
     questions = run.load_questions()
     sources = run.load_sources()
+    # The per-cycle gate runs on the local 32k model — bound its findings text
+    # and source list so the prompt can't overflow at scale (root-cause fix
+    # 2026-06-15: full digests reached ~30.7k tokens at 13 findings / 136
+    # sources and 5xx-ed the local endpoint). The Opus final gate (1M context)
+    # is exempt and sees everything for the rigorous terminal check.
+    ev = settings.evaluator
+    if final:
+        sources_md = common.sources_digest(sources)
+        findings_md = common.findings_digest(run, full_bodies=True)
+        findings_label = "Findings (full text)"
+    else:
+        sources_md = common.sources_digest(sources, max_sources=ev.per_cycle_max_sources)
+        findings_md = common.findings_digest(
+            run, full_bodies=True, max_total_chars=ev.per_cycle_findings_chars
+        )
+        findings_label = "Findings (excerpted to fit context — headers are complete)"
     return (
         f"# Research question\n{run.meta.question}\n\n"
         f"# Run budget status (weigh your stopping discipline against this)\n"
         f"{_budget_status(run, settings, ledger, cycle)}\n\n"
         f"# Research plan\n{plan}\n\n"
         f"# Question ledger\n{common.questions_digest(questions)}\n\n"
-        f"# Source registry\n{common.sources_digest(sources)}\n\n"
-        f"# Findings (full text)\n{common.findings_digest(run, full_bodies=True)}\n\n"
+        f"# Source registry\n{sources_md}\n\n"
+        f"# {findings_label}\n{findings_md}\n\n"
         f"# Decisions logged so far\n"
         + "\n".join(f"- {d}" for d in run.decisions() or ["(none)"])
     )
@@ -315,7 +331,7 @@ def _run_tier(
                 session_type="evaluator",
                 role=role,
                 system_prompt=build_system_prompt(profile, final=final),
-                user_prompt=_build_user_prompt(run, settings, ledger, cycle),
+                user_prompt=_build_user_prompt(run, settings, ledger, cycle, final=final),
                 tools=_TOOLS,
                 output_model=EvaluatorOutput,
             )

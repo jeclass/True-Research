@@ -48,6 +48,7 @@ BASE_CONFIG: dict = {
         "max_reads": 12,
         "per_domain_cap": 2,
     },
+    "evaluator": {"per_cycle_findings_chars": 40000, "per_cycle_max_sources": 60},
     "question_tree": {"max_depth": 4, "max_questions": 50, "seed_target": 6},
     "comprehensive": {
         "max_cycles": 150,

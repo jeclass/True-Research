@@ -97,6 +97,15 @@ class WorkerPipelineCfg(_Frozen):
     rerank: bool = True
 
 
+class EvaluatorCfg(_Frozen):
+    # Context bounds for the PER-CYCLE evaluator (the cheap gate, on the local
+    # 32k model). Without these it overflowed at ~13 findings / 136 sources
+    # (~30.7k tokens) and 5xx-ed, halting deep runs (root-cause fix
+    # 2026-06-15). The Opus final gate is exempt — it keeps full text.
+    per_cycle_findings_chars: int = Field(ge=1000)  # total findings-text budget
+    per_cycle_max_sources: int = Field(ge=1)        # most-credible N shown
+
+
 class QuestionTreeCfg(_Frozen):
     # Bounds on the open-question tree (docs/COMPREHENSIVE_RESEARCH_SPEC item 2).
     # Defaults are PERMISSIVE — they bound runaway recursion/breadth without
@@ -159,6 +168,7 @@ class Settings(_Frozen):
     search: SearchCfg
     retry: RetryCfg
     worker_pipeline: WorkerPipelineCfg
+    evaluator: EvaluatorCfg
     question_tree: QuestionTreeCfg
     comprehensive: ComprehensiveCfg
     verification: VerificationCfg

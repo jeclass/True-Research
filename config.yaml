@@ -17,6 +17,16 @@ max_final_evaluations: 4  # Opus final-gate firings/run (budget posture's main
 stall_cycles: 2           # consecutive cycles with no state delta => halt
 
 # --- Question-tree bounds (item 2 — deeper trees) ---------------------------
+# --- Per-cycle evaluator context bounds (root-cause fix 2026-06-15) ----------
+# The cheap per-cycle gate runs on the local 32k model; without these it
+# overflowed at ~13 findings / 136 sources (~30.7k tok) and 5xx-ed, halting
+# deep runs. Findings are excerpted to a total budget (distributed per
+# finding); the source list is capped to the most-credible N. The Opus final
+# gate is exempt and still sees full text.
+evaluator:
+  per_cycle_findings_chars: 40000
+  per_cycle_max_sources: 60
+
 # PERMISSIVE defaults: bound runaway recursion/breadth without changing
 # certified-run behavior (~12 questions, depth <=2). --comprehensive promotes
 # the deeper bundle below.
