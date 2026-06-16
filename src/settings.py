@@ -277,6 +277,21 @@ def load_settings(
     if overrides.pop("verify", False):
         raw.setdefault("verification", {})["enabled"] = True
 
+    # --budget: swap the Opus judgment roles (compose/synthesis/verifier) to
+    # cheaper backends + cap verification, to keep a comprehensive run under
+    # ~$1 (an explicit cost/quality trade). The `budget:` block is meta-config,
+    # consumed here and never seen by Settings — pop it unconditionally.
+    budget_block = raw.pop("budget", None)
+    if overrides.pop("budget", False):
+        if not isinstance(budget_block, dict):
+            raise ConfigError("--budget requires a `budget:` config block")
+        for role, cfg in budget_block.get("roles", {}).items():
+            raw["roles"][role] = cfg
+        if "verification_max_findings" in budget_block:
+            raw.setdefault("verification", {})["max_findings"] = budget_block[
+                "verification_max_findings"
+            ]
+
     for key, value in overrides.items():
         if value is not None:
             raw[key] = value

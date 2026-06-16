@@ -49,6 +49,24 @@ def test_findings_digest_none_budget_is_full(tmp_path):
     run.release_lock()
 
 
+def test_budget_flag_swaps_judgment_roles_to_cheap():
+    # --budget keeps a comprehensive run under ~$1 by swapping Opus judgment
+    # roles to cheaper backends + capping verification.
+    from src.settings import load_settings
+
+    norm = load_settings()
+    bud = load_settings(overrides={"budget": True})
+    # normal posture: compose Haiku, synthesis + verifier on Opus
+    assert norm.roles["compose"].endpoint == "anthropic"
+    assert "opus" in norm.roles["synthesizer"].model
+    # budget posture: compose local ($0), synthesis + verifier on Haiku, capped
+    assert bud.roles["compose"].endpoint == "local"
+    assert "haiku" in bud.roles["synthesizer"].model
+    assert "haiku" in bud.roles["verifier"].model
+    assert bud.verification.max_findings == 3
+    assert not hasattr(bud, "budget")  # meta-config never leaks into Settings
+
+
 def test_evaluator_per_cycle_prompt_is_bounded_final_is_full(tmp_path):
     # The wiring: the per-cycle gate (final=False, local 32k model) excerpts
     # findings; the Opus final gate (final=True) gets full text.

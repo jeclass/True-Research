@@ -57,6 +57,13 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "Implied by --comprehensive.",
     )
     parser.add_argument(
+        "--budget",
+        action="store_true",
+        help="cost-optimized posture: swap the config `budget:` role overrides "
+        "(local compose, Haiku synthesis/verifier, capped verification) to keep "
+        "a comprehensive run under ~$1. Trades some Opus judgment quality.",
+    )
+    parser.add_argument(
         "--json-summary",
         metavar="PATH",
         help="write a machine-readable run summary here (orchestrator hook)",
@@ -321,6 +328,7 @@ def main(argv: list[str] | None = None) -> int:
         "lenses": args.lens,  # None when unset => config default (empty)
         "comprehensive": args.comprehensive,  # promotes the deep bundle
         "verify": args.verify,  # enables the verification wave
+        "budget": args.budget,  # swaps in the cheap role overrides
     }
     try:
         settings = load_settings(config_path=args.config, overrides=overrides)
