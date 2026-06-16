@@ -66,15 +66,16 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--cheap",
         action="store_true",
-        help="cheap posture (Variant A): gpt-oss-120b @ Groq volume + DeepSeek V4 "
-        "Pro judgment/gate. ~$0.6-1/run. Accepts higher gate hallucination.",
+        help="cheap posture: gpt-oss-120b @ Groq volume + DeepSeek V4 Pro on "
+        "init/verify/synth (grounded), and the once-firing gate on Qwen 3.7 Max "
+        "(non-hallucinating auditor). ~$0.7-1/run. Needs the proxy + DASHSCOPE.",
     )
     parser.add_argument(
         "--accurate",
         action="store_true",
-        help="high-accuracy posture: gpt-oss-120b @ Groq volume + Opus 4.8 on ALL "
-        "judgment + auditing (init/verify/synth/gate) — lowest hallucination. "
-        "~$3-5/run. Requires the LiteLLM/Groq proxy (deploy/litellm-config.yaml).",
+        help="high-accuracy posture: identical to --cheap but the once-firing gate "
+        "is Opus 4.8 (vs Qwen) + more verify passes. Frontier touches only the "
+        "gate. ~$1-1.5/run. Requires the LiteLLM/Groq proxy.",
     )
     parser.add_argument(
         "--waves",
@@ -384,8 +385,8 @@ def main(argv: list[str] | None = None) -> int:
         "verify": args.verify,  # enables the verification wave
         "waves": args.waves,  # enables BREADTH->DEPTH wave orchestration
         "budget": args.budget,  # swaps in the Haiku role overrides
-        "cheap": args.cheap,  # Variant A: Groq volume + DeepSeek judgment/gate
-        "accurate": args.accurate,  # Opus judgment/auditing + Groq volume
+        "cheap": args.cheap,  # efficient build; once-firing gate on Qwen 3.7 Max
+        "accurate": args.accurate,  # same build; once-firing gate on Opus 4.8
     }
     try:
         settings = load_settings(config_path=args.config, overrides=overrides)
