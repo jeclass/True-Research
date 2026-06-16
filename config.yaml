@@ -215,7 +215,8 @@ reader:
 # loses it. Point this at a SearXNG instance to restore web search there.
 search:
   searxng_base_url: http://localhost:8888   # SearXNG in docker (local-worker legs)
-  max_results: 8
+  max_results: 20          # was 8 — more candidates per query so the reranker picks
+                           # a better top-N to read (free: same read count, broader pool)
 
 # --- Transient-failure retries (Phase 5 hardening) ----------------------------
 retry:
