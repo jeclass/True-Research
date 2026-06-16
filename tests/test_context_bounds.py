@@ -103,6 +103,47 @@ def test_cheap_and_accurate_presets_route_correctly():
     assert load_settings(overrides={"cheap": True, "max_budget_usd": 0.5}).max_budget_usd == 0.5
 
 
+def test_gate_and_verify_depth_override_presets_independently():
+    # Architect review (2026-06-16): gate-trust and verify-depth are ORTHOGONAL,
+    # so --gate / --verify-depth override their preset cell independently and win
+    # over it — the full matrix, not just the two named presets. This is what lets
+    # the gate A/B (Opus vs Qwen) ride on the same build.
+    import pytest
+
+    from src.errors import ConfigError
+    from src.settings import load_settings
+
+    # --cheap --gate opus: cheap build, but a trusted (Opus) terminal gate.
+    s = load_settings(overrides={"cheap": True, "gate": "opus"})
+    assert s.roles["final_evaluator"].model == "claude-opus-4-8"
+    assert s.roles["final_evaluator"].endpoint == "anthropic"
+    assert s.roles["verifier"].model == "deepseek-v4-pro"   # rest of cheap build intact
+    assert s.verification.max_findings == 3                 # cheap depth unchanged
+
+    # --accurate --gate qwen: deep verify (10 passes) but the cheap Qwen gate.
+    s = load_settings(overrides={"accurate": True, "gate": "qwen"})
+    assert s.roles["final_evaluator"].model == "qwen-3.7-max"
+    assert s.verification.max_findings == 10                # accurate depth unchanged
+
+    # --cheap --verify-depth 10: cheap gate, but deep grounded refutation.
+    s = load_settings(overrides={"cheap": True, "verify_depth": 10})
+    assert s.roles["final_evaluator"].model == "qwen-3.7-max"  # cheap gate unchanged
+    assert s.verification.max_findings == 10                   # depth overridden
+
+    # --gate qwen alone (no preset): overrides the base gate (Opus) without a posture.
+    assert load_settings(overrides={"gate": "qwen"}).roles["final_evaluator"].model == "qwen-3.7-max"
+
+    # None overrides are inert — base config gate + depth stand unchanged.
+    base = load_settings()
+    s = load_settings(overrides={"gate": None, "verify_depth": None})
+    assert s.roles["final_evaluator"].model == base.roles["final_evaluator"].model
+    assert s.verification.max_findings == base.verification.max_findings
+
+    # an unknown gate is a loud ConfigError, never a silent fallback
+    with pytest.raises(ConfigError):
+        load_settings(overrides={"gate": "bogus"})
+
+
 def test_evaluator_per_cycle_prompt_is_bounded_final_is_full(tmp_path):
     # The wiring: the per-cycle gate (final=False, local 32k model) excerpts
     # findings; the Opus final gate (final=True) gets full text.

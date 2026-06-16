@@ -332,13 +332,31 @@ def load_settings(
                 if key in block:
                     raw[key] = block[key]
 
-    # Posture presets (4-report consolidation, 2026-06-16): --cheap = Variant A
-    # (Groq volume + DeepSeek judgment/gate, ~$0.6-1); --accurate = Opus on all
-    # judgment+auditing + Groq volume (~$3-5, lowest hallucination). --budget is
-    # the legacy local-volume posture. Last-applied wins if multiple are passed.
+    # Posture presets (architect review 2026-06-16): ONE efficient build (Groq
+    # volume + DeepSeek init/verify/synth) at two named points — --cheap = qwen
+    # gate + 3 verify passes (~$0.7-1); --accurate = opus gate + 10 passes
+    # (~$1-1.5). --budget is the legacy local-volume posture. Last-applied wins.
     _apply_preset("budget", "budget")
     _apply_preset("cheap", "cheap")
     _apply_preset("accurate", "accurate")
+
+    # --gate {qwen,opus} + --verify-depth N: the two posture knobs, DECOUPLED from
+    # the presets (architect review). gate-trust (terminal auditor) and verify-
+    # depth (grounded refutation passes) are orthogonal, so they override their
+    # preset cell independently and win over it. gate_options is meta-config — pop
+    # it unconditionally so it never reaches the (extra="forbid") Settings model.
+    gate_block = raw.pop("gate_options", None)
+    gate_choice = overrides.pop("gate", None)
+    if gate_choice is not None:
+        if not isinstance(gate_block, dict) or gate_choice not in gate_block:
+            raise ConfigError(
+                f"--gate {gate_choice} requires a `gate_options.{gate_choice}` config block"
+            )
+        raw["roles"]["final_evaluator"] = gate_block[gate_choice]
+
+    verify_depth = overrides.pop("verify_depth", None)
+    if verify_depth is not None:
+        raw.setdefault("verification", {})["max_findings"] = verify_depth
 
     for key, value in overrides.items():
         if value is not None:

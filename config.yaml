@@ -122,6 +122,18 @@ accurate:
   verification_max_findings: 10    # MORE DeepSeek verify passes = the accuracy lever (cheap, grounded)
   max_budget_usd: 3.0
 
+# --- Gate options (--gate {qwen,opus}): the once-firing terminal auditor -------
+# Architect review 2026-06-16: gate-trust and verify-depth are ORTHOGONAL knobs,
+# so they get independent flags. --gate picks the terminal "is this conclusive?"
+# auditor; --verify-depth (an int -> verification.max_findings) picks how many
+# grounded DeepSeek refutation passes. The presets above are just named points in
+# that 2-D space (cheap = qwen + 3; accurate = opus + 10); either flag overrides
+# its preset cell, giving the full matrix (e.g. --cheap --gate opus = trusted
+# cheap run; --accurate --gate qwen = deep dig you'll sanity-check yourself).
+gate_options:
+  qwen: {endpoint: qwen,      model: qwen-3.7-max,    max_turns: 24, max_wall_seconds: 1200}
+  opus: {endpoint: anthropic, model: claude-opus-4-8, max_turns: 24, max_wall_seconds: 1200}
+
 # --- Research profiles (selected via --profile; implementations land Phase 4)
 profiles: [general, scientific, visual, legal]   # legal = v1 future-domain scaffold
 default_profile: general

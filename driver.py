@@ -78,6 +78,24 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "gate. ~$1-1.5/run. Requires the LiteLLM/Groq proxy.",
     )
     parser.add_argument(
+        "--gate",
+        choices=["qwen", "opus"],
+        default=None,
+        help="override JUST the once-firing terminal gate (auditor), independent "
+        "of the preset: qwen=Qwen 3.7 Max (~$0.06, high-abstention), opus=Opus "
+        "4.8 (~$0.11, lowest hallucination). Wins over --cheap/--accurate, so "
+        "e.g. `--cheap --gate opus` = cheap build with a trusted gate.",
+    )
+    parser.add_argument(
+        "--verify-depth",
+        type=int,
+        default=None,
+        metavar="N",
+        help="override JUST how many lead findings the verifier refutes (grounded "
+        "DeepSeek passes), independent of the preset. More passes = more accuracy "
+        "at low cost. Wins over --cheap/--accurate (cheap=3, accurate=10).",
+    )
+    parser.add_argument(
         "--waves",
         action="store_true",
         help="orchestrate waves: after BREADTH resolves the seed tree, seed a "
@@ -387,6 +405,8 @@ def main(argv: list[str] | None = None) -> int:
         "budget": args.budget,  # swaps in the Haiku role overrides
         "cheap": args.cheap,  # efficient build; once-firing gate on Qwen 3.7 Max
         "accurate": args.accurate,  # same build; once-firing gate on Opus 4.8
+        "gate": args.gate,  # override terminal auditor (qwen|opus), wins over preset
+        "verify_depth": args.verify_depth,  # override verifier pass count, wins over preset
     }
     try:
         settings = load_settings(config_path=args.config, overrides=overrides)
