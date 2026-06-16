@@ -143,6 +143,14 @@ def main() -> int:
         "--comprehensive", action="store_true",
         help="promote the config comprehensive: bundle (deep-research posture)",
     )
+    parser.add_argument(
+        "--budget", action="store_true",
+        help="--budget preset: swap judgment roles to Haiku + cap verification",
+    )
+    parser.add_argument(
+        "--cheap", action="store_true",
+        help="--cheap preset (Config A): all paid roles on DeepSeek V4 + $1 cap",
+    )
     args = parser.parse_args()
 
     console = Console()
@@ -152,6 +160,8 @@ def main() -> int:
         "max_wall_hours": args.max_wall_hours,
         "lenses": args.lens,
         "comprehensive": args.comprehensive,
+        "budget": args.budget,
+        "cheap": args.cheap,
     }
     try:
         settings = load_settings(config_path=args.config, overrides=overrides)
