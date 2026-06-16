@@ -81,6 +81,12 @@ cheap:
     synthesizer:     {endpoint: deepseek, model: deepseek-v4-pro,   max_turns: 40, max_wall_seconds: 1800}
     final_evaluator: {endpoint: deepseek, model: deepseek-v4-pro,   max_turns: 24, max_wall_seconds: 1200}
   verification_max_findings: 3
+  # Structural enforcement of the firm "under $1" rule: even a 150-finding
+  # marathon Config-A run is projected at ~$0.62 cloud (volume work is local/$0),
+  # so a $1 hard breaker is pure headroom — it only ever fires on a runaway, in
+  # which case finishing partial at $1 is the correct, rule-honoring outcome.
+  # Explicit --max-budget-usd overrides this.
+  max_budget_usd: 1.0
 
 # --- Research profiles (selected via --profile; implementations land Phase 4)
 profiles: [general, scientific, visual, legal]   # legal = v1 future-domain scaffold

@@ -294,6 +294,13 @@ def load_settings(
                 raw.setdefault("verification", {})["max_findings"] = block[
                     "verification_max_findings"
                 ]
+            # A preset may also promote scalar breakers (e.g. --cheap pins a $1
+            # hard cap so Config A honors the operator's firm under-$1 rule
+            # structurally). Applied before the generic override loop, so an
+            # explicit CLI flag (--max-budget-usd) still wins.
+            for key in ("max_budget_usd", "max_wall_hours", "max_cycles"):
+                if key in block:
+                    raw[key] = block[key]
 
     # --budget: cheap-but-cloud judgment (Haiku). --cheap: zero frontier cloud
     # (DeepSeek, Config A). --cheap wins if both are passed (applied last).
