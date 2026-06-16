@@ -89,6 +89,13 @@ cheap:
   roles:
     initializer:     {endpoint: deepseek, model: deepseek-v4-flash, max_turns: 16, max_wall_seconds: 600}
     compose:         {endpoint: local,    model: gpt-oss-20b-32k,   max_turns: 4,  max_wall_seconds: 600}
+    # reader -> DeepSeek V4 Flash (2026-06-16): reading is the volume bottleneck
+    # (518 local reads/run) and pure grunt work, not judgment. Flash is ~$0.14/M
+    # in, runs massively parallel (no single-GPU serial limit), and is a far
+    # stronger reader than the 20B (reads hard pages the local model blocks on).
+    # ~$0.3-0.5/run for reads vs $0 local, but a large speed-up; frees the GPU
+    # for compose+evaluator. Keep worker/compose/evaluator local (judgment).
+    reader_subagent: {endpoint: deepseek_flash, model: deepseek-v4-flash, max_turns: 12, max_wall_seconds: 900}
     verifier:        {endpoint: deepseek, model: deepseek-v4-pro,   max_turns: 8,  max_wall_seconds: 900}
     synthesizer:     {endpoint: deepseek, model: deepseek-v4-pro,   max_turns: 40, max_wall_seconds: 1800}
     final_evaluator: {endpoint: deepseek, model: deepseek-v4-pro,   max_turns: 24, max_wall_seconds: 1200}
@@ -129,6 +136,11 @@ endpoints:
     base_url: https://api.deepseek.com/anthropic
     auth_env: DEEPSEEK_API_KEY
     price_per_mtok: {input: 0.435, output: 0.87}   # deepseek-v4-pro (verify vs live pricing)
+  deepseek_flash:                      # V4 Flash — cheap high-volume reader endpoint
+    base_url: https://api.deepseek.com/anthropic
+    auth_env: DEEPSEEK_API_KEY
+    price_per_mtok: {input: 0.14, output: 0.28}    # flash is ~3x cheaper than pro
+                                                   # (verify vs live pricing; budget breaker uses this)
 
 # --- Role routing — BUDGET POSTURE (operator decision 2026-06-10) -----------
 # Cloud Opus ONLY where judgment ends the run: initializer, final_evaluator
