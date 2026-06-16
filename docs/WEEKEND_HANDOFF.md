@@ -45,6 +45,21 @@
 > `verification` block. 160 tests. Commit 36fc4a8. Only item 4 (wave
 > orchestration) remains.
 
+> **UPDATE 2026-06-15 (PM) — reliability fix: deep runs now complete unattended.**
+> The full-pipeline GEO run (comprehensive + verify + community, 213 pages read,
+> 136 sources, $2.27) halted at cycle 15 needing a manual resume. Root cause
+> (measured, not guessed): the per-cycle evaluator runs on the local 32k model
+> but got every finding in FULL text + the FULL 136-source registry — ~30,738
+> tokens, leaving no room to generate → Ollama 5xx → deterministic 3/3 retry
+> failure. Findings alone were 65% of the prompt and grow with the run, so any
+> deep run overflowed. Fix: the cheap per-cycle gate now gets context-bounded
+> digests (findings excerpted to a total budget, sources capped to most-credible
+> N — `evaluator.per_cycle_findings_chars/max_sources`); the Opus final gate
+> (1M ctx) keeps full text. Proven end-to-end: replaying the exact failing call
+> on the local model now succeeds (30,738 → 20,589 tok in, 2,862 out, valid
+> verdict). 164 tests. Commit 48ce68b. Example report:
+> `docs/examples/geo-comprehensive-verified.md`.
+
 Pick up in VSCode: `git pull` on branch `claude/tender-keller-gdae8u`, then read
 this file. Everything below is current as of the certification run that
 finished 2026-06-11 10:18.
