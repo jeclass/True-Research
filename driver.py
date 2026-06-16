@@ -64,6 +64,13 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "a comprehensive run under ~$1. Trades some Opus judgment quality.",
     )
     parser.add_argument(
+        "--cheap",
+        action="store_true",
+        help="zero-frontier-cloud posture (Config A): all paid roles on DeepSeek "
+        "V4 (~$0.05/run) so the saving can buy more cycles/reads. Validate via "
+        "the gate A/B before trusting it for conclusiveness.",
+    )
+    parser.add_argument(
         "--json-summary",
         metavar="PATH",
         help="write a machine-readable run summary here (orchestrator hook)",
@@ -328,7 +335,8 @@ def main(argv: list[str] | None = None) -> int:
         "lenses": args.lens,  # None when unset => config default (empty)
         "comprehensive": args.comprehensive,  # promotes the deep bundle
         "verify": args.verify,  # enables the verification wave
-        "budget": args.budget,  # swaps in the cheap role overrides
+        "budget": args.budget,  # swaps in the Haiku role overrides
+        "cheap": args.cheap,  # swaps in the DeepSeek role overrides (Config A)
     }
     try:
         settings = load_settings(config_path=args.config, overrides=overrides)

@@ -68,6 +68,20 @@ budget:
     verifier:    {endpoint: anthropic, model: claude-haiku-4-5-20251001,   max_turns: 8,  max_wall_seconds: 900}
   verification_max_findings: 3   # cap the verify wave to the top-3 claims
 
+# --- Cheap posture (--cheap): zero frontier cloud (Config A) ------------------
+# All paid roles on DeepSeek V4 (native Anthropic endpoint, ~15-20x cheaper than
+# Opus); compose stays local. ~$0.05/run vs --budget's ~$0.50 — the point is
+# reinvesting the saving into MORE cycles/reads. Accepts a ~2-pt judgment gap;
+# the gate A/B (--cheap vs Opus final_evaluator) is the decision that validates it.
+cheap:
+  roles:
+    initializer:     {endpoint: deepseek, model: deepseek-v4-flash, max_turns: 16, max_wall_seconds: 600}
+    compose:         {endpoint: local,    model: gpt-oss-20b-32k,   max_turns: 4,  max_wall_seconds: 600}
+    verifier:        {endpoint: deepseek, model: deepseek-v4-pro,   max_turns: 8,  max_wall_seconds: 900}
+    synthesizer:     {endpoint: deepseek, model: deepseek-v4-pro,   max_turns: 40, max_wall_seconds: 1800}
+    final_evaluator: {endpoint: deepseek, model: deepseek-v4-pro,   max_turns: 24, max_wall_seconds: 1200}
+  verification_max_findings: 3
+
 # --- Research profiles (selected via --profile; implementations land Phase 4)
 profiles: [general, scientific, visual, legal]   # legal = v1 future-domain scaffold
 default_profile: general
@@ -93,6 +107,10 @@ endpoints:
     # price_per_mtok: {input: 0.0, output: 0.0}   # set for PAID third-party
     #   endpoints (e.g. DeepSeek/Groq) so the budget breaker sees real spend;
     #   omitted => usd 0 (free local)
+  deepseek:                            # native Anthropic-compatible (cheap-tier A/B)
+    base_url: https://api.deepseek.com/anthropic
+    auth_env: DEEPSEEK_API_KEY
+    price_per_mtok: {input: 0.435, output: 0.87}   # deepseek-v4-pro (verify vs live pricing)
 
 # --- Role routing — BUDGET POSTURE (operator decision 2026-06-10) -----------
 # Cloud Opus ONLY where judgment ends the run: initializer, final_evaluator

@@ -281,16 +281,24 @@ def load_settings(
     # cheaper backends + cap verification, to keep a comprehensive run under
     # ~$1 (an explicit cost/quality trade). The `budget:` block is meta-config,
     # consumed here and never seen by Settings — pop it unconditionally.
-    budget_block = raw.pop("budget", None)
-    if overrides.pop("budget", False):
-        if not isinstance(budget_block, dict):
-            raise ConfigError("--budget requires a `budget:` config block")
-        for role, cfg in budget_block.get("roles", {}).items():
-            raw["roles"][role] = cfg
-        if "verification_max_findings" in budget_block:
-            raw.setdefault("verification", {})["max_findings"] = budget_block[
-                "verification_max_findings"
-            ]
+    def _apply_preset(block_name: str, flag_name: str) -> None:
+        # Role-override presets (--budget, --cheap). The block is meta-config,
+        # consumed here and never seen by Settings — pop it unconditionally.
+        block = raw.pop(block_name, None)
+        if overrides.pop(flag_name, False):
+            if not isinstance(block, dict):
+                raise ConfigError(f"--{flag_name} requires a `{block_name}:` config block")
+            for role, cfg in block.get("roles", {}).items():
+                raw["roles"][role] = cfg
+            if "verification_max_findings" in block:
+                raw.setdefault("verification", {})["max_findings"] = block[
+                    "verification_max_findings"
+                ]
+
+    # --budget: cheap-but-cloud judgment (Haiku). --cheap: zero frontier cloud
+    # (DeepSeek, Config A). --cheap wins if both are passed (applied last).
+    _apply_preset("budget", "budget")
+    _apply_preset("cheap", "cheap")
 
     for key, value in overrides.items():
         if value is not None:
