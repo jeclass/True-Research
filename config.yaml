@@ -91,11 +91,14 @@ cheap:
     reader_subagent: {endpoint: groq,     model: gpt-oss-120b,    max_turns: 4,  max_wall_seconds: 300}
     compose:         {endpoint: groq,     model: gpt-oss-120b,    max_turns: 4,  max_wall_seconds: 300}
     evaluator:       {endpoint: groq,     model: gpt-oss-120b,    max_turns: 8,  max_wall_seconds: 300}
-    verifier:        {endpoint: deepseek, model: deepseek-v4-pro, max_turns: 8,  max_wall_seconds: 900}
+    # AUDITORS -> Qwen 3.7 Max (high-abstention, low rubber-stamp): DeepSeek's 94%
+    # hallucination disqualifies it from the ungrounded judgment stages (gate +
+    # verify), per the report. Grounded stages (init/synth) stay DeepSeek (cache).
+    verifier:        {endpoint: qwen,     model: qwen-3.7-max,    max_turns: 8,  max_wall_seconds: 900}
     synthesizer:     {endpoint: deepseek, model: deepseek-v4-pro, max_turns: 40, max_wall_seconds: 1800}
-    final_evaluator: {endpoint: deepseek, model: deepseek-v4-pro, max_turns: 24, max_wall_seconds: 1200}
+    final_evaluator: {endpoint: qwen,     model: qwen-3.7-max,    max_turns: 24, max_wall_seconds: 1200}
   verification_max_findings: 3
-  max_budget_usd: 2.0      # Variant A ~$0.6-1; $2 is runaway headroom
+  max_budget_usd: 2.0      # Variant A + Qwen auditors ~$0.8-1.2; $2 is runaway headroom
 
 # --- High-accuracy posture (--accurate): max accuracy regardless of cost -------
 # Volume on gpt-oss-120b @ Groq; ALL judgment + auditing (init/verify/synth/gate)
@@ -156,6 +159,11 @@ endpoints:
     auth_env: LITELLM_MASTER_KEY       # engine -> proxy auth; proxy holds GROQ_API_KEY
     price_per_mtok: {input: 0.15, output: 0.60}    # Groq gpt-oss-120b (cache hit ~$0.075 in)
     disable_thinking: true             # reasoning_effort=low set at the proxy; this is belt-and-braces
+  qwen:                                # cheap AUDITOR: Qwen 3.7 Max (high-abstention) via same proxy
+    base_url: http://localhost:4000    # LiteLLM routes by model name -> Alibaba DashScope (needs DASHSCOPE_API_KEY)
+    auth_env: LITELLM_MASTER_KEY
+    price_per_mtok: {input: 0.40, output: 1.20}    # Qwen 3.7 Max (verify vs live pricing)
+    # thinking LEFT ON — auditing benefits from reasoning (unlike the volume tier)
 
 # --- Role routing — BUDGET POSTURE (operator decision 2026-06-10) -----------
 # Cloud Opus ONLY where judgment ends the run: initializer, final_evaluator

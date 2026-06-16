@@ -76,7 +76,10 @@ def test_cheap_and_accurate_presets_route_correctly():
     cheap = load_settings(overrides={"cheap": True})
     assert cheap.roles["reader_subagent"].endpoint == "groq"        # volume → Groq
     assert cheap.roles["reader_subagent"].model == "gpt-oss-120b"
-    assert cheap.roles["final_evaluator"].model == "deepseek-v4-pro"  # gate → DeepSeek (cheap)
+    assert cheap.roles["final_evaluator"].model == "qwen-3.7-max"   # gate auditor → Qwen (not DeepSeek)
+    assert cheap.roles["verifier"].model == "qwen-3.7-max"          # verify auditor → Qwen
+    assert cheap.roles["synthesizer"].model == "deepseek-v4-pro"    # grounded synth stays DeepSeek
+    assert cheap.roles["initializer"].model == "deepseek-v4-pro"    # planning stays DeepSeek
     assert cheap.max_budget_usd == 2.0
 
     acc = load_settings(overrides={"accurate": True})
