@@ -59,6 +59,7 @@ BASE_CONFIG: dict = {
         "seed_target": 12,
     },
     "verification": {"enabled": False, "max_findings": 8, "min_confidence": 0.6},
+    "waves": {"enabled": False, "depth_findings": 6},
     "stub": {
         "seed_questions": 3,
         "worker_no_delta": False,

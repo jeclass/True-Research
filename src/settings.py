@@ -137,6 +137,16 @@ class VerificationCfg(_Frozen):
     min_confidence: float = Field(ge=0.0, le=1.0)  # only verify load-bearing
 
 
+class WavesCfg(_Frozen):
+    # Wave orchestration (COMPREHENSIVE_RESEARCH_SPEC item 4): BREADTH maps the
+    # seed tree, then DEPTH deliberately re-investigates the top findings
+    # (primary-source insistence + cross-validation) before VERIFY/SYNTHESIZE.
+    # Opt-in; --comprehensive turns it on. Off by default — a normal run never
+    # consults the wave field and behaves byte-identically.
+    enabled: bool
+    depth_findings: int = Field(ge=1)  # top-N findings deepened when breadth concludes
+
+
 class StubCfg(_Frozen):
     seed_questions: int = Field(ge=1)
     worker_no_delta: bool
@@ -172,6 +182,7 @@ class Settings(_Frozen):
     question_tree: QuestionTreeCfg
     comprehensive: ComprehensiveCfg
     verification: VerificationCfg
+    waves: WavesCfg
     stub: StubCfg
     # auth_env name -> secret value, from .env (and os.environ as fallback so
     # CI can inject keys). Never printed: SecretStr redacts in repr/str.
@@ -270,8 +281,10 @@ def load_settings(
         for key in ("max_depth", "max_questions", "seed_target"):
             if key in comp:
                 qt[key] = comp[key]
-        # Comprehensive runs verify by default (the trust differentiator).
+        # Comprehensive runs verify by default (the trust differentiator) and
+        # orchestrate waves (BREADTH->DEPTH->VERIFY->SYNTHESIZE, item 4).
         raw.setdefault("verification", {})["enabled"] = True
+        raw.setdefault("waves", {})["enabled"] = True
 
     # --verify: enable the verification wave independent of comprehensive.
     if overrides.pop("verify", False):

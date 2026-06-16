@@ -39,7 +39,10 @@ class OpenQuestion(_Strict):
     parent_id: str | None = None
     # §4 lists initializer|evaluator, but §6 has workers spawning child
     # questions on fragmentation — "worker" added to keep both sections true.
-    created_by: Literal["initializer", "evaluator", "worker"]
+    # "depth" tags a question the driver seeds in the DEPTH wave (wave
+    # orchestration, COMPREHENSIVE_RESEARCH_SPEC item 4): a deliberate
+    # re-investigation of a top finding, not a gap the evaluator found.
+    created_by: Literal["initializer", "evaluator", "worker", "depth"]
     resolved_by_finding: str | None = None
     # Evidence track (lens axis, orthogonal to the domain profile). "factual"
     # is the default and the only track a normal run produces; "community"
@@ -155,6 +158,12 @@ class RunMeta(_Strict):
     stall_count: int = Field(ge=0, default=0)
     active_seconds: float = Field(ge=0, default=0.0)
     final_eval_count: int = Field(ge=0, default=0)
+    # Wave orchestration (COMPREHENSIVE_RESEARCH_SPEC item 4): the current phase
+    # of a wave run. "breadth" maps the seed tree; "depth" re-investigates top
+    # findings. Persisted so an 8-hour run resumes into the correct wave.
+    # Default "breadth" keeps non-wave runs schema-compatible + behaviorally
+    # unchanged (the driver only consults it when settings.waves.enabled).
+    wave: Literal["breadth", "depth"] = "breadth"
 
 
 # --- (de)serialization helpers ---------------------------------------------------

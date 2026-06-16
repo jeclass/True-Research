@@ -200,6 +200,30 @@ def _finish(
     return reason
 
 
+def _advance_to_depth(run: Runspace, settings: Settings, console: Console) -> bool:
+    """Wave orchestration (COMPREHENSIVE_RESEARCH_SPEC item 4). Called at every
+    point BREADTH would finish 'conclusive': if waves are on and we're still in
+    BREADTH, seed DEPTH questions from the top findings and return True so the
+    caller keeps looping (the worker/evaluator machinery resolves them, breakers
+    still armed) instead of finishing. Returns False — finish normally — when
+    waves are off, we're already in DEPTH, or nothing is worth deepening. This
+    is the ONLY new control in the loop; everything else is the existing flow."""
+    if not settings.waves.enabled or run.meta.wave != "breadth":
+        return False
+    from src.sessions.depth import seed_depth_questions
+
+    seeded = seed_depth_questions(run, settings)
+    if seeded == 0:
+        return False
+    run.set_wave("depth")
+    run.log_decision(
+        f"BREADTH concluded; entering DEPTH wave — seeded {seeded} deepening "
+        "question(s) for primary-source re-investigation + cross-validation."
+    )
+    console.log(f"wave: BREADTH -> DEPTH ({seeded} findings to deepen)")
+    return True
+
+
 def _drive(
     backend: Backend,
     run: Runspace,
@@ -251,6 +275,9 @@ def _drive(
                         "conclusive (local-judged, not Opus-confirmed this cycle)."
                     )
                     run.complete_cycle(cycle, stalled=False)
+                    if _advance_to_depth(run, settings, console):
+                        cycle += 1
+                        continue
                     return _finish(backend, run, settings, ledger, console, "conclusive")
                 tripped = _tripped_breaker(run, settings, ledger, cycle)
                 if tripped:
@@ -264,6 +291,9 @@ def _drive(
                     )
                 if final_verdict.passed and run.no_open_questions():
                     run.complete_cycle(cycle, stalled=False)
+                    if _advance_to_depth(run, settings, console):
+                        cycle += 1
+                        continue
                     return _finish(backend, run, settings, ledger, console, "conclusive")
                 # Final gate rejected: its new questions are open now — the
                 # loop deepens. State changed, so this cycle is not a stall.
@@ -271,6 +301,9 @@ def _drive(
                 cycle += 1
                 continue
             run.complete_cycle(cycle, stalled=False)
+            if _advance_to_depth(run, settings, console):
+                cycle += 1
+                continue
             return _finish(backend, run, settings, ledger, console, "conclusive")
 
         if run.no_open_questions():

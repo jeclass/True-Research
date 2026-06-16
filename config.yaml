@@ -56,6 +56,16 @@ verification:
   max_findings: 8        # verify the top-N highest-confidence findings (cost bound)
   min_confidence: 0.6    # only verify load-bearing (confident) findings
 
+# --- Wave orchestration (COMPREHENSIVE_RESEARCH_SPEC item 4) ------------------
+# Opt-in (implied by --comprehensive). When BREADTH concludes (the seed tree is
+# resolved), the driver seeds DEPTH questions from the top findings and keeps
+# looping to re-investigate them (primary-source insistence + cross-validation)
+# before VERIFY/SYNTHESIZE. Off by default — a normal run never consults the
+# wave field and behaves byte-identically.
+waves:
+  enabled: false
+  depth_findings: 6      # top-N findings deepened when breadth concludes
+
 # --- Budget posture (--budget): keep a comprehensive run under ~$1 -----------
 # Swaps the Opus judgment roles to cheaper backends and caps verification. An
 # explicit cost/quality trade: synthesis + verification on Haiku (not Opus),

@@ -218,6 +218,12 @@ class Runspace:
         self._persist_meta()
         return self.meta.final_eval_count
 
+    def set_wave(self, wave: str) -> None:
+        """Advance the wave phase (breadth -> depth), persisted so an 8-hour
+        run resumes into the correct wave (COMPREHENSIVE_RESEARCH_SPEC item 4)."""
+        self.meta = self.meta.model_copy(update={"wave": wave})
+        self.checkpoint_clock()
+
     def complete_cycle(self, cycle: int, stalled: bool) -> int:
         """Persist end-of-cycle bookkeeping atomically; returns stall count."""
         stall_count = self.meta.stall_count + 1 if stalled else 0
