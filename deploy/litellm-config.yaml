@@ -36,8 +36,15 @@ model_list:
 
 litellm_settings:
   drop_params: true            # silently drop provider-unsupported params (e.g. thinking)
-  cache: true                  # enable prompt caching where the provider supports it
   num_retries: 3
+  # LiteLLM response-cache (`cache: true`) is intentionally OFF: it requires a
+  # redis host/url (crashes startup without one) and only caches byte-identical
+  # requests — low value for varied research prompts. The cost lever that matters
+  # is PROVIDER-side prompt caching (Groq/DeepSeek auto-cache repeated system-
+  # prompt prefixes); that needs no LiteLLM setting and is priced via each model's
+  # cache_read_input_token_cost. To enable response caching later, point it at the
+  # running valkey/redis:  cache: true
+  #   cache_params: {type: redis, host: host.docker.internal, port: 6379}
 
 general_settings:
   master_key: os.environ/LITELLM_MASTER_KEY   # the engine authenticates to the proxy with this
