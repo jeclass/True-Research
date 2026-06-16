@@ -34,6 +34,8 @@ question_tree:
   max_depth: 4            # fragmentation refused past this depth (leaf instead)
   max_questions: 50       # total questions a run may create
   seed_target: 6          # questions the initializer aims for (was hardcoded 3-6)
+  retire_blocked_after: 4 # retire a question after this many blocked worker attempts
+                          # (no reachable sources) so the worker can't loop on it
 
 # --- Comprehensive mode (--comprehensive: one switch for "go deep") ---------
 # Promoted over the breakers + question_tree at load time. Explicit CLI flags

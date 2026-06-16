@@ -49,7 +49,7 @@ BASE_CONFIG: dict = {
         "per_domain_cap": 2,
     },
     "evaluator": {"per_cycle_findings_chars": 40000, "per_cycle_max_sources": 60},
-    "question_tree": {"max_depth": 4, "max_questions": 50, "seed_target": 6},
+    "question_tree": {"max_depth": 4, "max_questions": 50, "seed_target": 6, "retire_blocked_after": 4},
     "comprehensive": {
         "max_cycles": 150,
         "max_wall_hours": 8.0,

@@ -191,6 +191,28 @@ def _apply_output(
     max_questions = settings.question_tree.max_questions if settings else 10**9
 
     closed_ids: list[str] = []
+
+    # Autonomous exhausted-scope retirement (invariant 5 — never loop forever):
+    # a question the worker has BLOCKED on `retire_blocked_after` times has no
+    # reachable sources. Retire it as a documented limitation independent of
+    # whether the model requested a close — the seed valve below is the model-
+    # requested path; this is the unconditional backstop for ANY question,
+    # including a non-seed gap the evaluator deems material but cannot be sourced
+    # (observed 2026-06-16: a hard 0DTE-options question blocked 12x, was never
+    # closed, and starved the backlog). Without this the worker re-picks the
+    # highest-priority open question forever.
+    retire_after = settings.question_tree.retire_blocked_after if settings else 10**9
+    for question in questions.root:
+        if question.status != "resolved" and question.blocked_count >= retire_after:
+            question.status = "resolved"
+            closed_ids.append(question.id)
+            run.log_decision(
+                f"evaluator (cycle {cycle}) RETIRED {question.id} as exhausted "
+                f"scope after {question.blocked_count} blocked attempts — no "
+                "reachable sources; recorded as a limitation, not answered "
+                "(autonomous backstop, prevents the worker looping on it)"
+            )
+
     for close in output.close_questions:
         question = questions.get(close.id)  # raises StateError if unknown
         if question.created_by == "initializer":

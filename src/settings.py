@@ -114,6 +114,12 @@ class QuestionTreeCfg(_Frozen):
     max_depth: int = Field(ge=0)        # fragmentation refused past this depth
     max_questions: int = Field(ge=1)    # total questions a run may create
     seed_target: int = Field(ge=1)      # questions the initializer aims for
+    # Invariant-5 backstop: a question the worker has BLOCKED on this many times
+    # has no reachable sources — the evaluator retires it as a documented
+    # limitation so the worker stops re-picking it and the run can converge,
+    # instead of looping on an unanswerable question (observed 2026-06-16: a
+    # hard 0DTE-options question blocked 12x and starved the backlog).
+    retire_blocked_after: int = Field(ge=1)
 
 
 class ComprehensiveCfg(_Frozen):
