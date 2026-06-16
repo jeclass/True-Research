@@ -332,10 +332,13 @@ def load_settings(
                 if key in block:
                     raw[key] = block[key]
 
-    # --budget: cheap-but-cloud judgment (Haiku). --cheap: zero frontier cloud
-    # (DeepSeek, Config A). --cheap wins if both are passed (applied last).
+    # Posture presets (4-report consolidation, 2026-06-16): --cheap = Variant A
+    # (Groq volume + DeepSeek judgment/gate, ~$0.6-1); --accurate = Opus on all
+    # judgment+auditing + Groq volume (~$3-5, lowest hallucination). --budget is
+    # the legacy local-volume posture. Last-applied wins if multiple are passed.
     _apply_preset("budget", "budget")
     _apply_preset("cheap", "cheap")
+    _apply_preset("accurate", "accurate")
 
     for key, value in overrides.items():
         if value is not None:

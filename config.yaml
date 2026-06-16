@@ -80,33 +80,40 @@ budget:
     verifier:    {endpoint: anthropic, model: claude-haiku-4-5-20251001,   max_turns: 8,  max_wall_seconds: 900}
   verification_max_findings: 3   # cap the verify wave to the top-3 claims
 
-# --- Cheap posture (--cheap): zero frontier cloud (Config A) ------------------
-# All paid roles on DeepSeek V4 (native Anthropic endpoint, ~15-20x cheaper than
-# Opus); compose stays local. ~$0.05/run vs --budget's ~$0.50 — the point is
-# reinvesting the saving into MORE cycles/reads. Accepts a ~2-pt judgment gap;
-# the gate A/B (--cheap vs Opus final_evaluator) is the decision that validates it.
+# --- Cheap posture (--cheap): Variant A from the 4-report consolidation --------
+# Volume tier on gpt-oss-120b @ Groq (concise, JSON-reliable, cache-friendly);
+# judgment (init/verify/synth) + the final gate on DeepSeek V4 Pro — accepts the
+# higher gate hallucination (94%) to save the Opus premium. ~$0.6-1/run.
 cheap:
   roles:
-    # ALL-CLOUD DeepSeek (2026-06-16): every volume stage on Flash, judgment on
-    # Pro. The local 20B was the bottleneck once reads moved off it (compose
-    # ~80s, per-cycle gate ~57s, query-gen ~29s); Flash does each in ~10s AND
-    # reads/judges better (284B vs 20B). Volume tier = Flash (~$0.14/M in):
-    initializer:     {endpoint: deepseek_flash, model: deepseek-v4-flash, max_turns: 16, max_wall_seconds: 600}
-    worker:          {endpoint: deepseek_flash, model: deepseek-v4-flash, max_turns: 4,  max_wall_seconds: 600}
-    reader_subagent: {endpoint: deepseek_flash, model: deepseek-v4-flash, max_turns: 12, max_wall_seconds: 900}
-    compose:         {endpoint: deepseek_flash, model: deepseek-v4-flash, max_turns: 4,  max_wall_seconds: 600}
-    evaluator:       {endpoint: deepseek_flash, model: deepseek-v4-flash, max_turns: 24, max_wall_seconds: 900}
-    # Judgment tier = Pro (~$0.435/M in): refute, synthesize, terminal gate.
-    verifier:        {endpoint: deepseek, model: deepseek-v4-pro,   max_turns: 8,  max_wall_seconds: 900}
-    synthesizer:     {endpoint: deepseek, model: deepseek-v4-pro,   max_turns: 40, max_wall_seconds: 1800}
-    final_evaluator: {endpoint: deepseek, model: deepseek-v4-pro,   max_turns: 24, max_wall_seconds: 1200}
+    initializer:     {endpoint: deepseek, model: deepseek-v4-pro, max_turns: 16, max_wall_seconds: 600}
+    worker:          {endpoint: groq,     model: gpt-oss-120b,    max_turns: 4,  max_wall_seconds: 300}
+    reader_subagent: {endpoint: groq,     model: gpt-oss-120b,    max_turns: 4,  max_wall_seconds: 300}
+    compose:         {endpoint: groq,     model: gpt-oss-120b,    max_turns: 4,  max_wall_seconds: 300}
+    evaluator:       {endpoint: groq,     model: gpt-oss-120b,    max_turns: 8,  max_wall_seconds: 300}
+    verifier:        {endpoint: deepseek, model: deepseek-v4-pro, max_turns: 8,  max_wall_seconds: 900}
+    synthesizer:     {endpoint: deepseek, model: deepseek-v4-pro, max_turns: 40, max_wall_seconds: 1800}
+    final_evaluator: {endpoint: deepseek, model: deepseek-v4-pro, max_turns: 24, max_wall_seconds: 1200}
   verification_max_findings: 3
-  # Budget cap raised $1 -> $5 with the all-cloud move (2026-06-16): volume work
-  # is no longer local/$0 — reads + query-gen + compose + per-cycle gate are all
-  # on Flash now. A typical comprehensive run ~$1-2; an 8h deep run ~$2-3; $5 is
-  # headroom that only fires on a runaway. Short runs still cost cents. Pass
-  # --max-budget-usd to tighten (e.g. 1.0 for a strict cheap run).
-  max_budget_usd: 5.0
+  max_budget_usd: 2.0      # Variant A ~$0.6-1; $2 is runaway headroom
+
+# --- High-accuracy posture (--accurate): max accuracy regardless of cost -------
+# Volume on gpt-oss-120b @ Groq; ALL judgment + auditing (init/verify/synth/gate)
+# on Opus 4.8 — lowest hallucination (~36% vs DeepSeek's 94%), the load-bearing
+# accuracy lever for the auditors (verify+gate) and the output (synth). Opus
+# verify over the top-N lead claims drives cost: ~$3-5/run.
+accurate:
+  roles:
+    initializer:     {endpoint: anthropic, model: claude-opus-4-8, max_turns: 16, max_wall_seconds: 900}
+    worker:          {endpoint: groq,      model: gpt-oss-120b,    max_turns: 4,  max_wall_seconds: 300}
+    reader_subagent: {endpoint: groq,      model: gpt-oss-120b,    max_turns: 4,  max_wall_seconds: 300}
+    compose:         {endpoint: groq,      model: gpt-oss-120b,    max_turns: 4,  max_wall_seconds: 300}
+    evaluator:       {endpoint: groq,      model: gpt-oss-120b,    max_turns: 8,  max_wall_seconds: 300}
+    verifier:        {endpoint: anthropic, model: claude-opus-4-8, max_turns: 8,  max_wall_seconds: 900}
+    synthesizer:     {endpoint: anthropic, model: claude-opus-4-8, max_turns: 40, max_wall_seconds: 1800}
+    final_evaluator: {endpoint: anthropic, model: claude-opus-4-8, max_turns: 24, max_wall_seconds: 1200}
+  verification_max_findings: 10    # verify more lead claims (accuracy over cost)
+  max_budget_usd: 6.0
 
 # --- Research profiles (selected via --profile; implementations land Phase 4)
 profiles: [general, scientific, visual, legal]   # legal = v1 future-domain scaffold
@@ -144,6 +151,11 @@ endpoints:
                                                    # (verify vs live pricing; budget breaker uses this)
     disable_thinking: true             # volume stages extract, not reason — kills
                                        # the 16k-token thinking outputs / cost spikes
+  groq:                                # VOLUME tier: gpt-oss-120b via LiteLLM proxy
+    base_url: http://localhost:4000    # LiteLLM (Anthropic /v1/messages -> Groq); deploy/litellm-config.yaml
+    auth_env: LITELLM_MASTER_KEY       # engine -> proxy auth; proxy holds GROQ_API_KEY
+    price_per_mtok: {input: 0.15, output: 0.60}    # Groq gpt-oss-120b (cache hit ~$0.075 in)
+    disable_thinking: true             # reasoning_effort=low set at the proxy; this is belt-and-braces
 
 # --- Role routing — BUDGET POSTURE (operator decision 2026-06-10) -----------
 # Cloud Opus ONLY where judgment ends the run: initializer, final_evaluator

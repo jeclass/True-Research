@@ -66,9 +66,15 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--cheap",
         action="store_true",
-        help="zero-frontier-cloud posture (Config A): all paid roles on DeepSeek "
-        "V4 (~$0.05/run) so the saving can buy more cycles/reads. Validate via "
-        "the gate A/B before trusting it for conclusiveness.",
+        help="cheap posture (Variant A): gpt-oss-120b @ Groq volume + DeepSeek V4 "
+        "Pro judgment/gate. ~$0.6-1/run. Accepts higher gate hallucination.",
+    )
+    parser.add_argument(
+        "--accurate",
+        action="store_true",
+        help="high-accuracy posture: gpt-oss-120b @ Groq volume + Opus 4.8 on ALL "
+        "judgment + auditing (init/verify/synth/gate) — lowest hallucination. "
+        "~$3-5/run. Requires the LiteLLM/Groq proxy (deploy/litellm-config.yaml).",
     )
     parser.add_argument(
         "--waves",
@@ -378,7 +384,8 @@ def main(argv: list[str] | None = None) -> int:
         "verify": args.verify,  # enables the verification wave
         "waves": args.waves,  # enables BREADTH->DEPTH wave orchestration
         "budget": args.budget,  # swaps in the Haiku role overrides
-        "cheap": args.cheap,  # swaps in the DeepSeek role overrides (Config A)
+        "cheap": args.cheap,  # Variant A: Groq volume + DeepSeek judgment/gate
+        "accurate": args.accurate,  # Opus judgment/auditing + Groq volume
     }
     try:
         settings = load_settings(config_path=args.config, overrides=overrides)

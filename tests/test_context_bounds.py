@@ -67,19 +67,26 @@ def test_budget_flag_swaps_judgment_roles_to_cheap():
     assert not hasattr(bud, "budget")  # meta-config never leaks into Settings
 
 
-def test_cheap_preset_promotes_budget_cap_but_explicit_wins():
-    # --cheap (now all-cloud DeepSeek) promotes a structural budget breaker so a
-    # runaway run finishes-partial rather than overspending. Raised $1 -> $5 with
-    # the all-cloud move (volume work is no longer local/$0). An explicit
-    # --max-budget-usd still wins (presets never override explicit CLI flags).
+def test_cheap_and_accurate_presets_route_correctly():
+    # 4-report consolidation (2026-06-16): --cheap = Variant A (Groq volume +
+    # DeepSeek judgment/gate); --accurate = Opus on ALL judgment+auditing + Groq
+    # volume. Both put the volume tier on gpt-oss-120b @ Groq.
     from src.settings import load_settings
 
     cheap = load_settings(overrides={"cheap": True})
-    assert cheap.max_budget_usd == 5.0
-    explicit = load_settings(overrides={"cheap": True, "max_budget_usd": 1.0})
-    assert explicit.max_budget_usd == 1.0  # tighten a cheap run if you want
-    # the cap is preset-scoped: a normal run keeps the config default (not 5.0)
-    assert load_settings().max_budget_usd != 5.0
+    assert cheap.roles["reader_subagent"].endpoint == "groq"        # volume → Groq
+    assert cheap.roles["reader_subagent"].model == "gpt-oss-120b"
+    assert cheap.roles["final_evaluator"].model == "deepseek-v4-pro"  # gate → DeepSeek (cheap)
+    assert cheap.max_budget_usd == 2.0
+
+    acc = load_settings(overrides={"accurate": True})
+    assert acc.roles["reader_subagent"].endpoint == "groq"          # volume → Groq
+    for role in ("initializer", "verifier", "synthesizer", "final_evaluator"):
+        assert acc.roles[role].model == "claude-opus-4-8", role     # judgment+gate → Opus
+    assert acc.max_budget_usd == 6.0
+
+    # explicit --max-budget-usd still wins over any preset
+    assert load_settings(overrides={"cheap": True, "max_budget_usd": 0.5}).max_budget_usd == 0.5
 
 
 def test_evaluator_per_cycle_prompt_is_bounded_final_is_full(tmp_path):
