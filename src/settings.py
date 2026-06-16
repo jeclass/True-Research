@@ -37,6 +37,12 @@ class EndpointCfg(_Frozen):
     base_url: str | None = None
     auth_env: str
     price_per_mtok: PriceCfg | None = None
+    # Disable extended thinking for this endpoint (volume stages: read/query-gen/
+    # compose EXTRACT, they don't reason). DeepSeek Flash defaults to thinking,
+    # which balloons read output to ~16k tokens and accumulates across retry
+    # turns (observed 2026-06-16: $0.16 outlier reads). Injected as
+    # MAX_THINKING_TOKENS=0 per session. Keep thinking ON for judgment endpoints.
+    disable_thinking: bool = False
 
 
 class RoleCfg(_Frozen):

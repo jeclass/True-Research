@@ -137,11 +137,13 @@ endpoints:
     base_url: https://api.deepseek.com/anthropic
     auth_env: DEEPSEEK_API_KEY
     price_per_mtok: {input: 0.435, output: 0.87}   # deepseek-v4-pro (verify vs live pricing)
-  deepseek_flash:                      # V4 Flash — cheap high-volume reader endpoint
+  deepseek_flash:                      # V4 Flash — cheap high-volume endpoint
     base_url: https://api.deepseek.com/anthropic
     auth_env: DEEPSEEK_API_KEY
     price_per_mtok: {input: 0.14, output: 0.28}    # flash is ~3x cheaper than pro
                                                    # (verify vs live pricing; budget breaker uses this)
+    disable_thinking: true             # volume stages extract, not reason — kills
+                                       # the 16k-token thinking outputs / cost spikes
 
 # --- Role routing — BUDGET POSTURE (operator decision 2026-06-10) -----------
 # Cloud Opus ONLY where judgment ends the run: initializer, final_evaluator

@@ -98,8 +98,15 @@ def resolve_endpoint_env(settings: Settings, role_name: str) -> dict[str, str]:
     endpoint = settings.endpoints[role.endpoint]
     secret = settings.secret_for(role.endpoint).get_secret_value()
     if endpoint.base_url is None:
-        return {"ANTHROPIC_API_KEY": secret}
-    return {"ANTHROPIC_BASE_URL": endpoint.base_url, "ANTHROPIC_AUTH_TOKEN": secret}
+        env = {"ANTHROPIC_API_KEY": secret}
+    else:
+        env = {"ANTHROPIC_BASE_URL": endpoint.base_url, "ANTHROPIC_AUTH_TOKEN": secret}
+    # Volume endpoints (Flash reader/query-gen/compose) extract, they don't
+    # reason — tell the CLI to request no thinking budget, so Flash stops
+    # emitting ~16k-token reasoning per read (the $0.16 outlier cost spikes).
+    if endpoint.disable_thinking:
+        env["MAX_THINKING_TOKENS"] = "0"
+    return env
 
 
 OutputT = TypeVar("OutputT", bound=BaseModel)
