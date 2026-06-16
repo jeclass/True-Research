@@ -87,25 +87,26 @@ budget:
 # the gate A/B (--cheap vs Opus final_evaluator) is the decision that validates it.
 cheap:
   roles:
-    initializer:     {endpoint: deepseek, model: deepseek-v4-flash, max_turns: 16, max_wall_seconds: 600}
-    compose:         {endpoint: local,    model: gpt-oss-20b-32k,   max_turns: 4,  max_wall_seconds: 600}
-    # reader -> DeepSeek V4 Flash (2026-06-16): reading is the volume bottleneck
-    # (518 local reads/run) and pure grunt work, not judgment. Flash is ~$0.14/M
-    # in, runs massively parallel (no single-GPU serial limit), and is a far
-    # stronger reader than the 20B (reads hard pages the local model blocks on).
-    # ~$0.3-0.5/run for reads vs $0 local, but a large speed-up; frees the GPU
-    # for compose+evaluator. Keep worker/compose/evaluator local (judgment).
+    # ALL-CLOUD DeepSeek (2026-06-16): every volume stage on Flash, judgment on
+    # Pro. The local 20B was the bottleneck once reads moved off it (compose
+    # ~80s, per-cycle gate ~57s, query-gen ~29s); Flash does each in ~10s AND
+    # reads/judges better (284B vs 20B). Volume tier = Flash (~$0.14/M in):
+    initializer:     {endpoint: deepseek_flash, model: deepseek-v4-flash, max_turns: 16, max_wall_seconds: 600}
+    worker:          {endpoint: deepseek_flash, model: deepseek-v4-flash, max_turns: 4,  max_wall_seconds: 600}
     reader_subagent: {endpoint: deepseek_flash, model: deepseek-v4-flash, max_turns: 12, max_wall_seconds: 900}
+    compose:         {endpoint: deepseek_flash, model: deepseek-v4-flash, max_turns: 4,  max_wall_seconds: 600}
+    evaluator:       {endpoint: deepseek_flash, model: deepseek-v4-flash, max_turns: 24, max_wall_seconds: 900}
+    # Judgment tier = Pro (~$0.435/M in): refute, synthesize, terminal gate.
     verifier:        {endpoint: deepseek, model: deepseek-v4-pro,   max_turns: 8,  max_wall_seconds: 900}
     synthesizer:     {endpoint: deepseek, model: deepseek-v4-pro,   max_turns: 40, max_wall_seconds: 1800}
     final_evaluator: {endpoint: deepseek, model: deepseek-v4-pro,   max_turns: 24, max_wall_seconds: 1200}
   verification_max_findings: 3
-  # Structural enforcement of the firm "under $1" rule: even a 150-finding
-  # marathon Config-A run is projected at ~$0.62 cloud (volume work is local/$0),
-  # so a $1 hard breaker is pure headroom — it only ever fires on a runaway, in
-  # which case finishing partial at $1 is the correct, rule-honoring outcome.
-  # Explicit --max-budget-usd overrides this.
-  max_budget_usd: 1.0
+  # Budget cap raised $1 -> $5 with the all-cloud move (2026-06-16): volume work
+  # is no longer local/$0 — reads + query-gen + compose + per-cycle gate are all
+  # on Flash now. A typical comprehensive run ~$1-2; an 8h deep run ~$2-3; $5 is
+  # headroom that only fires on a runaway. Short runs still cost cents. Pass
+  # --max-budget-usd to tighten (e.g. 1.0 for a strict cheap run).
+  max_budget_usd: 5.0
 
 # --- Research profiles (selected via --profile; implementations land Phase 4)
 profiles: [general, scientific, visual, legal]   # legal = v1 future-domain scaffold

@@ -67,19 +67,19 @@ def test_budget_flag_swaps_judgment_roles_to_cheap():
     assert not hasattr(bud, "budget")  # meta-config never leaks into Settings
 
 
-def test_cheap_preset_caps_budget_under_one_dollar_but_explicit_wins():
-    # --cheap (Config A, all-DeepSeek) makes the operator's firm "under $1"
-    # rule STRUCTURAL: the preset promotes a $1 hard breaker so a runaway
-    # marathon run finishes-partial at $1 rather than overspending. An explicit
+def test_cheap_preset_promotes_budget_cap_but_explicit_wins():
+    # --cheap (now all-cloud DeepSeek) promotes a structural budget breaker so a
+    # runaway run finishes-partial rather than overspending. Raised $1 -> $5 with
+    # the all-cloud move (volume work is no longer local/$0). An explicit
     # --max-budget-usd still wins (presets never override explicit CLI flags).
     from src.settings import load_settings
 
     cheap = load_settings(overrides={"cheap": True})
-    assert cheap.max_budget_usd == 1.0
-    explicit = load_settings(overrides={"cheap": True, "max_budget_usd": 3.0})
-    assert explicit.max_budget_usd == 3.0
-    # the cap is preset-scoped: a normal run keeps the config default (not 1.0)
-    assert load_settings().max_budget_usd != 1.0
+    assert cheap.max_budget_usd == 5.0
+    explicit = load_settings(overrides={"cheap": True, "max_budget_usd": 1.0})
+    assert explicit.max_budget_usd == 1.0  # tighten a cheap run if you want
+    # the cap is preset-scoped: a normal run keeps the config default (not 5.0)
+    assert load_settings().max_budget_usd != 5.0
 
 
 def test_evaluator_per_cycle_prompt_is_bounded_final_is_full(tmp_path):
