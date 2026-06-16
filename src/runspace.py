@@ -154,6 +154,24 @@ class Runspace:
         run.latest_verdict()
         return run
 
+    @classmethod
+    def open_readonly(cls, runs_dir: Path, run_id: str) -> "Runspace":
+        """Open a run for READ-ONLY inspection — no lock, no finished-guard.
+
+        For tooling that reads a frozen (usually finished) run without continuing
+        it: e.g. the gate A/B replay, which judges one terminal state under
+        different models and must never mutate or relock it. The caller MUST NOT
+        invoke any write_*/checkpoint method on the returned object, and should
+        only point this at terminal runs (it deliberately ignores the lock, so a
+        live driver's run would be read mid-write)."""
+        root = runs_dir / run_id
+        if not root.is_dir():
+            raise RunspaceError(f"no such run: {root}")
+        meta = state.parse_run_meta(
+            cls._read(root / RUN_META_FILE), label=str(root / RUN_META_FILE)
+        )
+        return cls(root, meta)
+
     # --- lock ----------------------------------------------------------------
 
     def _acquire_lock(self) -> None:

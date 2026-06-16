@@ -43,6 +43,29 @@ def test_atomic_write_replaces_on_success(tmp_path):
     assert list(tmp_path.glob("*.tmp")) == []
 
 
+def test_open_readonly_reads_finished_run_without_lock(tmp_path):
+    # resume() refuses a finished run; open_readonly() opens it for inspection
+    # (the gate A/B replay path) and takes NO lock — so it can never clobber a
+    # live driver's lock or relock a terminal run.
+    runs = tmp_path / "runs"
+    created = Runspace.create(runs, "q", "general")
+    run_id = created.meta.run_id
+    created.mark_finished()
+    created.release_lock()
+    assert not (runs / run_id / runspace_mod.LOCK_FILE).exists()
+
+    with pytest.raises(RunspaceError, match="already finished"):
+        Runspace.resume(runs, run_id)
+
+    ro = Runspace.open_readonly(runs, run_id)
+    assert ro.meta.run_id == run_id
+    assert ro.meta.status == "finished"
+    assert not (runs / run_id / runspace_mod.LOCK_FILE).exists()  # opened no lock
+
+    with pytest.raises(RunspaceError, match="no such run"):
+        Runspace.open_readonly(runs, "nope-does-not-exist")
+
+
 def test_state_hash_tracks_questions_and_findings_only(run):
     h0 = run.state_hash()
 
