@@ -194,6 +194,30 @@ def test_volume_override_swaps_backend_independently():
         load_settings(overrides={"volume": "bogus"})
 
 
+def test_search_preflight_fails_fast_when_backend_unreachable():
+    # Robustness (2026-06-24): pipeline mode needs SearXNG; a dead backend (e.g.
+    # Docker stopped) must fail fast at startup with an actionable message, not
+    # block every cycle and waste the whole budget on an empty report.
+    import pytest
+
+    from src.errors import ConfigError
+    from src.settings import load_settings
+    from src.tools.search import preflight_search
+
+    s = load_settings(overrides={"cheap": True})
+    dead = s.model_copy(
+        update={"search": s.search.model_copy(update={"searxng_base_url": "http://127.0.0.1:59321"})}
+    )
+    with pytest.raises(ConfigError, match="unreachable"):
+        preflight_search(dead, timeout=3.0)
+
+    # No SearXNG configured (first-party WebSearch run) -> no-op, never raises.
+    none_cfg = s.model_copy(
+        update={"search": s.search.model_copy(update={"searxng_base_url": None})}
+    )
+    preflight_search(none_cfg)
+
+
 def test_evaluator_per_cycle_prompt_is_bounded_final_is_full(tmp_path):
     # The wiring: the per-cycle gate (final=False, local 32k model) excerpts
     # findings; the Opus final gate (final=True) gets full text.

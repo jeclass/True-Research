@@ -105,6 +105,13 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "when it opens), local=Ollama gpt-oss-20b-32k ($0, slower). Wins over the preset.",
     )
     parser.add_argument(
+        "--skip-search-check",
+        action="store_true",
+        help="skip the SearXNG reachability preflight. By default the engine probes "
+        "the search backend at startup and aborts if it's down (pipeline mode needs "
+        "it) rather than blocking every cycle; use this to bypass that check.",
+    )
+    parser.add_argument(
         "--waves",
         action="store_true",
         help="orchestrate waves: after BREADTH resolves the seed tree, seed a "
@@ -456,6 +463,13 @@ def main(argv: list[str] | None = None) -> int:
                 "on local models (CLAUDE.md §1); hybrid is the recommended "
                 "posture.[/bold yellow]"
             )
+        # Fail fast if the search backend is down (pipeline mode needs SearXNG) —
+        # otherwise every worker cycle blocks and the run wastes its whole budget
+        # to produce an empty report (observed 2026-06-24: Docker stopped).
+        if not args.skip_search_check:
+            from src.tools.search import preflight_search
+
+            preflight_search(settings)
         runs_dir = Path(settings.runs_dir)
         if args.resume:
             run = Runspace.resume(runs_dir, args.resume)
