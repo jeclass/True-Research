@@ -6,6 +6,7 @@ rich>=13.0
 python-dotenv>=1.0
 tenacity>=8.2
 httpx>=0.27
+ddgs>=9.0               # Docker-free DuckDuckGo search fallback (when SearXNG is down)
 
 # Dev / test
 pytest>=8.0

@@ -469,7 +469,16 @@ def main(argv: list[str] | None = None) -> int:
         if not args.skip_search_check:
             from src.tools.search import preflight_search
 
-            preflight_search(settings)
+            backend = preflight_search(settings)
+            console.print(
+                f"[cyan]search[/cyan]   backend=[bold]{backend}[/bold]"
+                + (
+                    " [yellow](SearXNG down — DuckDuckGo fallback, lower breadth; "
+                    "start Docker/SearXNG for full aggregation)[/yellow]"
+                    if backend == "ddg"
+                    else ""
+                )
+            )
         runs_dir = Path(settings.runs_dir)
         if args.resume:
             run = Runspace.resume(runs_dir, args.resume)

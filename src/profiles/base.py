@@ -71,25 +71,33 @@ class Profile(ABC):
     # --- pipeline-worker hooks (docs/PIPELINE_WORKER_SPEC.md) ---------------
 
     def pipeline_search_providers(self, settings: Settings) -> list[tuple[str, Any]]:
-        """(name, async fn(query) -> [{title,url,snippet}]) pairs the engine
-        queries in pipeline mode. Default: SearXNG only — pipeline mode is an
-        engine-side searcher, so Anthropic-hosted WebSearch is never available
-        here regardless of worker endpoint."""
+        """(name, async fn(query) -> [{title,url,snippet}]) the engine queries in
+        pipeline mode. Anthropic-hosted WebSearch never exists engine-side (§1), so
+        this is SearXNG (70+-engine aggregation) with a Docker-free DuckDuckGo
+        fallback: SearXNG is tried first when configured, and on failure/empty the
+        provider falls back to DDG so research survives a SearXNG/Docker outage.
+        DDG only fires when SearXNG misses, so there's no double-querying."""
+        from src.tools import ConnectorError
+        from src.tools.search import ddg_results, searxng_results
+
         base_url = settings.search.searxng_base_url
-        if not base_url:
-            raise ConfigError(
-                "pipeline-worker mode needs search.searxng_base_url — engine-side "
-                "search cannot use Anthropic-hosted WebSearch"
-            )
-        from src.tools.search import searxng_results
+        max_results = settings.search.max_results
+        timeout = settings.reader.fetch_timeout_seconds
 
-        async def _searxng(query: str):
-            return await searxng_results(
-                base_url, query, settings.search.max_results,
-                settings.reader.fetch_timeout_seconds, settings.retry,
-            )
+        async def _search(query: str):
+            if base_url:
+                try:
+                    results = await searxng_results(
+                        base_url, query, max_results, timeout, settings.retry
+                    )
+                    if results:
+                        return results
+                    # SearXNG up but no hits — let DDG take a swing before giving up
+                except ConnectorError:
+                    pass  # SearXNG down (e.g. Docker stopped) -> DDG fallback
+            return await ddg_results(query, max_results, timeout)
 
-        return [("searxng", _searxng)]
+        return [("search", _search)]
 
     def url_preferences(self) -> dict[str, Any]:
         """Ranking hints for pipeline URL selection: preferred_domains are

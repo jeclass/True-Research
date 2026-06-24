@@ -194,28 +194,44 @@ def test_volume_override_swaps_backend_independently():
         load_settings(overrides={"volume": "bogus"})
 
 
-def test_search_preflight_fails_fast_when_backend_unreachable():
-    # Robustness (2026-06-24): pipeline mode needs SearXNG; a dead backend (e.g.
-    # Docker stopped) must fail fast at startup with an actionable message, not
-    # block every cycle and waste the whole budget on an empty report.
+def test_search_preflight_prefers_searxng_then_ddg_then_aborts(monkeypatch):
+    # Robustness (2026-06-24): pipeline search is SearXNG-primary with a Docker-free
+    # DuckDuckGo fallback. Preflight returns the live backend, and aborts ONLY if
+    # both are down — so a SearXNG/Docker outage degrades gracefully (the exact
+    # failure that produced an empty 0-finding report) instead of killing the run.
     import pytest
 
+    import src.tools.search as search_mod
     from src.errors import ConfigError
     from src.settings import load_settings
-    from src.tools.search import preflight_search
 
     s = load_settings(overrides={"cheap": True})
     dead = s.model_copy(
         update={"search": s.search.model_copy(update={"searxng_base_url": "http://127.0.0.1:59321"})}
     )
-    with pytest.raises(ConfigError, match="unreachable"):
-        preflight_search(dead, timeout=3.0)
 
-    # No SearXNG configured (first-party WebSearch run) -> no-op, never raises.
+    async def _ddg_ok(query, max_results, timeout=10.0):
+        return [{"title": "t", "url": "u", "snippet": "s"}]
+
+    # SearXNG dead + DDG works -> graceful fallback to "ddg", no abort.
+    monkeypatch.setattr(search_mod, "ddg_results", _ddg_ok)
+    assert search_mod.preflight_search(dead, timeout=2.0) == "ddg"
+
+    # No SearXNG configured at all + DDG works -> "ddg".
     none_cfg = s.model_copy(
         update={"search": s.search.model_copy(update={"searxng_base_url": None})}
     )
-    preflight_search(none_cfg)
+    assert search_mod.preflight_search(none_cfg, timeout=2.0) == "ddg"
+
+    # SearXNG dead AND DDG dead -> abort: no search backend at all.
+    async def _ddg_fail(query, max_results, timeout=10.0):
+        from src.tools import ConnectorError
+
+        raise ConnectorError("no network")
+
+    monkeypatch.setattr(search_mod, "ddg_results", _ddg_fail)
+    with pytest.raises(ConfigError, match="no search backend"):
+        search_mod.preflight_search(dead, timeout=2.0)
 
 
 def test_evaluator_per_cycle_prompt_is_bounded_final_is_full(tmp_path):

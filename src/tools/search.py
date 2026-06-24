@@ -54,6 +54,35 @@ async def searxng_results(
     return parse_searxng_results(payload, max_results)
 
 
+async def ddg_results(
+    query: str, max_results: int, timeout: float = 10.0
+) -> list[dict[str, Any]]:
+    """Docker-free fallback search via DuckDuckGo (ddgs). No API key, no container
+    — keeps pipeline search working when SearXNG/Docker is down. Lower breadth than
+    SearXNG's multi-engine aggregation, so it is the fallback, never the primary.
+    ddgs is synchronous; run it off the event loop so the pipeline stays async."""
+    import asyncio
+
+    def _blocking() -> list[dict[str, Any]]:
+        from ddgs import DDGS
+
+        out: list[dict[str, Any]] = []
+        for r in DDGS(timeout=timeout).text(query, max_results=max_results):
+            out.append(
+                {
+                    "title": r.get("title", "(untitled)"),
+                    "url": r.get("href") or r.get("url", ""),
+                    "snippet": (r.get("body") or "")[:400],
+                }
+            )
+        return out
+
+    try:
+        return await asyncio.to_thread(_blocking)
+    except Exception as exc:  # noqa: BLE001 — any ddgs failure is a search failure
+        raise ConnectorError(f"DuckDuckGo search failed: {exc}") from exc
+
+
 async def searxng_search(
     base_url: str, query: str, max_results: int, timeout: float, retry_cfg: RetryCfg
 ) -> str:
@@ -70,38 +99,50 @@ async def searxng_search(
     return format_results(parse_searxng_results(payload, max_results))
 
 
-def preflight_search(settings: Settings, *, timeout: float = 6.0) -> None:
-    """Fail fast at run start if the configured SearXNG backend is unreachable.
+def preflight_search(settings: Settings, *, timeout: float = 6.0) -> str:
+    """Ensure SOME search backend works before spending; return which one.
 
-    Pipeline mode requires SearXNG (Anthropic-hosted WebSearch never exists
-    engine-side, §1). When the backend is down — e.g. Docker stopped — every
-    worker cycle blocks with zero reads and the run burns its whole cycle budget
-    only to synthesize an empty report. This probes the exact endpoint the engine
-    uses (/search?format=json), so a stopped container AND a JSON-disabled SearXNG
-    are both caught up front with one actionable error instead of N wasted cycles."""
+    Pipeline mode requires engine-side search (Anthropic-hosted WebSearch never
+    exists there, §1). Without it every worker cycle blocks with zero reads and
+    the run burns its whole cycle budget to synthesize an empty report. Prefer
+    SearXNG (probing /search?format=json catches a stopped container AND a
+    JSON-disabled instance); if it's down, fall back to the Docker-free DuckDuckGo
+    provider; abort only if NEITHER answers. Returns "searxng" or "ddg" so the
+    caller can warn when running on the degraded fallback."""
+    import asyncio
+
     from src.errors import ConfigError
 
     base_url = settings.search.searxng_base_url
-    if not base_url:
-        return  # no SearXNG configured (e.g. first-party WebSearch run) — nothing to probe
+    searxng_err: str | None = None
+    if base_url:
+        try:
+            response = httpx.get(
+                base_url.rstrip("/") + "/search",
+                params={"q": "connectivity check", "format": "json"},
+                timeout=timeout,
+            )
+            response.raise_for_status()
+            response.json()  # JSON output must be enabled — the engine parses it
+            return "searxng"
+        except (httpx.HTTPError, json.JSONDecodeError) as exc:
+            searxng_err = str(exc)
+
+    # SearXNG down or unconfigured — verify the Docker-free DDG fallback works.
     try:
-        response = httpx.get(
-            base_url.rstrip("/") + "/search",
-            params={"q": "connectivity check", "format": "json"},
-            timeout=timeout,
-        )
-        response.raise_for_status()
-        response.json()  # JSON output must be enabled — the engine parses it
-    except (httpx.HTTPError, json.JSONDecodeError) as exc:
-        raise ConfigError(
-            f"SearXNG search backend unreachable at {base_url}: {exc}\n"
-            f"  Pipeline mode requires SearXNG, but nothing answered — it is likely "
-            f"down (Docker stopped?).\n"
-            f"  Start it and retry:  docker start searxng   "
-            f"(or `docker compose up -d` in deploy/)\n"
-            f"  Bypass with --skip-search-check (every cycle will block if search is "
-            f"truly down)."
-        ) from exc
+        if asyncio.run(ddg_results("connectivity check", 1, timeout)):
+            return "ddg"
+        ddg_err = "returned no results"
+    except ConnectorError as exc:
+        ddg_err = str(exc)
+
+    raise ConfigError(
+        "no search backend is reachable.\n"
+        f"  SearXNG: {searxng_err or 'not configured'}\n"
+        f"  DuckDuckGo fallback: {ddg_err}\n"
+        "  Start SearXNG (docker start searxng) or check connectivity, then retry. "
+        "Bypass with --skip-search-check."
+    )
 
 
 def build_search_mcp(settings: Settings):

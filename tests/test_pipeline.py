@@ -142,12 +142,16 @@ def test_visual_profile_refuses_pipeline(tmp_path):
         get_profile("visual").pipeline_search_providers(_settings(tmp_path))
 
 
-def test_general_profile_requires_searxng(tmp_path):
+def test_general_profile_search_falls_back_to_ddg_without_searxng(tmp_path):
+    # Robustness (2026-06-24): SearXNG is no longer mandatory — without it the
+    # engine-side provider falls back to Docker-free DuckDuckGo, so the profile
+    # still yields a usable search provider instead of raising ConfigError.
     from src.profiles import get_profile
 
     settings = _settings(tmp_path, **{"search.searxng_base_url": None})
-    with pytest.raises(ConfigError, match="searxng_base_url"):
-        get_profile("general").pipeline_search_providers(settings)
+    providers = get_profile("general").pipeline_search_providers(settings)
+    assert len(providers) == 1
+    assert providers[0][0] == "search"  # single resilient provider (searxng -> ddg)
 
 
 # --- orchestrated flow (all model calls faked) -----------------------------------------
