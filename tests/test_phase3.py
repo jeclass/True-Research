@@ -478,6 +478,44 @@ def test_evaluator_retries_parse_failures(run, tmp_path, monkeypatch):
     assert result.session_type == "evaluator"
 
 
+def test_synthesizer_degrades_hallucinated_citations_instead_of_crashing(tmp_path, monkeypatch):
+    # Observed live 2026-06-24: DeepSeek Pro synth cited non-existent ids like
+    # `src-q-003-finding`; the citation pass raised and crashed a COMPLETED run at
+    # the final step. Now it retries with feedback, then neutralizes any still-bad
+    # citation to [citation-unresolved] so a finished run always yields a report.
+    from src.sessions import synthesizer
+    from src.sessions.synthesizer import SynthesizerOutput, _synthesize_factual
+    from src.state import SourceRecord, SourceRegistry, utcnow
+
+    run = Runspace.create(tmp_path / "runs", "q", "general")
+    run.write_text("PLAN.md", "# plan\n")
+    settings = _settings(tmp_path)
+    sources = SourceRegistry(root={
+        "src-real": SourceRecord(url="https://e/1", title="t", kind="web",
+                                 credibility=80, retrieved_at=utcnow(), notes=""),
+    })
+
+    class _Spawn:
+        def __init__(self, md):
+            self.structured = SynthesizerOutput(report_markdown=md)
+            self.input_tokens = self.output_tokens = self.cached_tokens = 1
+            self.usd = 0.0
+            self.wall_seconds = 0.1
+            self.num_turns = 1
+
+    # Always cites a non-existent id -> after retries it must be neutralized.
+    monkeypatch.setattr(
+        synthesizer, "run_role_session",
+        lambda **kw: _Spawn("Claim one [src-real]. Claim two [src-q-003-finding]."),
+    )
+    body, _ = _synthesize_factual(run, settings, Ledger(run), 1, sources)
+    assert "[citation-unresolved]" in body         # hallucinated id neutralized
+    assert "[src-q-003-finding]" not in body        # the bad id is gone
+    assert "[src-real]" in body                     # the valid one survives
+    assert any("unresolvable" in d for d in run.decisions())
+    run.release_lock()
+
+
 def test_evaluator_seed_close_refused_below_blocked_threshold(run):
     qs = run.load_questions() if (run.root / "open_questions.yaml").exists() else None
     run.save_questions(QuestionList([

@@ -117,13 +117,21 @@ def _verification_section(factual: dict) -> str:
     return "\n".join(out) + "\n"
 
 
-def run(run: Runspace, settings: Settings, cycle: int, ledger: Ledger) -> SessionResult:
-    all_findings = run.load_findings()
-    sources = run.load_sources()
-    factual = {s: p for s, p in all_findings.items() if p[0].track == "factual"}
-    community = {s: p for s, p in all_findings.items() if p[0].track == "community"}
-
-    if factual:
+def _synthesize_factual(
+    run: Runspace, settings: Settings, ledger: Ledger, cycle: int, sources
+) -> tuple[str, SessionResult]:
+    """Spawn the synthesizer; on a citation-pass failure (the model citing source
+    ids absent from sources.json — observed 2026-06-24: DeepSeek Pro hallucinated
+    `src-<qid>-finding` ids) retry with explicit feedback listing the valid ids,
+    then DEGRADE by replacing any still-unresolvable citation with an explicit
+    [citation-unresolved] marker. The final step must never crash a completed run,
+    and invariant 3 still holds — no fabricated source id survives into the report."""
+    attempts = max(1, min(settings.retry.attempts, 3))
+    valid_ids = sorted(sources.root)
+    feedback = ""
+    spawn = None
+    body = ""
+    for attempt in range(1, attempts + 1):
         spawn = run_role_session(
             run=run,
             settings=settings,
@@ -132,12 +140,47 @@ def run(run: Runspace, settings: Settings, cycle: int, ledger: Ledger) -> Sessio
             session_type="synthesizer",
             role=_ROLE,
             system_prompt=_SYSTEM_PROMPT,
-            user_prompt=_build_user_prompt(run),
+            user_prompt=_build_user_prompt(run) + feedback,
             tools=_TOOLS,
             output_model=SynthesizerOutput,
         )
-        factual_body = spawn.structured.report_markdown.strip()
-        metrics = spawn
+        body = spawn.structured.report_markdown.strip()
+        unknown = sorted({c for c in common.CITATION_RE.findall(body) if c not in sources.root})
+        if not unknown:
+            return body, spawn
+        run.log_decision(
+            f"synthesizer attempt {attempt}/{attempts}: cited non-existent source ids "
+            f"{unknown}; " + ("retrying with feedback" if attempt < attempts else "neutralizing")
+        )
+        shown = ", ".join(valid_ids[:60]) or "(none)"
+        feedback = (
+            f"\n\nCORRECTION: your previous draft cited source ids that DO NOT exist "
+            f"in sources.json: {unknown}. Every [src-...] citation MUST be exactly one "
+            f"of these ids: {shown}. Re-emit the full report using only valid ids, and "
+            f"drop any claim you cannot cite to a valid id."
+        )
+    # Retries exhausted — neutralize the unresolvable citations so the report still
+    # emits (a finished run must yield a report), with the gap made explicit rather
+    # than silently dropped or fabricated.
+    unknown = sorted({c for c in common.CITATION_RE.findall(body) if c not in sources.root})
+    for u in unknown:
+        body = body.replace(f"[{u}]", "[citation-unresolved]")
+    run.log_decision(
+        f"synthesizer: {len(unknown)} citation(s) still unresolvable after {attempts} "
+        f"attempts ({unknown}); replaced with [citation-unresolved] so the report emits "
+        "instead of crashing the final step (invariant 3: no fabricated source survives)"
+    )
+    return body, spawn
+
+
+def run(run: Runspace, settings: Settings, cycle: int, ledger: Ledger) -> SessionResult:
+    all_findings = run.load_findings()
+    sources = run.load_sources()
+    factual = {s: p for s, p in all_findings.items() if p[0].track == "factual"}
+    community = {s: p for s, p in all_findings.items() if p[0].track == "community"}
+
+    if factual:
+        factual_body, metrics = _synthesize_factual(run, settings, ledger, cycle, sources)
     else:
         # No factual findings — honest empty body, no model call. A
         # community-only run still gets its quarantined section below.
