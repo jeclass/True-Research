@@ -147,9 +147,14 @@ async def _get_json(url: str, params: dict, timeout: float, retry_cfg: RetryCfg)
         response = await http_get_with_retry(
             url, retry_cfg=retry_cfg, timeout=timeout, params=params
         )
-        return response.json()
-    except (httpx.HTTPError, json.JSONDecodeError) as exc:
+    except httpx.HTTPError as exc:
         raise ConnectorError(f"academic API call failed ({url}): {exc}") from exc
+    try:
+        return response.json()
+    except Exception as exc:  # noqa: BLE001 — JSONDecodeError + a bogus
+        # Content-Encoding/charset (AssertionError/LookupError from httpx's decoder)
+        # both mean an unusable body; surface as a connector failure, not a crash.
+        raise ConnectorError(f"academic API returned an undecodable body ({url}): {exc!r}") from exc
 
 
 async def search_pubmed(
@@ -198,7 +203,11 @@ async def search_arxiv(
         )
     except httpx.HTTPError as exc:
         raise ConnectorError(f"academic API call failed (arXiv): {exc}") from exc
-    return format_papers(parse_arxiv_atom(response.text), "arXiv")
+    try:
+        body = response.text
+    except Exception as exc:  # noqa: BLE001 — bogus Content-Encoding/charset
+        raise ConnectorError(f"arXiv returned an undecodable body: {exc!r}") from exc
+    return format_papers(parse_arxiv_atom(body), "arXiv")
 
 
 def _normalize_papers(papers: list[dict[str, Any]]) -> list[dict[str, Any]]:
