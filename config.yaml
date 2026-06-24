@@ -81,17 +81,21 @@ budget:
   verification_max_findings: 3   # cap the verify wave to the top-3 claims
 
 # --- Cheap posture (--cheap): the efficient frontier (architect review 2026-06-16)
-# Volume tier on gpt-oss-120b @ Groq (concise, JSON-reliable, cache-friendly);
-# init/verify/synth on DeepSeek V4 Pro (grounded stages; cache ~free). ONLY the
-# once-firing gate goes to a non-hallucinating auditor — Qwen 3.7 Max (high-
-# abstention, ~$0.06). Frontier touches exactly one cell. ~$0.7-1/run.
+# Volume on DeepSeek V4 Flash (Groq Dev tier externally gated 2026-06-16 + free
+# tier 429s @ 8k TPM; `--volume groq` restores the designed gpt-oss-120b tier when
+# it opens). init/verify/synth on DeepSeek V4 Pro (grounded stages; cache ~free).
+# ONLY the once-firing gate goes to a non-hallucinating auditor — Qwen 3.7 Max
+# (high-abstention, ~$0.06). Frontier touches exactly one cell. ~$0.3-0.6/run.
 cheap:
   roles:
     initializer:     {endpoint: deepseek, model: deepseek-v4-pro, max_turns: 16, max_wall_seconds: 600}
-    worker:          {endpoint: groq,     model: gpt-oss-120b,    max_turns: 4,  max_wall_seconds: 300}
-    reader_subagent: {endpoint: groq,     model: gpt-oss-120b,    max_turns: 4,  max_wall_seconds: 300}
-    compose:         {endpoint: groq,     model: gpt-oss-120b,    max_turns: 4,  max_wall_seconds: 300}
-    evaluator:       {endpoint: groq,     model: gpt-oss-120b,    max_turns: 8,  max_wall_seconds: 300}
+    # VOLUME on DeepSeek (Groq gated; see header). Extraction -> Flash; the
+    # multi-turn per-cycle gate -> Pro (Flash exhausts its turn budget — the same
+    # extraction-vs-judgment split as everywhere). Mirrors volume_options.deepseek.
+    worker:          {endpoint: deepseek_flash, model: deepseek-v4-flash, max_turns: 4,  max_wall_seconds: 300}
+    reader_subagent: {endpoint: deepseek_flash, model: deepseek-v4-flash, max_turns: 4,  max_wall_seconds: 300}
+    compose:         {endpoint: deepseek_flash, model: deepseek-v4-flash, max_turns: 4,  max_wall_seconds: 300}
+    evaluator:       {endpoint: deepseek,       model: deepseek-v4-pro,   max_turns: 12, max_wall_seconds: 600}
     # Only the GATE goes to a non-hallucinating auditor — it's the ungrounded
     # "is this conclusive?" call that fires ONCE (pennies). Verify stays DeepSeek:
     # it's GROUNDED (reads sources to refute), the reports agree V4 Pro is adequate,
@@ -112,10 +116,11 @@ cheap:
 accurate:
   roles:
     initializer:     {endpoint: deepseek,  model: deepseek-v4-pro, max_turns: 16, max_wall_seconds: 600}
-    worker:          {endpoint: groq,      model: gpt-oss-120b,    max_turns: 4,  max_wall_seconds: 300}
-    reader_subagent: {endpoint: groq,      model: gpt-oss-120b,    max_turns: 4,  max_wall_seconds: 300}
-    compose:         {endpoint: groq,      model: gpt-oss-120b,    max_turns: 4,  max_wall_seconds: 300}
-    evaluator:       {endpoint: groq,      model: gpt-oss-120b,    max_turns: 8,  max_wall_seconds: 300}
+    # VOLUME on DeepSeek (Groq gated; `--volume groq` restores gpt-oss-120b).
+    worker:          {endpoint: deepseek_flash, model: deepseek-v4-flash, max_turns: 4,  max_wall_seconds: 300}
+    reader_subagent: {endpoint: deepseek_flash, model: deepseek-v4-flash, max_turns: 4,  max_wall_seconds: 300}
+    compose:         {endpoint: deepseek_flash, model: deepseek-v4-flash, max_turns: 4,  max_wall_seconds: 300}
+    evaluator:       {endpoint: deepseek,       model: deepseek-v4-pro,   max_turns: 12, max_wall_seconds: 600}
     verifier:        {endpoint: deepseek,  model: deepseek-v4-pro, max_turns: 8,  max_wall_seconds: 900}
     synthesizer:     {endpoint: deepseek,  model: deepseek-v4-pro, max_turns: 40, max_wall_seconds: 1800}
     final_evaluator: {endpoint: anthropic, model: claude-opus-4-8, max_turns: 24, max_wall_seconds: 1200}

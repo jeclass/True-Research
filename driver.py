@@ -100,9 +100,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         choices=["groq", "deepseek", "local"],
         default=None,
         help="override the volume-tier backend (worker/reader/compose/per-cycle "
-        "gate) independent of the preset: groq=gpt-oss-120b (default), "
-        "deepseek=V4 Flash (cloud stopgap when Groq is rate-capped/gated), "
-        "local=Ollama gpt-oss-20b-32k ($0, slower). Wins over the preset.",
+        "gate) independent of the preset: deepseek=V4 Flash (the OPERATIVE default "
+        "while Groq's Dev tier is externally gated), groq=gpt-oss-120b (restore "
+        "when it opens), local=Ollama gpt-oss-20b-32k ($0, slower). Wins over the preset.",
     )
     parser.add_argument(
         "--waves",
@@ -420,6 +420,23 @@ def main(argv: list[str] | None = None) -> int:
     }
     try:
         settings = load_settings(config_path=args.config, overrides=overrides)
+        # Routing banner: show where each tier resolves BEFORE spending a cent, so
+        # a misrouted run (e.g. volume silently on Groq while it 429s) is visible
+        # up front rather than discovered in the ledger. Defensive on role lookups
+        # — minimal/test configs may omit some roles.
+        def _route(role: str) -> str:
+            rc = settings.roles.get(role)
+            return f"{rc.endpoint}/{rc.model}" if rc else "(unset)"
+
+        _volume, _judgment, _gate = (
+            _route("reader_subagent"),
+            _route("synthesizer"),
+            _route("final_evaluator"),
+        )
+        console.print(
+            f"[cyan]routing[/cyan]  volume=[bold]{_volume}[/bold]  "
+            f"judgment=[bold]{_judgment}[/bold]  gate=[bold]{_gate}[/bold]"
+        )
         if args.comprehensive:
             console.print(
                 f"[bold cyan]COMPREHENSIVE mode — deep bounds applied: "
@@ -453,6 +470,9 @@ def main(argv: list[str] | None = None) -> int:
             get_profile(profile)  # fail fast if unimplemented
             run = Runspace.create(runs_dir, args.question, profile)
             console.log(f"created run {run.meta.run_id} (profile: {profile})")
+            run.log_decision(
+                f"routing — volume={_volume}, judgment={_judgment}, gate={_gate}"
+            )
             if settings.is_full_local():
                 run.log_decision(
                     "run started in FULL-LOCAL posture — all roles on "

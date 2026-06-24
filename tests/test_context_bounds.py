@@ -68,11 +68,13 @@ def test_budget_flag_swaps_judgment_roles_to_cheap():
 
 
 def test_cheap_and_accurate_presets_route_correctly():
-    # Architect review (2026-06-16): both presets are ONE efficient build — Groq
-    # volume + DeepSeek V4 Pro on init/verify/synth (grounded stages). They differ
-    # in exactly one cell — the once-firing, ungrounded final gate (cheap = Qwen
-    # 3.7 Max, accurate = Opus) — plus more verify passes on accurate. Frontier
-    # spend touches only the gate, never the expensive grounded verify stage.
+    # Architect review (2026-06-16): both presets are ONE efficient build —
+    # DeepSeek V4 Pro on init/verify/synth (grounded stages). They differ in
+    # exactly one cell — the once-firing, ungrounded final gate (cheap = Qwen 3.7
+    # Max, accurate = Opus) — plus more verify passes on accurate.
+    # VOLUME (2026-06-16): Groq Dev tier is externally gated, so the presets'
+    # volume tier routes to DeepSeek V4 Flash (extraction) + Pro (per-cycle gate);
+    # `--volume groq` restores gpt-oss-120b when it opens.
     from src.settings import load_settings
 
     cheap = load_settings(overrides={"cheap": True})
@@ -80,11 +82,17 @@ def test_cheap_and_accurate_presets_route_correctly():
 
     # Shared efficient build: identical on every stage EXCEPT the gate.
     for s in (cheap, accurate):
-        assert s.roles["reader_subagent"].endpoint == "groq"        # volume → Groq
-        assert s.roles["reader_subagent"].model == "gpt-oss-120b"
-        assert s.roles["initializer"].model == "deepseek-v4-pro"    # planning → DeepSeek
-        assert s.roles["verifier"].model == "deepseek-v4-pro"       # verify is GROUNDED → DeepSeek
-        assert s.roles["synthesizer"].model == "deepseek-v4-pro"    # synth → DeepSeek
+        assert s.roles["reader_subagent"].endpoint == "deepseek_flash"  # volume → DeepSeek (Groq gated)
+        assert s.roles["reader_subagent"].model == "deepseek-v4-flash"
+        assert s.roles["evaluator"].model == "deepseek-v4-pro"          # per-cycle gate → Pro (judgment)
+        assert s.roles["initializer"].model == "deepseek-v4-pro"        # planning → DeepSeek
+        assert s.roles["verifier"].model == "deepseek-v4-pro"           # verify is GROUNDED → DeepSeek
+        assert s.roles["synthesizer"].model == "deepseek-v4-pro"        # synth → DeepSeek
+
+    # --volume groq restores the designed gpt-oss-120b volume tier when it opens.
+    g = load_settings(overrides={"cheap": True, "volume": "groq"})
+    assert g.roles["reader_subagent"].endpoint == "groq"
+    assert g.roles["reader_subagent"].model == "gpt-oss-120b"
 
     # The one differing cell: the ungrounded "is this conclusive?" gate.
     assert cheap.roles["final_evaluator"].model == "qwen-3.7-max"        # cheap arm → Qwen
@@ -153,8 +161,10 @@ def test_volume_override_swaps_backend_independently():
     from src.errors import ConfigError
     from src.settings import load_settings
 
-    # default: --cheap keeps groq volume
-    assert load_settings(overrides={"cheap": True}).roles["reader_subagent"].endpoint == "groq"
+    # default: --cheap routes volume to DeepSeek (Groq Dev tier gated 2026-06-16);
+    # --volume groq restores the designed gpt-oss-120b tier when it opens.
+    assert load_settings(overrides={"cheap": True}).roles["reader_subagent"].endpoint == "deepseek_flash"
+    assert load_settings(overrides={"cheap": True, "volume": "groq"}).roles["reader_subagent"].endpoint == "groq"
 
     # --volume deepseek: extraction roles -> V4 Flash; the multi-turn per-cycle
     # evaluator (judgment) -> V4 Pro (Flash exhausts its turn budget); gate + synth
