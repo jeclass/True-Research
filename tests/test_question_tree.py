@@ -58,6 +58,27 @@ def test_fragmentation_assigns_child_depth(tmp_path):
     run.release_lock()
 
 
+def test_fragmented_with_no_children_degrades_to_block_not_crash(tmp_path):
+    # Robustness (2026-06-24): a worker returning outcome=fragmented with no
+    # child_questions (malformed decomposition, seen live from DeepSeek Flash mid
+    # multi-cycle run) must degrade to a soft block — question stays open for a
+    # retry, run continues — NOT raise and kill a run that already has findings.
+    s = _settings(tmp_path)
+    run = Runspace.create(tmp_path / "runs", "q", "general")
+    target = _seed(
+        run,
+        OpenQuestion(id="q-001", question="broad", priority=4, created_by="initializer"),
+    )
+    bad = WorkerOutput(outcome="fragmented", child_questions=[], progress_note="frag")
+    summary = _apply_fragmented(run, s, target, bad)  # must NOT raise
+    qs = run.load_questions()
+    assert qs.get("q-001").status == "open"       # kept open for a retry
+    assert qs.get("q-001").blocked_count == 1     # counted as a soft block
+    assert "blocked" in summary
+    assert any("malformed decomposition" in d for d in run.decisions())
+    run.release_lock()
+
+
 def test_depth_cap_refuses_and_leaves_a_leaf(tmp_path):
     s = _settings(tmp_path, **{"question_tree.max_depth": 2})
     run = Runspace.create(tmp_path / "runs", "q", "general")

@@ -379,7 +379,25 @@ def _apply_fragmented(
     run: Runspace, settings: Settings, target: OpenQuestion, output: WorkerOutput
 ) -> str:
     if not output.child_questions:
-        raise WorkerError(f"{target.id}: outcome=fragmented but no child_questions")
+        # The worker said "this is too broad, fragment it" but gave no children —
+        # an incoherent decomposition (observed 2026-06-24 from DeepSeek Flash mid
+        # multi-cycle run). A single malformed worker turn must NOT crash the run
+        # (it had findings + state on disk). Degrade to a soft block: the question
+        # stays open so the worker can fragment it correctly on a later cycle, and
+        # if it never does, the blocked-count backstop retires it. Surfaced to
+        # DECISIONS per invariant 8.
+        run.log_decision(
+            f"worker returned outcome=fragmented for {target.id} with no "
+            "child_questions (malformed decomposition); degraded to a soft block "
+            "rather than crashing the run"
+        )
+        degraded = output.model_copy(
+            update={
+                "blocked_reason": "worker said 'fragmented' but provided no "
+                "child_questions (malformed decomposition)"
+            }
+        )
+        return _apply_blocked(run, target, degraded)
     questions = run.load_questions()
     tree = settings.question_tree
     child_depth = target.depth + 1
