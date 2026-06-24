@@ -79,6 +79,34 @@ def test_fragmented_with_no_children_degrades_to_block_not_crash(tmp_path):
     run.release_lock()
 
 
+def test_malformed_resolved_output_degrades_to_block_not_crash(tmp_path):
+    # Robustness (2026-06-24): a resolved finding that violates a worker invariant
+    # (here: no [src-] citations) must reject the finding and degrade to a soft
+    # block, not crash the run. Generalizes the fragmentation fix to the most-
+    # exercised worker path; invariant 3 still holds (no finding written).
+    from src.sessions.worker import ProposedFinding, _apply_outcome
+
+    s = _settings(tmp_path)
+    run = Runspace.create(tmp_path / "runs", "q", "general")
+    target = _seed(
+        run,
+        OpenQuestion(id="q-001", question="x", priority=3, created_by="initializer"),
+    )
+    bad = WorkerOutput(
+        outcome="resolved",
+        finding=ProposedFinding(body_markdown="A claim with no citation.", confidence=0.8),
+        sources=[],
+        progress_note="done",
+    )
+    summary = _apply_outcome(run, s, target, bad, cycle=1, read_urls=set())  # must NOT raise
+    qs = run.load_questions()
+    assert qs.get("q-001").status == "open"       # rejected, retryable
+    assert qs.get("q-001").blocked_count == 1
+    assert "blocked" in summary
+    assert not list((run.root / "findings").glob("q-001*"))  # no finding written (invariant 3)
+    run.release_lock()
+
+
 def test_depth_cap_refuses_and_leaves_a_leaf(tmp_path):
     s = _settings(tmp_path, **{"question_tree.max_depth": 2})
     run = Runspace.create(tmp_path / "runs", "q", "general")

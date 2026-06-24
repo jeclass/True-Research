@@ -288,12 +288,7 @@ def run(run: Runspace, settings: Settings, cycle: int, ledger: Ledger) -> Sessio
             "unsuitable (§1 local-mode constraint)"
         )
 
-    if output.outcome == "resolved":
-        summary = _apply_resolved(run, settings, target, output, cycle, read_urls)
-    elif output.outcome == "fragmented":
-        summary = _apply_fragmented(run, settings, target, output)
-    else:
-        summary = _apply_blocked(run, target, output)
+    summary = _apply_outcome(run, settings, target, output, cycle, read_urls)
 
     run.log(
         f"worker (cycle {cycle}): {output.progress_note} "
@@ -312,6 +307,40 @@ def run(run: Runspace, settings: Settings, cycle: int, ledger: Ledger) -> Sessio
         wall_seconds=spawn.wall_seconds,
         summary=f"{summary} ({stats['reads']} reads, {spawn.num_turns} turns)",
     )
+
+
+def _apply_outcome(
+    run: Runspace,
+    settings: Settings,
+    target: OpenQuestion,
+    output: WorkerOutput,
+    cycle: int,
+    read_urls: set[str],
+) -> str:
+    """Dispatch the worker outcome, degrading any malformed-output WorkerError
+    (resolved with no finding / confidence out of range / uncited or
+    unregistered-source finding / bad child priority) to a SOFT BLOCK instead of
+    crashing a multi-cycle run that already has findings on disk. The bad output
+    is rejected (no finding is written on a failing path), the question stays open
+    for a clean retry, and the blocked-count backstop retires it if the worker
+    keeps failing — so invariant 3 (traceability) still holds. Surfaced to
+    DECISIONS (invariant 8)."""
+    try:
+        if output.outcome == "resolved":
+            return _apply_resolved(run, settings, target, output, cycle, read_urls)
+        if output.outcome == "fragmented":
+            return _apply_fragmented(run, settings, target, output)
+        return _apply_blocked(run, target, output)
+    except WorkerError as exc:
+        run.log_decision(
+            f"worker output for {target.id} rejected ({exc}); degraded to a soft "
+            "block rather than crashing the run"
+        )
+        return _apply_blocked(
+            run,
+            target,
+            output.model_copy(update={"blocked_reason": f"rejected worker output: {exc}"}),
+        )
 
 
 def _apply_resolved(
