@@ -104,7 +104,15 @@ async def _fetch_via_httpx(url: str, settings: Settings) -> str:
     except httpx.HTTPError as exc:
         raise ReaderError(f"fetch failed for {url}: {exc}") from exc
     content_type = response.headers.get("content-type", "")
-    return _finalize_text(response.text, content_type, url, settings)
+    try:
+        text = response.text
+    except Exception as exc:  # noqa: BLE001 — a bogus Content-Encoding/charset
+        # (observed 2026-06-24: a server declaring `Content-Encoding: base64`)
+        # makes httpx's decoder raise NON-HTTPError types (AssertionError,
+        # LookupError, UnicodeDecodeError). Treat an undecodable body as a failed
+        # read so the run degrades (stealth retry -> skip), never crashes.
+        raise ReaderError(f"fetch failed for {url}: undecodable response ({exc!r})") from exc
+    return _finalize_text(text, content_type, url, settings)
 
 
 def _stealth_fetch_sync(url: str, timeout_seconds: float) -> str:

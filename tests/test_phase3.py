@@ -212,6 +212,30 @@ def test_fetch_page_failure_is_a_reader_error(tmp_path):
         asyncio.run(fetch_page("http://127.0.0.1:9/none", settings))
 
 
+def test_fetch_via_httpx_undecodable_body_is_reader_error(tmp_path, monkeypatch):
+    # Robustness (2026-06-24): a server declaring a bogus Content-Encoding (e.g.
+    # `base64`) makes httpx's response.text raise AssertionError — a NON-HTTPError
+    # that the fetch guard missed, so it crashed a live multi-cycle run. It must
+    # surface as a failed read instead.
+    import src.tools as tools_mod
+    from src.sessions import reader as reader_mod
+
+    class _Undecodable:
+        headers = {"content-type": "text/html"}
+
+        @property
+        def text(self):
+            raise AssertionError("base64 codec strict-mode")
+
+    async def _fake_get(url, **kwargs):
+        return _Undecodable()
+
+    monkeypatch.setattr(tools_mod, "http_get_with_retry", _fake_get)
+    settings = _settings(tmp_path)
+    with pytest.raises(ReaderError, match="undecodable"):
+        asyncio.run(reader_mod._fetch_via_httpx("https://bad.example/x", settings))
+
+
 def test_normalize_url_forgives_slash_case_fragment():
     from src.sessions.common import normalize_url
 
