@@ -305,7 +305,21 @@ def _drive(
             return _finish(backend, run, settings, ledger, console, tripped)
 
         before = run.state_hash()
-        _run_session(backend, "worker", run, settings, cycle, ledger, console)
+        if run.no_open_questions():
+            # Empty actionable queue at the top of a cycle. This happens on RESUME
+            # when the run was interrupted between the worker resolving the last
+            # open question and the evaluator's conclusive-exit check (root-cause
+            # fix 2026-06-25: a reaped/crashed run resumed here and the worker
+            # raised "invoked with no open or in_progress questions", crash-looping
+            # the launcher). Skip the worker — it has nothing to do and would crash
+            # — and let the evaluator render its verdict, which routes to the
+            # conclusive exit / final gate / exhaustion-stall below.
+            run.log(
+                f"worker (cycle {cycle}): skipped — no open questions remain; "
+                "evaluating for conclusive exit"
+            )
+        else:
+            _run_session(backend, "worker", run, settings, cycle, ledger, console)
 
         tripped = _tripped_breaker(run, settings, ledger, cycle)
         if tripped:

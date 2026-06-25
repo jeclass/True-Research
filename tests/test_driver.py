@@ -195,3 +195,69 @@ def test_eval_fail_with_empty_queue_finishes_clean_stall(make_config, runs_dir, 
     progress = (run_dir / "PROGRESS.md").read_text(encoding="utf-8")
     assert "zero open questions" in progress
     assert "PARTIAL" in (run_dir / REPORT_FILE).read_text(encoding="utf-8")
+
+
+def test_resume_with_empty_queue_skips_worker_and_finishes(make_config, runs_dir, monkeypatch):
+    # Root-cause fix 2026-06-25: a run interrupted between the worker resolving the
+    # LAST open question and the evaluator's conclusive-exit check, on resume, used
+    # to re-enter at the worker -> "invoked with no open or in_progress questions"
+    # -> exit 1, crash-looping the launcher (cost frozen, never finishing). The
+    # driver must SKIP the worker on an empty queue and finish via the evaluator.
+    import time as _t
+
+    from src.sessions.stub import _result
+    from src.state import Verdict
+
+    cfg = make_config()
+    real_backend = get_backend
+
+    def make_backend(*, crash_eval):
+        def factory(settings):
+            backend = dict(real_backend(settings))
+            real_worker = backend["worker"]
+
+            def worker(run, settings_, cycle, ledger_):
+                result = real_worker(run, settings_, cycle, ledger_)
+                qs = run.load_questions()  # resolve EVERY question this cycle
+                for q in qs.root:
+                    q.status = "resolved"
+                run.save_questions(qs)
+                return result
+
+            def evaluator(run, settings_, cycle, ledger_):
+                if crash_eval:  # interruption AFTER the last question resolved
+                    raise RuntimeError("simulated kill before conclusive check")
+                run.write_verdict(cycle, Verdict(
+                    passed=True, unmet_criteria=[], contradictions=[],
+                    new_questions=[], notes="all resolved",
+                ))
+                return _result(settings_, "evaluator", "evaluator", _t.monotonic(),
+                               "pass", ledger_, cycle)
+
+            backend["worker"] = worker
+            backend["evaluator"] = evaluator
+            return backend
+
+        return factory
+
+    # First run: resolve all questions, then crash in the evaluator -> the run is
+    # left "running" with an empty actionable queue (the bug's precondition).
+    monkeypatch.setattr(driver, "get_backend", make_backend(crash_eval=True))
+    with pytest.raises(RuntimeError, match="simulated kill"):
+        driver.main(["q", "--config", str(cfg), "--max-cycles", "5"])
+    monkeypatch.undo()
+
+    run_dir = only_run_dir(runs_dir)
+    assert _meta(run_dir).status == "running"
+
+    # Resume: the driver must skip the worker (empty queue) and finish conclusively
+    # through the evaluator — NOT crash-loop on the empty-queue worker.
+    monkeypatch.setattr(driver, "get_backend", make_backend(crash_eval=False))
+    rc = driver.main(["--resume", run_dir.name, "--config", str(cfg), "--max-cycles", "5"])
+    monkeypatch.undo()
+
+    assert rc == 0
+    meta = _meta(run_dir)
+    assert meta.status == "finished" and meta.finish_reason == "conclusive"
+    assert (run_dir / REPORT_FILE).is_file()
+    assert "skipped — no open questions" in (run_dir / "PROGRESS.md").read_text(encoding="utf-8")
