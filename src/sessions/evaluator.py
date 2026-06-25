@@ -120,11 +120,33 @@ charitable. If anything load-bearing is unproven, FAIL with the questions
 that would prove it. Do not rubber-stamp."""
 
 
-def build_system_prompt(profile, final: bool = False) -> str:
+_COMPREHENSIVE_NOTE = """
+
+# COMPREHENSIVE run — context is in scope, not just decision-changers
+This run targets a thorough, reader-complete report, so RELAX the "could change
+the conclusion" test above:
+- A question that adds DIRECTLY-RELEVANT background or comparative context is IN
+  SCOPE even when it won't change WHICH option you recommend — e.g. how the
+  recommended approach compares to the standard alternatives, the key mechanism
+  behind a recommendation, or an important caveat/limitation a reader needs to act
+  safely. Prefer to KEEP such a question open at low priority for a brief resolving
+  finding rather than closing it as immaterial.
+- Reserve immaterial-closing for GENUINE tangents that neither change the
+  recommendation NOR inform the reader's understanding of it.
+Still weigh this against remaining budget: context enriches the answer, it does not
+license unbounded sprawl."""
+
+
+def build_system_prompt(profile, final: bool = False, comprehensive: bool = False) -> str:
     """Stable per-run prompt: the default-FAIL gate + the profile's rubric
-    (+ the terminal-gate addendum for the two-tier final pass)."""
+    (+ the terminal-gate addendum for the two-tier final pass). In comprehensive
+    mode the stopping discipline is widened to keep directly-relevant context
+    (root-cause fix 2026-06-25: the hairline-pharma comparison was closed as
+    'immaterial' because it wouldn't change the protocol, so it never reached the
+    report — but the user needs that context)."""
     return (
         _SYSTEM_PROMPT
+        + (_COMPREHENSIVE_NOTE if comprehensive else "")
         + f"\n\n# Domain rubric (profile: {profile.name}) — additional demands\n"
         + profile.rubric()
         + (_FINAL_GATE_ADDENDUM if final else "")
@@ -341,6 +363,9 @@ def _run_tier(
     run: Runspace, settings: Settings, cycle: int, ledger: Ledger, role: str, final: bool
 ) -> SessionResult:
     profile = get_profile(run.meta.profile)
+    # Same comprehensive signal the initializer scales on (seed_target > 7): widen
+    # the evaluator's stopping discipline to keep directly-relevant context.
+    comprehensive = settings.question_tree.seed_target > 7
     # Evaluator sessions are stateless until _apply_output — a malformed-JSON
     # roll is retryable exactly like the pipeline single-shots (observed
     # smoke11 2026-06-10: local evaluator emitted an unterminated string at
@@ -357,7 +382,9 @@ def _run_tier(
                 cycle=cycle,
                 session_type="evaluator",
                 role=role,
-                system_prompt=build_system_prompt(profile, final=final),
+                system_prompt=build_system_prompt(
+                    profile, final=final, comprehensive=comprehensive
+                ),
                 user_prompt=_build_user_prompt(run, settings, ledger, cycle, final=final),
                 tools=_TOOLS,
                 output_model=EvaluatorOutput,

@@ -26,6 +26,12 @@ Report rules:
 - report_markdown: a complete markdown report. Lead with the answer: a direct
   summary of what the evidence supports. Then evidence sections organized by
   theme, then a section on contradictions and open uncertainties.
+- Be COMPREHENSIVE, not minimal. Where the findings provide directly-relevant
+  background or comparative context — how the recommendation compares to the
+  standard alternatives, the key mechanism behind it, important caveats and
+  limitations a reader needs to act safely — INCLUDE it. A complete answer
+  contextualizes its recommendation; do not omit relevant context the findings
+  contain merely because it does not change WHICH option is recommended.
 - EVERY factual claim ends with its [src-id] citation(s), copied faithfully
   from the findings. A claim you cannot cite does not go in the report.
 - If the run ended early (you will be told), say plainly what was and was not

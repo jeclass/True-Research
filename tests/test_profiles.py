@@ -262,6 +262,24 @@ def test_render_markdown_pdf_never_raises(tmp_path):
     assert ok is False and detail
 
 
+# --- evaluator: comprehensive widens stopping discipline to keep context ----------------
+
+
+def test_evaluator_comprehensive_note_widens_stopping_discipline():
+    # Detail-inclusion fix: in comprehensive mode the evaluator keeps directly-
+    # relevant context (e.g. how a recommendation compares to the standard options)
+    # instead of closing it 'immaterial'. Normal runs stay tight (note absent).
+    from src.profiles import get_profile
+    from src.sessions.evaluator import build_system_prompt
+
+    p = get_profile("general")
+    normal = build_system_prompt(p, comprehensive=False)
+    comp = build_system_prompt(p, comprehensive=True)
+    assert "COMPREHENSIVE run" in comp and "COMPREHENSIVE run" not in normal
+    # Still the default-FAIL gate in both modes — we widened scope, not rigor.
+    assert "START FROM FAIL" in normal and "START FROM FAIL" in comp
+
+
 # --- capture + vision flow ----------------------------------------------------------------
 
 
