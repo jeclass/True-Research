@@ -16,23 +16,52 @@ class GeneralProfile(Profile):
         return self._base_toolset(ctx)
 
     def pipeline_search_providers(self, settings: Settings) -> list[tuple[str, Any]]:
-        # Web search (SearXNG -> DDG fallback) PLUS the OpenAlex scholarly index,
-        # so general research reaches journal papers the web crawlers can't surface
-        # — e.g. verifying a specific trial's PRIMARY publication. OpenAlex is a
-        # free, no-key, native API (no Docker); its results carry title + abstract
-        # even when the landing page is paywalled, which is enough for the worker
-        # to grade the paper. CLAUDE.md §7 already scopes "academic studies and
-        # reviews" to the general profile; this makes that real.
+        # Depth+breadth stack, all merged by the pipeline:
+        #   - OpenAlex: the scholarly index, so general research reaches journal
+        #     papers web crawlers can't surface (a trial's PRIMARY publication).
+        #     Free, no-key, no-Docker; carries title+abstract even when paywalled.
+        #   - Web: Serper (Google) when SERPER_API_KEY is present — Google's broad
+        #     index, cheap enough that breadth comes from MANY queries, deep-read by
+        #     the engine's own reader. Falls back to DDG on any Serper failure so a
+        #     bad key / outage never kills a run. Without a Serper key, the web slot
+        #     is the base SearXNG -> DDG provider (the self-host path).
+        # Portable: a GitHub clone runs the same with the user's own key, no Docker.
         from src.tools.academic import openalex_results
 
-        providers = super().pipeline_search_providers(settings)
         max_results = settings.search.max_results
         timeout = settings.reader.fetch_timeout_seconds
 
         async def _openalex(query: str):
             return await openalex_results(query, max_results, timeout, settings.retry)
 
-        return [("openalex", _openalex)] + providers
+        sc = settings.search
+        serper_key = (
+            settings.secrets.get(sc.serper_api_key_env) if sc.serper_api_key_env else None
+        )
+        if serper_key:
+            from src.tools import ConnectorError
+            from src.tools.search import ddg_results, serper_results
+
+            key = serper_key.get_secret_value()
+
+            async def _web(query: str):
+                try:
+                    results = await serper_results(
+                        key, query, max_results, timeout, settings.retry,
+                        endpoint=sc.serper_endpoint, gl=sc.serper_gl, hl=sc.serper_hl,
+                    )
+                    if results:
+                        return results
+                    # Serper up but no hits — let DDG take a swing before giving up.
+                except ConnectorError:
+                    pass  # Serper down / bad key -> DDG so research survives
+                return await ddg_results(query, max_results, timeout)
+
+            web_providers = [("serper", _web)]
+        else:
+            web_providers = super().pipeline_search_providers(settings)  # searxng -> ddg
+
+        return [("openalex", _openalex)] + web_providers
 
     def url_preferences(self) -> dict[str, Any]:
         # Authority-first selection: when primary/institutional pages appear

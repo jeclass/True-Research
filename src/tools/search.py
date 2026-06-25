@@ -10,7 +10,7 @@ from typing import Any
 import httpx
 
 from src.settings import RetryCfg, Settings
-from src.tools import ConnectorError, http_get_with_retry
+from src.tools import ConnectorError, http_get_with_retry, http_post_with_retry
 
 
 def parse_searxng_results(payload: dict, max_results: int) -> list[dict[str, Any]]:
@@ -83,6 +83,62 @@ async def ddg_results(
         raise ConnectorError(f"DuckDuckGo search failed: {exc}") from exc
 
 
+def parse_serper_results(payload: dict, max_results: int) -> list[dict[str, Any]]:
+    """Serper returns Google's SERP as JSON. We take the `organic` block — the
+    title/link/snippet are exactly the (title, url, snippet) the pipeline needs to
+    rank and then deep-read. Snippets are only for URL SELECTION here; the engine's
+    own reader fetches each chosen page in full, so 150-char snippets are enough
+    (the usual 'SERP snippets are too thin for an agent' caveat assumes no reader)."""
+    try:
+        organic = payload.get("organic", [])[:max_results]
+        return [
+            {
+                "title": r.get("title", "(untitled)"),
+                "url": r.get("link", ""),
+                "snippet": (r.get("snippet") or "")[:400],
+            }
+            for r in organic
+            if r.get("link")
+        ]
+    except (AttributeError, TypeError) as exc:
+        raise ConnectorError(f"unexpected Serper payload: {exc}") from exc
+
+
+async def serper_results(
+    api_key: str,
+    query: str,
+    max_results: int,
+    timeout: float,
+    retry_cfg: RetryCfg,
+    *,
+    endpoint: str = "https://google.serper.dev/search",
+    gl: str = "us",
+    hl: str = "en",
+) -> list[dict[str, Any]]:
+    """Google SERP via Serper (the portable, key-based primary web provider).
+    Google's index is the broadest single source, and Serper is cheap enough
+    (~$0.0003/query) that breadth comes from issuing MANY queries, not one fat one
+    — so we cap `num` at the pipeline's max_results, not Serper's 100 max."""
+    body = {
+        "q": query,
+        "num": min(max(max_results, 10), 100),
+        "gl": gl,
+        "hl": hl,
+    }
+    try:
+        response = await http_post_with_retry(
+            endpoint,
+            retry_cfg=retry_cfg,
+            timeout=timeout,
+            json_body=body,
+            headers={"X-API-KEY": api_key, "Content-Type": "application/json"},
+        )
+        payload = response.json()
+    except (httpx.HTTPError, json.JSONDecodeError) as exc:
+        raise ConnectorError(f"Serper search failed: {exc}") from exc
+    return parse_serper_results(payload, max_results)
+
+
 async def searxng_search(
     base_url: str, query: str, max_results: int, timeout: float, retry_cfg: RetryCfg
 ) -> str:
@@ -104,14 +160,34 @@ def preflight_search(settings: Settings, *, timeout: float = 6.0) -> str:
 
     Pipeline mode requires engine-side search (Anthropic-hosted WebSearch never
     exists there, §1). Without it every worker cycle blocks with zero reads and
-    the run burns its whole cycle budget to synthesize an empty report. Prefer
-    SearXNG (probing /search?format=json catches a stopped container AND a
-    JSON-disabled instance); if it's down, fall back to the Docker-free DuckDuckGo
-    provider; abort only if NEITHER answers. Returns "searxng" or "ddg" so the
-    caller can warn when running on the degraded fallback."""
+    the run burns its whole cycle budget to synthesize an empty report. Preference
+    order: Serper (portable Google API, when SERPER_API_KEY is set) -> SearXNG
+    (self-host) -> DuckDuckGo (free fallback). Abort only if NONE answers. Returns
+    "serper" | "searxng" | "ddg" so the caller can warn on a degraded fallback."""
     import asyncio
 
     from src.errors import ConfigError
+
+    # Serper first — the preferred web backend when a key is present. A live probe
+    # (one ~$0.0003 credit) catches a bad/expired key NOW rather than mid-run.
+    serper_env = settings.search.serper_api_key_env
+    serper_key = settings.secrets.get(serper_env) if serper_env else None
+    serper_err: str | None = None
+    if serper_key:
+        try:
+            response = httpx.post(
+                settings.search.serper_endpoint,
+                json={"q": "connectivity check", "num": 1,
+                      "gl": settings.search.serper_gl, "hl": settings.search.serper_hl},
+                headers={"X-API-KEY": serper_key.get_secret_value(),
+                         "Content-Type": "application/json"},
+                timeout=timeout,
+            )
+            response.raise_for_status()
+            response.json()
+            return "serper"
+        except (httpx.HTTPError, json.JSONDecodeError) as exc:
+            serper_err = str(exc)
 
     base_url = settings.search.searxng_base_url
     searxng_err: str | None = None
@@ -128,7 +204,7 @@ def preflight_search(settings: Settings, *, timeout: float = 6.0) -> str:
         except (httpx.HTTPError, json.JSONDecodeError) as exc:
             searxng_err = str(exc)
 
-    # SearXNG down or unconfigured — verify the Docker-free DDG fallback works.
+    # Serper/SearXNG down or unconfigured — verify the Docker-free DDG fallback.
     try:
         if asyncio.run(ddg_results("connectivity check", 1, timeout)):
             return "ddg"
@@ -138,10 +214,11 @@ def preflight_search(settings: Settings, *, timeout: float = 6.0) -> str:
 
     raise ConfigError(
         "no search backend is reachable.\n"
+        f"  Serper: {serper_err or 'no SERPER_API_KEY in .env (set one for Google search)'}\n"
         f"  SearXNG: {searxng_err or 'not configured'}\n"
         f"  DuckDuckGo fallback: {ddg_err}\n"
-        "  Start SearXNG (docker start searxng) or check connectivity, then retry. "
-        "Bypass with --skip-search-check."
+        "  Set SERPER_API_KEY (serper.dev, free tier), start SearXNG "
+        "(docker start searxng), or check connectivity. Bypass with --skip-search-check."
     )
 
 

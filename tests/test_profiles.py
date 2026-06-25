@@ -24,7 +24,7 @@ from src.tools.academic import (
     parse_pubmed_esummary,
     reconstruct_openalex_abstract,
 )
-from src.tools.search import format_results, parse_searxng_results
+from src.tools.search import format_results, parse_searxng_results, parse_serper_results
 from tests.conftest import BASE_CONFIG
 
 
@@ -192,6 +192,52 @@ def test_searxng_parser_and_format():
     )
     assert len(results) == 2
     assert "https://x.org" in format_results(results)
+
+
+# --- serper (Google SERP) parser + provider selection ----------------------------------
+
+
+def test_serper_parser_takes_organic_skips_linkless():
+    # Serper returns Google's SERP; we keep the `organic` block as (title,url,snippet).
+    # A result with no link is unreadable -> dropped (can't feed the reader a non-URL).
+    results = parse_serper_results(
+        {"organic": [
+            {"title": "A", "link": "https://a.org", "snippet": "s1"},
+            {"title": "B", "snippet": "no link here"},
+            {"title": "C", "link": "https://c.org", "snippet": "s3"},
+        ]},
+        max_results=10,
+    )
+    assert [r["url"] for r in results] == ["https://a.org", "https://c.org"]
+    assert results[0]["snippet"] == "s1"
+
+
+def test_serper_parser_rejects_garbage():
+    from src.tools import ConnectorError
+
+    with pytest.raises(ConnectorError):
+        parse_serper_results({"organic": "not-a-list"}, max_results=5)
+
+
+def test_general_profile_prefers_serper_when_key_present(tmp_path):
+    # Portability contract: with SERPER_API_KEY in .env the web slot is Serper
+    # (Google) + OpenAlex; without it, the engine falls back to the SearXNG->DDG
+    # base provider so a fresh clone still searches with no key and no Docker.
+    from src.profiles.general import GeneralProfile
+
+    with_key = _settings(
+        tmp_path,
+        **{"search.serper_api_key_env": "SERPER_API_KEY"},
+        secrets={"ANTHROPIC_API_KEY": "sk", "SERPER_API_KEY": "k"},
+    )
+    assert [n for n, _ in GeneralProfile().pipeline_search_providers(with_key)] == [
+        "openalex", "serper",
+    ]
+
+    no_key = _settings(tmp_path, **{"search.serper_api_key_env": "SERPER_API_KEY"})
+    assert [n for n, _ in GeneralProfile().pipeline_search_providers(no_key)] == [
+        "openalex", "search",
+    ]
 
 
 # --- capture + vision flow ----------------------------------------------------------------

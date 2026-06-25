@@ -292,9 +292,18 @@ reader:
 # WebSearch is Anthropic-hosted; a worker routed to a non-first-party endpoint
 # loses it. Point this at a SearXNG instance to restore web search there.
 search:
-  searxng_base_url: http://localhost:8888   # SearXNG in docker (local-worker legs)
+  searxng_base_url: http://localhost:8888   # SearXNG in docker (self-host option)
   max_results: 20          # was 8 — more candidates per query so the reranker picks
                            # a better top-N to read (free: same read count, broader pool)
+  # Serper (Google SERP API) = PORTABLE PRIMARY web provider. Set SERPER_API_KEY in
+  # .env (serper.dev, 2,500 free q/mo) and the general profile uses Google's broad
+  # index, deep-read by the engine's own reader; without the key it falls back to
+  # SearXNG -> DDG. This + OpenAlex (academic) is the depth+breadth stack that runs
+  # anywhere from a clone. Comment serper_api_key_env out to force the self-host path.
+  serper_api_key_env: SERPER_API_KEY
+  serper_endpoint: https://google.serper.dev/search
+  serper_gl: us            # Google country bias
+  serper_hl: en            # Google UI language
 
 # --- Transient-failure retries (Phase 5 hardening) ----------------------------
 retry:

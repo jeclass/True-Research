@@ -91,6 +91,15 @@ class SearchCfg(_Frozen):
     # endpoints. A SearXNG instance fills the gap.
     searxng_base_url: str | None = None
     max_results: int = Field(ge=1)
+    # Serper (Google SERP API) — portable, key-based PRIMARY web provider. When
+    # serper_api_key_env names a key present in .env, the general profile prefers
+    # Serper (Google's broad index, cheap -> many queries); without it, search
+    # falls back to SearXNG -> DDG. This is what lets the engine run anywhere from
+    # a clone with the user's own key (no Docker/self-host required).
+    serper_api_key_env: str | None = None
+    serper_endpoint: str = "https://google.serper.dev/search"
+    serper_gl: str = "us"          # Google country bias
+    serper_hl: str = "en"          # Google UI language
 
 
 class WorkerPipelineCfg(_Frozen):
@@ -391,13 +400,19 @@ def load_settings(
     env_file_values = {
         k: v for k, v in dotenv_values(str(env_path)).items() if v is not None
     }
-    auth_envs = {
+    secret_env_names = {
         ep.get("auth_env")
         for ep in raw.get("endpoints", {}).values()
         if isinstance(ep, dict) and ep.get("auth_env")
     }
+    # Search-provider API keys (e.g. SERPER_API_KEY) are secrets too — named in the
+    # search config rather than an endpoint, so load them the same way. Config-named
+    # (not hardcoded) so a fork can point at any key env without touching code.
+    _search_raw = raw.get("search", {})
+    if isinstance(_search_raw, dict) and _search_raw.get("serper_api_key_env"):
+        secret_env_names.add(_search_raw["serper_api_key_env"])
     secrets: dict[str, SecretStr] = {}
-    for name in sorted(filter(None, auth_envs)):
+    for name in sorted(filter(None, secret_env_names)):
         value = env_file_values.get(name) or os.environ.get(name)
         if value:
             secrets[name] = SecretStr(value)

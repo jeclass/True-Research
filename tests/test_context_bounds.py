@@ -194,18 +194,43 @@ def test_volume_override_swaps_backend_independently():
         load_settings(overrides={"volume": "bogus"})
 
 
-def test_search_preflight_prefers_searxng_then_ddg_then_aborts(monkeypatch):
-    # Robustness (2026-06-24): pipeline search is SearXNG-primary with a Docker-free
-    # DuckDuckGo fallback. Preflight returns the live backend, and aborts ONLY if
-    # both are down — so a SearXNG/Docker outage degrades gracefully (the exact
+def test_search_preflight_prefers_serper_then_searxng_then_ddg_then_aborts(monkeypatch):
+    # Preference order (2026-06-25): Serper (portable Google API) -> SearXNG
+    # (self-host) -> DuckDuckGo (free fallback). Preflight returns the live backend
+    # and aborts ONLY if NONE answers — so an outage degrades gracefully (the exact
     # failure that produced an empty 0-finding report) instead of killing the run.
     import pytest
+    from pydantic import SecretStr
 
     import src.tools.search as search_mod
     from src.errors import ConfigError
     from src.settings import load_settings
 
     s = load_settings(overrides={"cheap": True})
+
+    # (1) Serper key present + reachable -> "serper". Inject the key (so the test
+    # doesn't depend on .env) and mock the probe (so it never spends a credit).
+    class _OK:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"organic": []}
+
+    with_serper = s.model_copy(
+        update={
+            "search": s.search.model_copy(update={"serper_api_key_env": "SERPER_API_KEY"}),
+            "secrets": {**s.secrets, "SERPER_API_KEY": SecretStr("test-key")},
+        }
+    )
+    monkeypatch.setattr(search_mod.httpx, "post", lambda *a, **k: _OK())
+    assert search_mod.preflight_search(with_serper, timeout=2.0) == "serper"
+
+    # The remaining chain is the NO-serper fallback — strip the key so Serper is
+    # skipped and SearXNG/DDG are exercised as before.
+    s = s.model_copy(
+        update={"search": s.search.model_copy(update={"serper_api_key_env": None})}
+    )
     dead = s.model_copy(
         update={"search": s.search.model_copy(update={"searxng_base_url": "http://127.0.0.1:59321"})}
     )
