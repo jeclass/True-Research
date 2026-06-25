@@ -9,8 +9,9 @@ max_budget_usd: 2.0       # HARD net (operator bar: $1-2 per multi-hour run);
                           # checked before every session — cannot be exceeded
 max_wall_hours: 6.0       # accumulated *active* driver hours (survives resume)
 max_cycles: 40            # worker+evaluator cycles before forced halt
-max_final_evaluations: 4  # Opus final-gate firings/run (budget posture's main
-                          # variable cost): after this many, accept the local
+max_final_evaluations: 2  # Opus final-gate firings/run — the biggest REAL cost
+                          # ($1.18/Opus call; was 4 firings = $4.71 on the hair run,
+                          # 51% of the bill). After this many, accept the per-cycle
                           # evaluator's pass rather than re-summon Opus.
 
 # --- Stall detection (CLAUDE.md §3.5) ---------------------------------------
@@ -26,6 +27,12 @@ stall_cycles: 2           # consecutive cycles with no state delta => halt
 evaluator:
   per_cycle_findings_chars: 40000
   per_cycle_max_sources: 60
+  # The Opus final gate reads more than the per-cycle gate (it's the terminal
+  # check) but is no longer unbounded — on an exhaustive run a 100-finding digest
+  # would cost ~$1+/Opus call in input alone. These GENEROUS caps (~37k tok / 120
+  # sources) only bite very large runs; normal runs sit well under them.
+  final_findings_chars: 150000
+  final_max_sources: 120
 
 # PERMISSIVE defaults: bound runaway recursion/breadth without changing
 # certified-run behavior (~12 questions, depth <=2). --comprehensive promotes
@@ -197,18 +204,18 @@ endpoints:
   deepseek:                            # native Anthropic-compatible (cheap-tier A/B)
     base_url: https://api.deepseek.com/anthropic
     auth_env: DEEPSEEK_API_KEY
-    price_per_mtok: {input: 0.435, output: 0.87}   # deepseek-v4-pro (verify vs live pricing)
+    price_per_mtok: {input: 0.435, output: 0.87, cache_read: 0.003625}   # deepseek-v4-pro (cache hit <1% of miss, per api-docs.deepseek.com 2026-06)
   deepseek_flash:                      # V4 Flash — cheap high-volume endpoint
     base_url: https://api.deepseek.com/anthropic
     auth_env: DEEPSEEK_API_KEY
-    price_per_mtok: {input: 0.14, output: 0.28}    # flash is ~3x cheaper than pro
-                                                   # (verify vs live pricing; budget breaker uses this)
+    price_per_mtok: {input: 0.14, output: 0.28, cache_read: 0.0028}    # flash; cache hit 2% of miss
+                                                   # (api-docs.deepseek.com 2026-06; budget breaker uses this)
     disable_thinking: true             # volume stages extract, not reason — kills
                                        # the 16k-token thinking outputs / cost spikes
   groq:                                # VOLUME tier: gpt-oss-120b via LiteLLM proxy
     base_url: http://localhost:4000    # LiteLLM (Anthropic /v1/messages -> Groq); deploy/litellm-config.yaml
     auth_env: LITELLM_MASTER_KEY       # engine -> proxy auth; proxy holds GROQ_API_KEY
-    price_per_mtok: {input: 0.15, output: 0.60}    # Groq gpt-oss-120b (cache hit ~$0.075 in)
+    price_per_mtok: {input: 0.15, output: 0.60, cache_read: 0.075}    # Groq gpt-oss-120b (cache hit ~$0.075 in)
     disable_thinking: true             # reasoning_effort=low set at the proxy; this is belt-and-braces
   qwen:                                # cheap AUDITOR: Qwen 3.7 Max (high-abstention) via same proxy
     base_url: http://localhost:4000    # LiteLLM routes by model name -> Alibaba DashScope (needs DASHSCOPE_API_KEY)

@@ -154,8 +154,13 @@ def _build_user_prompt(
     # is exempt and sees everything for the rigorous terminal check.
     ev = settings.evaluator
     if final:
-        sources_md = common.sources_digest(sources)
-        findings_md = common.findings_digest(run, full_bodies=True)
+        # The terminal Opus gate sees far more than the per-cycle gate, but is
+        # GENEROUSLY bounded (cost fix 2026-06-25) so an exhaustive run's huge
+        # digest can't run up a $1+/call Opus bill — normal runs sit well under it.
+        sources_md = common.sources_digest(sources, max_sources=ev.final_max_sources)
+        findings_md = common.findings_digest(
+            run, full_bodies=True, max_total_chars=ev.final_findings_chars
+        )
         findings_label = "Findings (full text)"
     else:
         sources_md = common.sources_digest(sources, max_sources=ev.per_cycle_max_sources)

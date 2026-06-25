@@ -126,6 +126,29 @@ def test_successful_session_reconciles_provisional_entry(tmp_path, monkeypatch):
     assert len(persisted) == 1 and persisted[0].reconciled is True
 
 
+def test_finalize_metrics_bills_cache_at_discounted_rate():
+    # Cost fix (2026-06-25): cached tokens (re-reads of stable context) bill at the
+    # endpoint's cache_read rate, not the full input rate. The hair run's 8.59M
+    # cached on the evaluator was a ~50x over-charge ($3.74 -> $0.03); this restores
+    # honest cost + budget headroom for deep runs.
+    from src.sessions.base import finalize_metrics
+    from src.settings import EndpointCfg, PriceCfg
+
+    usage = {"input_tokens": 1_000_000, "output_tokens": 0,
+             "cache_read_input_tokens": 10_000_000, "cache_creation_input_tokens": 0}
+
+    priced = EndpointCfg(base_url="https://x", auth_env="K",
+                         price_per_mtok=PriceCfg(input=0.435, output=0.87, cache_read=0.003625))
+    m = finalize_metrics(usage, None, priced, 1.0)
+    assert abs(m["usd"] - (0.435 + 10 * 0.003625)) < 1e-9   # 1M miss + 10M cache-hit
+    assert m["cached_tokens"] == 10_000_000
+
+    # No cache_read set -> conservative fall back to the input rate (never under-count).
+    conservative = EndpointCfg(base_url="https://x", auth_env="K",
+                               price_per_mtok=PriceCfg(input=0.435, output=0.87))
+    assert abs(finalize_metrics(usage, None, conservative, 1.0)["usd"] - 11 * 0.435) < 1e-9
+
+
 def test_dead_session_keeps_partial_stream_usage(tmp_path, monkeypatch):
     """A session that streamed some assistant usage then died leaves an
     unreconciled entry carrying the tokens we actually saw."""

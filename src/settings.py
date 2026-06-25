@@ -31,6 +31,12 @@ class PriceCfg(_Frozen):
     # ledger and budget breaker see real spend; omit for free local endpoints.
     input: float = Field(ge=0)
     output: float = Field(ge=0)
+    # Per-MTok price for CACHE-HIT input tokens (re-reads of stable context).
+    # Providers discount these steeply (DeepSeek ~2% of the miss rate). When unset
+    # the ledger falls back to the input rate (conservative — never under-counts an
+    # unpriced endpoint). Setting it makes the ledger + budget breaker accurate so
+    # deep runs that re-read a large findings digest each cycle aren't over-charged.
+    cache_read: float | None = Field(default=None, ge=0)
 
 
 class EndpointCfg(_Frozen):
@@ -106,10 +112,15 @@ class WorkerPipelineCfg(_Frozen):
 class EvaluatorCfg(_Frozen):
     # Context bounds for the PER-CYCLE evaluator (the cheap gate, on the local
     # 32k model). Without these it overflowed at ~13 findings / 136 sources
-    # (~30.7k tokens) and 5xx-ed, halting deep runs (root-cause fix
-    # 2026-06-15). The Opus final gate is exempt — it keeps full text.
+    # (~30.7k tokens) and 5xx-ed, halting deep runs (root-cause fix 2026-06-15).
     per_cycle_findings_chars: int = Field(ge=1000)  # total findings-text budget
     per_cycle_max_sources: int = Field(ge=1)        # most-credible N shown
+    # GENEROUS bounds for the Opus FINAL gate (cost fix 2026-06-25): it reads far
+    # more than the per-cycle gate but is no longer fully unbounded — an exhaustive
+    # run's 100-finding digest would cost ~$1+/Opus call. These only bite very large
+    # runs; default to comfortably above a normal comprehensive run.
+    final_findings_chars: int = Field(default=150000, ge=10000)
+    final_max_sources: int = Field(default=120, ge=1)
 
 
 class QuestionTreeCfg(_Frozen):

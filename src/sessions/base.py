@@ -181,8 +181,9 @@ def finalize_metrics(
     wall_seconds: float,
 ) -> dict[str, Any]:
     """Token/cost numbers for the ledger. Cost precedence:
-    1. endpoint.price_per_mtok configured -> computed from token counts
-       (cached tokens billed at the input rate — conservative, breaker-safe).
+    1. endpoint.price_per_mtok configured -> computed from token counts. Cached
+       tokens are billed at price.cache_read when set (providers discount cache
+       hits steeply — DeepSeek ~2% of miss), else at the input rate (conservative).
        This is how PAID non-first-party endpoints get real spend.
     2. first-party endpoint (base_url None) -> the CLI's client-side estimate.
     3. otherwise (free local) -> usd 0 per §1, tokens still recorded."""
@@ -194,8 +195,16 @@ def finalize_metrics(
     )
     if endpoint_cfg.price_per_mtok is not None:
         price = endpoint_cfg.price_per_mtok
+        # Cache hits (re-read stable context: system prompt, findings digest,
+        # source list) are billed at the discounted cache_read rate when the
+        # endpoint sets one; otherwise fall back to the input rate so an unpriced
+        # endpoint is never under-counted. This stops deep runs that re-read a big
+        # findings digest every cycle from being charged ~50x for cached context.
+        cache_rate = price.cache_read if price.cache_read is not None else price.input
         usd = (
-            (input_tokens + cached) * price.input + output_tokens * price.output
+            input_tokens * price.input
+            + cached * cache_rate
+            + output_tokens * price.output
         ) / 1_000_000
     elif endpoint_cfg.base_url is None:
         usd = float(total_cost_usd or 0.0)
