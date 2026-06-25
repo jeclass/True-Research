@@ -142,16 +142,18 @@ def test_visual_profile_refuses_pipeline(tmp_path):
         get_profile("visual").pipeline_search_providers(_settings(tmp_path))
 
 
-def test_general_profile_search_falls_back_to_ddg_without_searxng(tmp_path):
-    # Robustness (2026-06-24): SearXNG is no longer mandatory — without it the
-    # engine-side provider falls back to Docker-free DuckDuckGo, so the profile
-    # still yields a usable search provider instead of raising ConfigError.
+def test_general_profile_search_has_openalex_plus_web_fallback(tmp_path):
+    # General search = OpenAlex scholarly index (2026-06-25: free, no-key, no-Docker
+    # — reaches journal papers web crawlers miss) PLUS the resilient web provider,
+    # which falls back to Docker-free DuckDuckGo when SearXNG is absent (so the
+    # profile still yields usable providers instead of raising ConfigError).
     from src.profiles import get_profile
 
     settings = _settings(tmp_path, **{"search.searxng_base_url": None})
     providers = get_profile("general").pipeline_search_providers(settings)
-    assert len(providers) == 1
-    assert providers[0][0] == "search"  # single resilient provider (searxng -> ddg)
+    names = [n for n, _ in providers]
+    assert "openalex" in names   # scholarly index for primary papers
+    assert "search" in names     # web (searxng -> ddg fallback)
 
 
 # --- orchestrated flow (all model calls faked) -----------------------------------------

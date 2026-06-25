@@ -6,6 +6,7 @@ from __future__ import annotations
 from typing import Any
 
 from src.profiles.base import Profile, WorkerToolContext, WorkerToolset
+from src.settings import Settings
 
 
 class GeneralProfile(Profile):
@@ -13,6 +14,25 @@ class GeneralProfile(Profile):
 
     def worker_toolset(self, ctx: WorkerToolContext) -> WorkerToolset:
         return self._base_toolset(ctx)
+
+    def pipeline_search_providers(self, settings: Settings) -> list[tuple[str, Any]]:
+        # Web search (SearXNG -> DDG fallback) PLUS the OpenAlex scholarly index,
+        # so general research reaches journal papers the web crawlers can't surface
+        # — e.g. verifying a specific trial's PRIMARY publication. OpenAlex is a
+        # free, no-key, native API (no Docker); its results carry title + abstract
+        # even when the landing page is paywalled, which is enough for the worker
+        # to grade the paper. CLAUDE.md §7 already scopes "academic studies and
+        # reviews" to the general profile; this makes that real.
+        from src.tools.academic import openalex_results
+
+        providers = super().pipeline_search_providers(settings)
+        max_results = settings.search.max_results
+        timeout = settings.reader.fetch_timeout_seconds
+
+        async def _openalex(query: str):
+            return await openalex_results(query, max_results, timeout, settings.retry)
+
+        return [("openalex", _openalex)] + providers
 
     def url_preferences(self) -> dict[str, Any]:
         # Authority-first selection: when primary/institutional pages appear
