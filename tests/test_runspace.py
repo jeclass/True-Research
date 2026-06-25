@@ -81,6 +81,7 @@ def test_force_resume_reopens_a_finished_run(tmp_path):
 
     run = Runspace.resume(runs, run_id, force=True)
     assert run.meta.status == "running"            # re-opened for continuation
+    assert run.meta.finish_reason is None          # cleared, else _drive resumes-to-finish
     assert any("force-resume" in d for d in run.decisions())
     run.release_lock()
 
