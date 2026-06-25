@@ -198,6 +198,10 @@ class Settings(_Frozen):
     max_final_evaluations: int = Field(ge=1)
     profiles: list[str] = Field(min_length=1)
     default_profile: str
+    # Emit REPORT.pdf next to REPORT.md (markdown -> pure-Python xhtml2pdf, no
+    # system libraries so it runs anywhere). A missing dep or render error degrades
+    # to a logged decision — it never crashes a finished run.
+    emit_pdf: bool = True
     # Active evidence lenses (orthogonal to profile; docs/COMMUNITY_LENS_SPEC).
     # Empty by default — a normal run produces only factual-track findings.
     # Validated against the known set here to avoid importing the lens package

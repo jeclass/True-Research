@@ -9,6 +9,8 @@ max_budget_usd: 2.0       # HARD net (operator bar: $1-2 per multi-hour run);
                           # checked before every session — cannot be exceeded
 max_wall_hours: 6.0       # accumulated *active* driver hours (survives resume)
 max_cycles: 40            # worker+evaluator cycles before forced halt
+emit_pdf: true            # also write REPORT.pdf (pure-Python markdown->PDF, no
+                          # system libs); a render/dep failure degrades gracefully
 max_final_evaluations: 2  # Opus final-gate firings/run — the biggest REAL cost
                           # ($1.18/Opus call; was 4 firings = $4.71 on the hair run,
                           # 51% of the bill). After this many, accept the per-cycle

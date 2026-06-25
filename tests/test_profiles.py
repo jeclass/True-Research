@@ -240,6 +240,28 @@ def test_general_profile_prefers_serper_when_key_present(tmp_path):
     ]
 
 
+# --- PDF report output -----------------------------------------------------------------
+
+
+def test_render_markdown_pdf_writes_valid_pdf(tmp_path):
+    from src.tools.report_pdf import render_markdown_pdf
+
+    md = "# Title\n\n**Bold** and a [link](https://x.org).\n\n| A | B |\n|---|---|\n| 1 | 2 |\n"
+    pdf = tmp_path / "REPORT.pdf"
+    ok, detail = render_markdown_pdf(md, pdf)
+    assert ok, detail
+    assert pdf.exists() and pdf.read_bytes()[:5] == b"%PDF-"
+
+
+def test_render_markdown_pdf_never_raises(tmp_path):
+    # PDF must never crash a finished run — an unwritable target degrades to
+    # (False, reason), not an exception (the markdown is the source of truth).
+    from src.tools.report_pdf import render_markdown_pdf
+
+    ok, detail = render_markdown_pdf("# x", tmp_path / "missing-dir" / "REPORT.pdf")
+    assert ok is False and detail
+
+
 # --- capture + vision flow ----------------------------------------------------------------
 
 

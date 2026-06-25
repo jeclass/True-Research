@@ -9,7 +9,7 @@ from __future__ import annotations
 from pydantic import BaseModel, ConfigDict
 
 from src.ledger import Ledger
-from src.runspace import REPORT_FILE, Runspace
+from src.runspace import REPORT_FILE, REPORT_PDF_FILE, Runspace
 from src.sessions import common
 from src.sessions.base import SessionResult, SynthesisError, run_role_session
 from src.settings import Settings
@@ -235,13 +235,23 @@ def run(run: Runspace, settings: Settings, cycle: int, ledger: Ledger) -> Sessio
     else:
         appendix += ["- no sources cited"]
 
-    run.write_text(
-        REPORT_FILE, banner + report_body + "\n" + "\n".join(limitations + appendix) + "\n"
-    )
+    report_md = banner + report_body + "\n" + "\n".join(limitations + appendix) + "\n"
+    run.write_text(REPORT_FILE, report_md)
     run.log(
         f"synthesizer: wrote REPORT.md ({len(findings)} findings, "
         f"{len(used)} cited sources, reason={reason})"
     )
+
+    # Convenience artifact: REPORT.pdf next to REPORT.md. Pure-Python render, so a
+    # missing dep / render error is a logged DECISION (invariant 8), never a crash —
+    # the markdown is the source of truth and already on disk.
+    if settings.emit_pdf:
+        from src.tools.report_pdf import render_markdown_pdf
+
+        ok, detail = render_markdown_pdf(report_md, run.root / REPORT_PDF_FILE)
+        run.log(f"synthesizer: PDF {'written' if ok else 'skipped'} — {detail}")
+        if not ok:
+            run.log_decision(f"REPORT.pdf not generated ({detail}); REPORT.md is complete.")
 
     role_cfg = settings.roles[_ROLE]
     return SessionResult(
