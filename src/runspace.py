@@ -147,18 +147,20 @@ class Runspace:
             )
         run = cls(root, meta)
         run._acquire_lock()
-        if meta.status == "finished":
-            # --force-resume: re-open a finished run to keep researching it (e.g.
-            # add budget / new sources after a stall). Reset status AND clear
-            # finish_reason — otherwise _drive() sees finish_reason set and resumes
-            # straight to finish (the interrupted-mid-synthesis path), skipping the
-            # worker loop entirely (observed 2026-06-25: injected questions never
-            # ran). With finish_reason=None the driver re-enters the cycle loop.
+        if force and (meta.status == "finished" or meta.finish_reason is not None):
+            # --force-resume: re-open the run to keep researching it (add budget /
+            # new sources after a stall, or after a killed-mid-synthesis). Reset
+            # status AND clear finish_reason — otherwise _drive() sees finish_reason
+            # set and resumes straight to finish (the interrupted-mid-synthesis
+            # path), skipping the worker loop entirely (observed 2026-06-25: injected
+            # questions never ran). With finish_reason=None the driver re-enters the
+            # cycle loop. Covers both a finished run and one left mid-finish.
             run.meta = run.meta.model_copy(update={"status": "running", "finish_reason": None})
             run._persist_meta()
             run.log_decision(
-                f"--force-resume: re-opened a finished run (was '{meta.finish_reason}') "
-                "to continue researching; status reset to running"
+                f"--force-resume: re-opened the run (was status='{meta.status}', "
+                f"reason='{meta.finish_reason}') to continue; status=running, "
+                "finish_reason cleared"
             )
         # Validate everything reconstructable now, so a corrupt file fails the
         # resume loudly instead of mid-cycle (invariant 7).
