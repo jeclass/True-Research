@@ -133,20 +133,30 @@ class Runspace:
         return run
 
     @classmethod
-    def resume(cls, runs_dir: Path, run_id: str) -> "Runspace":
+    def resume(cls, runs_dir: Path, run_id: str, *, force: bool = False) -> "Runspace":
         root = runs_dir / run_id
         if not root.is_dir():
             raise RunspaceError(f"no such run: {root}")
         meta = state.parse_run_meta(
             cls._read(root / RUN_META_FILE), label=str(root / RUN_META_FILE)
         )
-        if meta.status == "finished":
+        if meta.status == "finished" and not force:
             raise RunspaceError(
                 f"run {run_id} already finished (reason: {meta.finish_reason}); "
-                "start a new run instead"
+                "start a new run, or pass --force-resume to continue it"
             )
         run = cls(root, meta)
         run._acquire_lock()
+        if meta.status == "finished":
+            # --force-resume: re-open a finished run to keep researching it (e.g.
+            # add budget / new sources after a stall). Reset status so the driver
+            # loop runs again; the next finish overwrites finish_reason.
+            run.meta = run.meta.model_copy(update={"status": "running"})
+            run._persist_meta()
+            run.log_decision(
+                f"--force-resume: re-opened a finished run (was '{meta.finish_reason}') "
+                "to continue researching; status reset to running"
+            )
         # Validate everything reconstructable now, so a corrupt file fails the
         # resume loudly instead of mid-cycle (invariant 7).
         run.load_questions()

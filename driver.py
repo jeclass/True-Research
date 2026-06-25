@@ -31,6 +31,13 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument("question", nargs="?", help="research question for a new run")
     parser.add_argument("--resume", metavar="RUN_ID", help="resume an existing run")
+    parser.add_argument(
+        "--force-resume",
+        action="store_true",
+        help="with --resume, re-open a FINISHED run to keep researching it (e.g. "
+        "add budget after a stall). Resets status to running; the next finish "
+        "overwrites the reason.",
+    )
     parser.add_argument("--profile", help="research profile (default from config)")
     parser.add_argument("--config", default="config.yaml", help="path to config.yaml")
     parser.add_argument("--max-cycles", type=int, dest="max_cycles")
@@ -481,7 +488,7 @@ def main(argv: list[str] | None = None) -> int:
             )
         runs_dir = Path(settings.runs_dir)
         if args.resume:
-            run = Runspace.resume(runs_dir, args.resume)
+            run = Runspace.resume(runs_dir, args.resume, force=args.force_resume)
             get_profile(run.meta.profile)  # fail fast if unimplemented
             console.log(f"resumed run {run.meta.run_id} at cycle {run.last_cycle() + 1}")
         else:

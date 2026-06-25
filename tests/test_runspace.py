@@ -66,6 +66,25 @@ def test_open_readonly_reads_finished_run_without_lock(tmp_path):
         Runspace.open_readonly(runs, "nope-does-not-exist")
 
 
+def test_force_resume_reopens_a_finished_run(tmp_path):
+    # --force-resume re-opens a FINISHED (e.g. stalled) run to keep researching it
+    # (add budget / new sources). Plain resume refuses it; force resets status.
+    runs = tmp_path / "runs"
+    created = Runspace.create(runs, "q", "general")
+    run_id = created.meta.run_id
+    created.mark_finishing("stall")
+    created.mark_finished()
+    created.release_lock()
+
+    with pytest.raises(RunspaceError, match="already finished"):
+        Runspace.resume(runs, run_id)
+
+    run = Runspace.resume(runs, run_id, force=True)
+    assert run.meta.status == "running"            # re-opened for continuation
+    assert any("force-resume" in d for d in run.decisions())
+    run.release_lock()
+
+
 def test_state_hash_tracks_questions_and_findings_only(run):
     h0 = run.state_hash()
 
