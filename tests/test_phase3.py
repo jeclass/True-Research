@@ -543,6 +543,23 @@ def test_evaluator_seed_close_allowed_after_two_blocks(run):
     assert any("EXHAUSTED SCOPE" in d for d in run.decisions())
 
 
+def test_finalize_text_keeps_head_and_tail_not_just_head(tmp_path):
+    # Root-cause fix 2026-06-29 (Opus review): long papers used to be top-truncated
+    # (text[:limit]), dropping the back half — so a comparator table or dosing block
+    # past the cut vanished and the reader emitted false "X is absent" claims. Now
+    # head + tail are both preserved with the middle elided + a visible marker.
+    from src.sessions import reader as reader_mod
+
+    settings = _settings(tmp_path, **{"reader.max_page_chars": 1000})
+    body = "HEAD_MARKER " + ("x" * 2000) + " MIDDLE_MARKER " + ("y" * 2000) + " TAIL_MARKER"
+    out = reader_mod._finalize_text(body, "text/plain", "https://x/paper", settings)
+    assert "HEAD_MARKER" in out          # front preserved
+    assert "TAIL_MARKER" in out          # tail preserved — old top-only truncation lost this
+    assert "MIDDLE_MARKER" not in out    # deep middle elided
+    assert "elided from the MIDDLE" in out
+    assert len(out) <= 1000 + 400        # budget + the elision marker
+
+
 def test_fetch_page_stealth_fallback_rescues_bot_walled_page(tmp_path, monkeypatch):
     # 2026-06-11: ~5-7 of 12 selected reads failed on 403/JS-only pages.
     # Tier-2 stealth converts them into usable reads.

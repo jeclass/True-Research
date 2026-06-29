@@ -87,7 +87,25 @@ def _finalize_text(body: str, content_type: str, url: str, settings: Settings) -
         raise ReaderError(f"no extractable text at {url} (content-type {content_type})")
     limit = settings.reader.max_page_chars
     if len(text) > limit:
-        text = text[:limit] + "\n\n[TRUNCATED by engine at page-char budget]"
+        # HEAD + TAIL, not head-only (root-cause fix 2026-06-29). Plain text[:limit]
+        # dropped the entire back half of long papers, so a methods/dosing block or
+        # a results/comparator table sitting past the cut vanished — and the reader,
+        # unable to see what was removed, manufactured false "X is absent / no data"
+        # claims (the rosemary-NMA, saw-palmetto-dose, and procyanidin errors were
+        # all this). Keep the front (abstract/intro/methods/early-results) AND the
+        # tail (discussion/conclusions/late tables/references), eliding only the
+        # deep middle, with a visible marker so the reader knows a gap exists.
+        head = int(limit * 0.75)
+        tail = limit - head
+        elided = len(text) - limit
+        text = (
+            text[:head]
+            + f"\n\n[... {elided} chars elided from the MIDDLE of this document by "
+            "the engine; the head and tail are preserved. If a specific table, dose, "
+            "or comparator might lie in the elided middle, treat its absence here as "
+            "UNKNOWN, not as evidence of absence ...]\n\n"
+            + text[-tail:]
+        )
     return text
 
 
