@@ -101,7 +101,7 @@ def test_cheap_and_accurate_presets_route_correctly():
     assert accurate.roles["final_evaluator"].endpoint == "anthropic"
 
     # Accuracy lever = more (cheap, grounded) DeepSeek verify passes, not a pricier model.
-    assert cheap.verification.max_findings == 3
+    assert cheap.verification.max_findings == 6   # raised 3->6 (Opus review: verify wider)
     assert accurate.verification.max_findings == 10
 
     assert cheap.max_budget_usd == 2.0
@@ -126,7 +126,7 @@ def test_gate_and_verify_depth_override_presets_independently():
     assert s.roles["final_evaluator"].model == "claude-opus-4-8"
     assert s.roles["final_evaluator"].endpoint == "anthropic"
     assert s.roles["verifier"].model == "deepseek-v4-pro"   # rest of cheap build intact
-    assert s.verification.max_findings == 3                 # cheap depth unchanged
+    assert s.verification.max_findings == 6                 # cheap depth unchanged (3->6)
 
     # --accurate --gate qwen: deep verify (10 passes) but the cheap Qwen gate.
     s = load_settings(overrides={"accurate": True, "gate": "qwen"})

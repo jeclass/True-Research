@@ -34,6 +34,18 @@ Report rules:
   contain merely because it does not change WHICH option is recommended.
 - EVERY factual claim ends with its [src-id] citation(s), copied faithfully
   from the findings. A claim you cannot cite does not go in the report.
+- ABSENCE IS HARD TO PROVE. A negative claim — "X is absent / not reported / no
+  data exists / not studied / not in the table" — is only valid when a finding
+  AFFIRMATIVELY establishes it from a fully-read source. If the findings simply do
+  not mention X, write "not found among the sources reviewed," never "X does not
+  exist." A source that was truncated or that omits a table is not evidence the
+  data doesn't exist (this is the single most common error mode — a missing
+  comparator row or dosing line becomes a false "absent").
+- PRIMARY SOURCES WIN ON SPECIFIC NUMBERS. For doses, sample sizes, concentrations,
+  effect sizes, and endpoints, prefer the value from the PRIMARY study (the RCT or
+  meta-analysis itself) over a blog/aggregator/review. If findings disagree on a
+  number, surface the discrepancy and favor the primary — do not silently adopt a
+  secondary's figure.
 - If the run ended early (you will be told), say plainly what was and was not
   covered. Do not pad.
 - Some findings carry a VERIFICATION tag (an independent adversarial check).

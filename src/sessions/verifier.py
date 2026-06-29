@@ -41,8 +41,12 @@ You are the search arm of an adversarial fact-checker. Given a research CLAIM,
 generate web-search queries designed to surface evidence that would CONTRADICT
 or DISPROVE it — counter-studies, dissenting expert positions, failed
 replications, methodological critiques, more recent data that revises it.
-Do NOT generate queries that merely re-confirm the claim. Respond ONLY via the
-enforced JSON schema."""
+Do NOT generate queries that merely re-confirm the claim.
+PRIORITIZE the riskiest claim types: for an ABSENCE/NEGATIVE claim ("X is absent",
+"no data on X", "not in the table"), search HARD for the very thing it says is
+missing — a single hit disproves it. For a claim hinging on a specific NUMBER
+(dose, sample size, concentration, endpoint), target the PRIMARY study for that
+exact value. Respond ONLY via the enforced JSON schema."""
 
 _VERDICT_SYSTEM = """\
 You are an adversarial VERIFIER. You are given (a) a CLAIM from a research
@@ -61,7 +65,14 @@ status:
 
 Hold a high bar for "refuted": a minor caveat or a single weak dissent is not a
 refutation. note: one or two sentences justifying the verdict, citing what in
-the evidence drove it. Respond ONLY via the enforced JSON schema."""
+the evidence drove it.
+SPECIAL CASE — absence/negative claims: a claim that "X is absent / no data
+exists / not reported" is REFUTED the instant the evidence shows even ONE credible
+instance of X. Absence is disproven by a single counterexample, so the bar to
+refute these is LOW, not high — this is the failure mode that lets false negatives
+into reports. For NUMERIC claims, a PRIMARY source contradicting the stated value
+refutes it; a mere secondary restatement differing does not.
+Respond ONLY via the enforced JSON schema."""
 
 
 class RefutationQueries(BaseModel):

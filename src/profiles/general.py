@@ -91,7 +91,12 @@ class GeneralProfile(Profile):
 - Recency: for anything time-sensitive, the sources must be recent enough
   that the conclusion still holds; flag stale evidence explicitly.
 - Credibility: weigh the registered credibility scores — a conclusion carried
-  by sub-50 sources is not conclusive."""
+  by sub-50 sources is not conclusive.
+- Negative claims: any "X is absent / not reported / no data exists" assertion
+  must be AFFIRMATIVELY grounded in a fully-read source. An unsupported negative —
+  especially one that could stem from a truncated read missing a table or methods
+  block — is a FAIL: send it back to be re-checked against the full source, or
+  require it softened to "not found among the sources reviewed.\""""
 
     def worker_guidance(self) -> str:
         return """\
@@ -105,5 +110,13 @@ class GeneralProfile(Profile):
 - Deliberately seek at least two INDEPENDENT sources for load-bearing claims
   (different publishers, not two articles citing the same wire story, and
   not multiple blogs echoing one vendor's dataset).
+- Specific numbers — doses, sample sizes, concentrations, effect sizes,
+  endpoints — must come from the PRIMARY study (the trial/meta-analysis itself),
+  NOT a blog's or aggregator's restatement. When two sources disagree on a number,
+  go to the primary to settle it rather than picking the convenient figure.
+- Do NOT record an absence ("no data on X", "X not studied", "not in the table")
+  from a source you read only partially. A negative finding requires a FULL read
+  of the source that would contain it; otherwise report "not found in sources read
+  so far" and keep the question open.
 - Note publication dates in source notes; prefer the most recent solid
   evidence for time-sensitive questions."""

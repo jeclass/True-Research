@@ -113,7 +113,10 @@ cheap:
     verifier:        {endpoint: deepseek, model: deepseek-v4-pro, max_turns: 8,  max_wall_seconds: 900}
     synthesizer:     {endpoint: deepseek, model: deepseek-v4-pro, max_turns: 40, max_wall_seconds: 1800}
     final_evaluator: {endpoint: qwen,     model: qwen-3.7-max,    max_turns: 24, max_wall_seconds: 1200}
-  verification_max_findings: 3
+  verification_max_findings: 6   # was 3 — the verify wave missed the wrong findings
+                                 # (Opus review): check more load-bearing claims, and
+                                 # the verifier prompt now scrutinizes absence/numeric
+                                 # claims hardest (DeepSeek-cheap, so coverage is affordable)
   max_budget_usd: 2.0      # ~$0.7-1.0/run; $2 is runaway headroom
 
 # --- High-accuracy posture (--accurate): the efficient build + Opus gate -------
@@ -333,7 +336,9 @@ worker_pipeline:
   queries_per_question: 4
   urls_per_query: 4
   max_reads: 12
-  per_domain_cap: 2
+  per_domain_cap: 3              # was 2 — let MORE primary papers through from a
+                                 # single authoritative domain (PubMed/PMC/journals)
+                                 # rather than capping at 2 and falling back to blogs
   rerank: true                   # FlashRank (CPU) scores snippet-vs-question
                                  # relevance; on-target pages outrank merely
                                  # high-authority tangential ones
