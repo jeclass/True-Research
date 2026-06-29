@@ -149,6 +149,66 @@ def test_finalize_metrics_bills_cache_at_discounted_rate():
     assert abs(finalize_metrics(usage, None, conservative, 1.0)["usd"] - 11 * 0.435) < 1e-9
 
 
+def test_session_falls_back_when_primary_endpoint_fails(tmp_path, monkeypatch):
+    # Reliability net (2026-06-25): a driver session whose primary endpoint fails
+    # after its retry cap re-runs ONCE on the endpoint's configured fallback, so a
+    # provider outage (the DeepSeek-Pro degradation that blocked eval+synth mid-
+    # validation) can't block a run from finishing. Logged as a DECISION.
+    from src.sessions import base as base_mod
+    from src.sessions.base import WorkerError
+
+    # A 'flaky' endpoint whose fallback is the (existing) anthropic endpoint.
+    settings = _settings(tmp_path, **{
+        "endpoints.flaky": {"base_url": "https://flaky.example", "auth_env": "ANTHROPIC_API_KEY",
+                            "fallback": {"endpoint": "anthropic", "model": "claude-sonnet-4-6"}},
+        "roles.worker": {"endpoint": "flaky", "model": "m", "max_turns": 4},
+    })
+    run = Runspace.create(tmp_path / "runs", "q", "general")
+    calls: list[str] = []
+    sentinel = object()
+
+    async def fake_async(**kwargs):
+        ep = kwargs["settings"].roles[kwargs["role"]].endpoint
+        calls.append(ep)
+        if ep == "anthropic":
+            return sentinel              # fallback endpoint succeeds
+        raise WorkerError("primary endpoint down")
+
+    monkeypatch.setattr(base_mod, "run_role_session_async", fake_async)
+    try:
+        result = base_mod.run_role_session(
+            run=run, settings=settings, ledger=Ledger(run), cycle=1,
+            session_type="worker", role="worker",
+            system_prompt="s", user_prompt="u", tools=[],
+        )
+    finally:
+        run.release_lock()
+
+    assert result is sentinel
+    assert calls == ["flaky", "anthropic"]          # primary tried, then fallback
+    assert any("falling back to 'anthropic'" in d for d in run.decisions())
+
+    # No fallback configured (anthropic has none) -> the error propagates, not swallowed.
+    settings2 = _settings(tmp_path, **{
+        "roles.worker": {"endpoint": "anthropic", "model": "m", "max_turns": 4},
+    })
+    run2 = Runspace.create(tmp_path / "runs2", "q", "general")
+
+    async def always_fail(**kwargs):
+        raise WorkerError("down")
+
+    monkeypatch.setattr(base_mod, "run_role_session_async", always_fail)
+    try:
+        with pytest.raises(WorkerError):
+            base_mod.run_role_session(
+                run=run2, settings=settings2, ledger=Ledger(run2), cycle=1,
+                session_type="worker", role="worker",
+                system_prompt="s", user_prompt="u", tools=[],
+            )
+    finally:
+        run2.release_lock()
+
+
 def test_dead_session_keeps_partial_stream_usage(tmp_path, monkeypatch):
     """A session that streamed some assistant usage then died leaves an
     unreconciled entry carrying the tokens we actually saw."""

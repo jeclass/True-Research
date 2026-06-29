@@ -39,6 +39,14 @@ class PriceCfg(_Frozen):
     cache_read: float | None = Field(default=None, ge=0)
 
 
+class FallbackCfg(_Frozen):
+    # Where to re-run a driver-called session when this endpoint fails after its
+    # transient-retry cap. The fallback endpoint serves a different model, so both
+    # are named explicitly.
+    endpoint: str
+    model: str
+
+
 class EndpointCfg(_Frozen):
     base_url: str | None = None
     auth_env: str
@@ -49,6 +57,13 @@ class EndpointCfg(_Frozen):
     # turns (observed 2026-06-16: $0.16 outlier reads). Injected as
     # MAX_THINKING_TOKENS=0 per session. Keep thinking ON for judgment endpoints.
     disable_thinking: bool = False
+    # Reliability net (2026-06-25): if a driver-called session on this endpoint
+    # fails after retries, re-run it ONCE here. A transient provider outage (e.g.
+    # the DeepSeek-Pro degradation that failed the evaluator + synthesizer mid-
+    # validation) then can't block a run from finishing. Only fires on failure, so
+    # it costs nothing in normal operation. The async readers don't pass through
+    # the sync wrapper, so a fallback never multiplies per-read cost.
+    fallback: FallbackCfg | None = None
 
 
 class RoleCfg(_Frozen):
@@ -244,6 +259,12 @@ class Settings(_Frozen):
                 raise ValueError(
                     f"role {name!r} references unknown endpoint {role.endpoint!r} "
                     f"(known: {sorted(self.endpoints)})"
+                )
+        for ep_name, ep in self.endpoints.items():
+            if ep.fallback is not None and ep.fallback.endpoint not in self.endpoints:
+                raise ValueError(
+                    f"endpoint {ep_name!r} fallback references unknown endpoint "
+                    f"{ep.fallback.endpoint!r} (known: {sorted(self.endpoints)})"
                 )
         return self
 

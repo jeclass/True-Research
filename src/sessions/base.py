@@ -467,5 +467,35 @@ async def run_role_session_async(
 
 def run_role_session(**kwargs: Any) -> Spawn:
     """Sync wrapper for driver-called session modules (one event loop per
-    session; readers inside the worker use the async core directly)."""
-    return asyncio.run(run_role_session_async(**kwargs))
+    session; readers inside the worker use the async core directly).
+
+    Reliability net (2026-06-25): if the role configures a fallback endpoint and
+    the primary fails after its transient-retry cap, re-run the session ONCE on the
+    fallback endpoint/model. A transient provider outage (e.g. the DeepSeek-Pro
+    degradation that failed the evaluator + synthesizer mid-validation) then can't
+    block a run from finishing. The failed primary's spend is already ledgered; the
+    fallback adds its own entry under the fallback endpoint. Logged as a DECISION
+    (invariant 8). Only the driver-called judgment sessions pass through here — the
+    high-volume async readers do not, so the fallback never multiplies read cost."""
+    settings = kwargs["settings"]
+    role = kwargs["role"]
+    role_cfg = settings.roles[role]
+    error_cls = _ERROR_BY_TYPE[kwargs["session_type"]]
+    try:
+        return asyncio.run(run_role_session_async(**kwargs))
+    except error_cls as exc:
+        fallback = settings.endpoints[role_cfg.endpoint].fallback
+        if fallback is None:
+            raise
+        kwargs["run"].log_decision(
+            f"{role}: primary endpoint '{role_cfg.endpoint}' failed after retries "
+            f"({type(exc).__name__}); falling back to '{fallback.endpoint}'"
+            f"/{fallback.model} to keep the run alive."
+        )
+        fb_role = role_cfg.model_copy(
+            update={"endpoint": fallback.endpoint, "model": fallback.model}
+        )
+        fb_settings = settings.model_copy(
+            update={"roles": {**settings.roles, role: fb_role}}
+        )
+        return asyncio.run(run_role_session_async(**{**kwargs, "settings": fb_settings}))

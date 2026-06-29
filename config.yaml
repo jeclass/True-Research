@@ -207,6 +207,7 @@ endpoints:
     base_url: https://api.deepseek.com/anthropic
     auth_env: DEEPSEEK_API_KEY
     price_per_mtok: {input: 0.435, output: 0.87, cache_read: 0.003625}   # deepseek-v4-pro (cache hit <1% of miss, per api-docs.deepseek.com 2026-06)
+    fallback: {endpoint: anthropic, model: claude-sonnet-4-6}   # reliability net: if Pro degrades (observed 2026-06-25, blocked eval+synth), re-run the session on Sonnet so the run still finishes
   deepseek_flash:                      # V4 Flash — cheap high-volume endpoint
     base_url: https://api.deepseek.com/anthropic
     auth_env: DEEPSEEK_API_KEY
@@ -214,6 +215,7 @@ endpoints:
                                                    # (api-docs.deepseek.com 2026-06; budget breaker uses this)
     disable_thinking: true             # volume stages extract, not reason — kills
                                        # the 16k-token thinking outputs / cost spikes
+    fallback: {endpoint: anthropic, model: claude-haiku-4-5-20251001}   # driver-called worker/compose only (async readers bypass the wrapper)
   groq:                                # VOLUME tier: gpt-oss-120b via LiteLLM proxy
     base_url: http://localhost:4000    # LiteLLM (Anthropic /v1/messages -> Groq); deploy/litellm-config.yaml
     auth_env: LITELLM_MASTER_KEY       # engine -> proxy auth; proxy holds GROQ_API_KEY
@@ -224,6 +226,7 @@ endpoints:
     auth_env: LITELLM_MASTER_KEY
     price_per_mtok: {input: 0.40, output: 1.20}    # Qwen 3.7 Max (verify vs live pricing)
     # thinking LEFT ON — auditing benefits from reasoning (unlike the volume tier)
+    fallback: {endpoint: anthropic, model: claude-sonnet-4-6}   # the --cheap terminal gate runs here; if it fails, finish via Sonnet rather than stall
 
 # --- Role routing — BUDGET POSTURE (operator decision 2026-06-10) -----------
 # Cloud Opus ONLY where judgment ends the run: initializer, final_evaluator
