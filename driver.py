@@ -51,6 +51,13 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "Explicit --max-* flags still win.",
     )
     parser.add_argument(
+        "--exhaustive",
+        action="store_true",
+        help="DEEPEST posture: comprehensive PLUS a much higher per-cycle read "
+        "budget (1000+ pages) for genuinely vast topics. Pricier/longer; a focused "
+        "question concludes before this matters. Explicit --max-* flags still win.",
+    )
+    parser.add_argument(
         "--lens",
         action="append",
         metavar="NAME",
@@ -437,6 +444,7 @@ def main(argv: list[str] | None = None) -> int:
         "max_wall_hours": args.max_wall_hours,
         "lenses": args.lens,  # None when unset => config default (empty)
         "comprehensive": args.comprehensive,  # promotes the deep bundle
+        "exhaustive": args.exhaustive,  # deepest: comprehensive + high read budget
         "verify": args.verify,  # enables the verification wave
         "waves": args.waves,  # enables BREADTH->DEPTH wave orchestration
         "budget": args.budget,  # swaps in the Haiku role overrides
@@ -465,15 +473,20 @@ def main(argv: list[str] | None = None) -> int:
             f"[cyan]routing[/cyan]  volume=[bold]{_volume}[/bold]  "
             f"judgment=[bold]{_judgment}[/bold]  gate=[bold]{_gate}[/bold]"
         )
-        if args.comprehensive:
+        if args.comprehensive or args.exhaustive:
+            mode = "EXHAUSTIVE" if args.exhaustive else "COMPREHENSIVE"
+            reads = (
+                f", read budget={settings.worker_pipeline.max_reads}/cycle"
+                if args.exhaustive else ""
+            )
             console.print(
-                f"[bold cyan]COMPREHENSIVE mode — deep bounds applied: "
+                f"[bold cyan]{mode} mode — deep bounds applied: "
                 f"max_cycles={settings.max_cycles}, "
                 f"max_wall_hours={settings.max_wall_hours}, "
                 f"max_budget_usd=${settings.max_budget_usd}, "
                 f"tree depth<={settings.question_tree.max_depth}, "
                 f"<={settings.question_tree.max_questions} questions, "
-                f"seed_target={settings.question_tree.seed_target}.[/bold cyan]"
+                f"seed_target={settings.question_tree.seed_target}{reads}.[/bold cyan]"
             )
         if settings.is_full_local():
             # §1: full-local is permitted but must be LOUD — judgment roles

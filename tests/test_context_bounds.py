@@ -95,8 +95,8 @@ def test_cheap_and_accurate_presets_route_correctly():
     assert g.roles["reader_subagent"].model == "gpt-oss-120b"
 
     # The one differing cell: the ungrounded "is this conclusive?" gate.
-    assert cheap.roles["final_evaluator"].model == "qwen-3.7-max"        # cheap arm → Qwen
-    assert cheap.roles["final_evaluator"].endpoint == "qwen"
+    assert cheap.roles["final_evaluator"].model == "claude-sonnet-4-6"   # cheap arm → Sonnet (reliable gate, Opus review #5)
+    assert cheap.roles["final_evaluator"].endpoint == "anthropic"
     assert accurate.roles["final_evaluator"].model == "claude-opus-4-8"  # accurate arm → Opus
     assert accurate.roles["final_evaluator"].endpoint == "anthropic"
 
@@ -135,7 +135,7 @@ def test_gate_and_verify_depth_override_presets_independently():
 
     # --cheap --verify-depth 10: cheap gate, but deep grounded refutation.
     s = load_settings(overrides={"cheap": True, "verify_depth": 10})
-    assert s.roles["final_evaluator"].model == "qwen-3.7-max"  # cheap gate unchanged
+    assert s.roles["final_evaluator"].model == "claude-sonnet-4-6"  # cheap gate unchanged (now Sonnet)
     assert s.verification.max_findings == 10                   # depth overridden
 
     # --gate qwen alone (no preset): overrides the base gate (Opus) without a posture.
@@ -150,6 +150,24 @@ def test_gate_and_verify_depth_override_presets_independently():
     # an unknown gate is a loud ConfigError, never a silent fallback
     with pytest.raises(ConfigError):
         load_settings(overrides={"gate": "bogus"})
+
+
+def test_exhaustive_promotes_read_budget_and_deep_bounds():
+    # --exhaustive is comprehensive PLUS the read dials — the per-cycle read budget
+    # is the whole point (1000+ pages on a vast topic), so it must lift far above
+    # the default 12. Explicit --max-* flags still win over the bundle.
+    from src.settings import load_settings
+
+    s = load_settings(overrides={"cheap": True, "exhaustive": True})
+    assert s.worker_pipeline.max_reads == 45        # the dial that matters (was 12)
+    assert s.worker_pipeline.per_domain_cap == 5
+    assert s.max_cycles == 200
+    assert s.question_tree.seed_target == 20 and s.question_tree.max_depth == 8
+    assert s.verification.enabled and s.waves.enabled
+    # explicit flag still wins over the promoted bundle
+    assert load_settings(
+        overrides={"exhaustive": True, "max_budget_usd": 3.0}
+    ).max_budget_usd == 3.0
 
 
 def test_volume_override_swaps_backend_independently():
@@ -175,7 +193,7 @@ def test_volume_override_swaps_backend_independently():
         assert ds.roles[role].model == "deepseek-v4-flash", role
     assert ds.roles["evaluator"].endpoint == "deepseek"          # per-cycle gate -> Pro (reliable)
     assert ds.roles["evaluator"].model == "deepseek-v4-pro"
-    assert ds.roles["final_evaluator"].model == "qwen-3.7-max"   # gate unchanged
+    assert ds.roles["final_evaluator"].model == "claude-sonnet-4-6"   # gate unchanged (now Sonnet)
     assert ds.roles["synthesizer"].model == "deepseek-v4-pro"    # judgment unchanged
 
     # --volume local: $0 Ollama; accurate gate still Opus

@@ -176,6 +176,22 @@ class ComprehensiveCfg(_Frozen):
     seed_target: int = Field(ge=1)
 
 
+class ExhaustiveCfg(_Frozen):
+    # The DEEPEST posture — promoted by --exhaustive. Comprehensive's deep bundle
+    # PLUS a much higher per-cycle read budget + per-domain cap, so a genuinely
+    # vast topic ingests 1000+ pages. Only worth it where breadth itself is the
+    # goal (a full-field systematic review); a focused question concludes long
+    # before this matters and you pay for marginal sources. Explicit CLI flags win.
+    max_cycles: int = Field(ge=1)
+    max_wall_hours: float = Field(gt=0)
+    max_budget_usd: float = Field(ge=0)
+    max_depth: int = Field(ge=0)
+    max_questions: int = Field(ge=1)
+    seed_target: int = Field(ge=1)
+    max_reads: int = Field(ge=1)       # per-cycle read budget (vs 12 default)
+    per_domain_cap: int = Field(ge=1)  # reads per authoritative domain (vs 3)
+
+
 class VerificationCfg(_Frozen):
     # Adversarial verification wave (COMPREHENSIVE_RESEARCH_SPEC §3). Opt-in;
     # --comprehensive turns it on. Off by default — normal runs are unchanged.
@@ -232,6 +248,10 @@ class Settings(_Frozen):
     evaluator: EvaluatorCfg
     question_tree: QuestionTreeCfg
     comprehensive: ComprehensiveCfg
+    # Optional (unlike comprehensive): a config without an `exhaustive:` block still
+    # validates — it just can't use --exhaustive (which raises a clean ConfigError).
+    # Keeps minimal/test configs and user forks working without forcing the block.
+    exhaustive: ExhaustiveCfg | None = None
     verification: VerificationCfg
     waves: WavesCfg
     stub: StubCfg
@@ -340,6 +360,28 @@ def load_settings(
                 qt[key] = comp[key]
         # Comprehensive runs verify by default (the trust differentiator) and
         # orchestrate waves (BREADTH->DEPTH->VERIFY->SYNTHESIZE, item 4).
+        raw.setdefault("verification", {})["enabled"] = True
+        raw.setdefault("waves", {})["enabled"] = True
+
+    # --exhaustive: the DEEPEST posture — the comprehensive bundle PLUS the read
+    # dials (per-cycle read budget + per-domain cap) so a vast topic ingests 1000+
+    # pages. Promoted the same way (before the generic override loop, so explicit
+    # CLI flags still win). Verification + waves on, like comprehensive.
+    if overrides.pop("exhaustive", False):
+        exh = raw.get("exhaustive")
+        if not isinstance(exh, dict):
+            raise ConfigError("--exhaustive requires an `exhaustive:` config block")
+        for key in ("max_cycles", "max_wall_hours", "max_budget_usd"):
+            if key in exh:
+                raw[key] = exh[key]
+        qt = raw.setdefault("question_tree", {})
+        for key in ("max_depth", "max_questions", "seed_target"):
+            if key in exh:
+                qt[key] = exh[key]
+        wp = raw.setdefault("worker_pipeline", {})
+        for key in ("max_reads", "per_domain_cap"):
+            if key in exh:
+                wp[key] = exh[key]
         raw.setdefault("verification", {})["enabled"] = True
         raw.setdefault("waves", {})["enabled"] = True
 

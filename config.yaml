@@ -57,6 +57,23 @@ comprehensive:
   max_questions: 120
   seed_target: 12
 
+# --- Exhaustive mode (--exhaustive: comprehensive + a MUCH higher read budget) ---
+# The deepest posture, for genuinely vast topics where breadth itself is the goal
+# (a full-field systematic review, "everything known about X"). Reads 1000+ pages
+# by lifting the per-cycle read budget far above the default 12 — the search
+# already surfaces ~90 candidates/cycle, this reads many more of them. Pricier
+# (~$4-8) and longer; a FOCUSED question concludes before this matters, so don't
+# reach for it by default. Explicit CLI flags (--max-budget-usd, etc.) still win.
+exhaustive:
+  max_cycles: 200
+  max_wall_hours: 6.0
+  max_budget_usd: 15.0
+  max_depth: 8
+  max_questions: 200
+  seed_target: 20
+  max_reads: 45            # vs 12 default — read ~45 of the ~90 candidates/cycle
+  per_domain_cap: 5        # vs 3 — more primary papers per authoritative domain
+
 # --- Verification wave (COMPREHENSIVE_RESEARCH_SPEC §3) -----------------------
 # Opt-in (--verify, or implied by --comprehensive). After the loop resolves the
 # question tree, an independent verifier tries to REFUTE each load-bearing
@@ -112,7 +129,7 @@ cheap:
     # accuracy lever for verify is MORE DeepSeek passes, not a pricier model.
     verifier:        {endpoint: deepseek, model: deepseek-v4-pro, max_turns: 8,  max_wall_seconds: 900}
     synthesizer:     {endpoint: deepseek, model: deepseek-v4-pro, max_turns: 40, max_wall_seconds: 1800}
-    final_evaluator: {endpoint: qwen,     model: qwen-3.7-max,    max_turns: 24, max_wall_seconds: 1200}
+    final_evaluator: {endpoint: anthropic, model: claude-sonnet-4-6, max_turns: 24, max_wall_seconds: 1200}  # RELIABLE gate (Opus review #5): was qwen, but its LiteLLM proxy is often down -> the critical terminal gate must not sit on a flaky endpoint. --gate qwen/opus still override.
   verification_max_findings: 6   # was 3 — the verify wave missed the wrong findings
                                  # (Opus review): check more load-bearing claims, and
                                  # the verifier prompt now scrutinizes absence/numeric
@@ -148,8 +165,9 @@ accurate:
 # its preset cell, giving the full matrix (e.g. --cheap --gate opus = trusted
 # cheap run; --accurate --gate qwen = deep dig you'll sanity-check yourself).
 gate_options:
-  qwen: {endpoint: qwen,      model: qwen-3.7-max,    max_turns: 24, max_wall_seconds: 1200}
-  opus: {endpoint: anthropic, model: claude-opus-4-8, max_turns: 24, max_wall_seconds: 1200}
+  qwen:   {endpoint: qwen,      model: qwen-3.7-max,      max_turns: 24, max_wall_seconds: 1200}
+  sonnet: {endpoint: anthropic, model: claude-sonnet-4-6, max_turns: 24, max_wall_seconds: 1200}
+  opus:   {endpoint: anthropic, model: claude-opus-4-8,   max_turns: 24, max_wall_seconds: 1200}
 
 # --- Volume backend (--volume {groq,deepseek,local}): the 4 high-volume roles ---
 # Same independent-knob idea: provider choice for the volume tier (worker/reader/
