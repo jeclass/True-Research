@@ -212,6 +212,21 @@ def test_volume_override_swaps_backend_independently():
         load_settings(overrides={"volume": "bogus"})
 
 
+def test_exhaustive_promotes_read_dials_beyond_comprehensive():
+    # --exhaustive (Opus review depth dials): comprehensive's deep bundle PLUS the
+    # read budget, so a vast topic ingests 1000+ pages. Explicit CLI flags still win.
+    from src.settings import load_settings
+
+    s = load_settings(overrides={"exhaustive": True})
+    assert s.worker_pipeline.max_reads == 45          # the read dial (vs 12 default)
+    assert s.worker_pipeline.per_domain_cap == 5      # vs 3
+    assert s.question_tree.seed_target == 20           # deeper tree than comprehensive's 12
+    assert s.question_tree.max_questions == 200
+    assert s.verification.enabled and s.waves.enabled  # verify + waves on, like comprehensive
+    # an explicit --max-budget-usd still wins over the bundle
+    assert load_settings(overrides={"exhaustive": True, "max_budget_usd": 3.0}).max_budget_usd == 3.0
+
+
 def test_search_preflight_prefers_serper_then_searxng_then_ddg_then_aborts(monkeypatch):
     # Preference order (2026-06-25): Serper (portable Google API) -> SearXNG
     # (self-host) -> DuckDuckGo (free fallback). Preflight returns the live backend
