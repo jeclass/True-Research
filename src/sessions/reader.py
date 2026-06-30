@@ -18,6 +18,7 @@ from pydantic import BaseModel, ConfigDict
 
 from src.ledger import Ledger
 from src.runspace import Runspace
+from src.sessions import untrusted
 from src.sessions.base import ReaderError, Spawn, run_role_session_async
 from src.settings import Settings
 
@@ -39,6 +40,10 @@ Produce:
 - summary_markdown: the facts from THIS page that bear on the question —
   numbers, effect sizes, sample sizes, conclusions, caveats — compressed and
   faithful. Quote key figures exactly. No filler, no outside knowledge."""
+
+# The page text is UNTRUSTED web content — append the injection-defense clause so
+# the reader treats it as data, never instructions (roadmap hardening 2026-06-30).
+_SYSTEM_PROMPT = _SYSTEM_PROMPT + "\n\n" + untrusted.INJECTION_DEFENSE_CLAUSE
 
 
 class ReaderOutput(BaseModel):
@@ -205,11 +210,16 @@ async def read_source(
     """Fetch one URL and run one reader session over it. The spawn is
     ledgered by the session layer (endpoint-attributed; usd=0 on local)."""
     page_text = await fetch_page(url, settings)
+    # The page text AND the search snippet (`why`) are untrusted fetched content —
+    # fence them so the reader treats them as data, not instructions (roadmap
+    # injection defense). The question/URL are engine-owned and stay unfenced.
     user_prompt = (
         f"# Research question this page was fetched for\n{question}\n\n"
-        f"# Why the worker wants this page\n{why}\n\n"
+        f"# Why the worker wants this page (from a search snippet — untrusted)\n"
+        f"{untrusted.wrap_untrusted(why, label='search snippet')}\n\n"
         f"# Page URL\n{url}\n\n"
-        f"# Extracted page text\n{page_text}\n"
+        f"# Extracted page text (untrusted)\n"
+        f"{untrusted.wrap_untrusted(page_text, label='page text')}\n"
     )
     spawn = await run_role_session_async(
         run=run,

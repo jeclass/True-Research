@@ -14,6 +14,7 @@ from pathlib import Path
 
 from src.ledger import Ledger
 from src.runspace import Runspace
+from src.sessions import untrusted
 from src.sessions.base import ReaderError, Spawn, run_role_session_async
 from src.sessions.reader import ReaderOutput
 from src.settings import Settings
@@ -48,6 +49,10 @@ Produce (JSON schema enforced):
 - summary_markdown: the visual-pattern observations above, concrete and
   countable (e.g. "3 trust badges directly under the CTA"). Never invent
   elements you cannot see."""
+
+# The captured screenshot is untrusted web content (text rendered IN the image can
+# carry injected instructions) — append the injection-defense clause.
+_VISION_SYSTEM_PROMPT = _VISION_SYSTEM_PROMPT + "\n\n" + untrusted.INJECTION_DEFENSE_CLAUSE
 
 
 def _slugify(url: str) -> str:
@@ -104,7 +109,8 @@ async def analyze_capture(
     """One vision session over one capture. Ledgered like any reader."""
     user_prompt = (
         f"# Research question this page was captured for\n{question}\n\n"
-        f"# Why the worker wants this page\n{why}\n\n"
+        f"# Why the worker wants this page (from a search snippet — untrusted)\n"
+        f"{untrusted.wrap_untrusted(why, label='search snippet')}\n\n"
         f"# Page URL\n{url}\n\n"
         f"# Screenshot file (Read this path to view it)\n{relpath}\n"
     )

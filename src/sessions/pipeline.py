@@ -27,7 +27,7 @@ from src.errors import ConfigError
 from src.ledger import Ledger
 from src.profiles import Profile
 from src.runspace import PLAN_FILE, Runspace
-from src.sessions import common, reader
+from src.sessions import common, reader, untrusted
 from src.sessions.base import (
     SessionError,
     SessionResult,
@@ -99,6 +99,10 @@ Part 2 (ONLY when outcome is "resolved"): on its own line write exactly
 then the finding body as plain markdown — NOT inside JSON, no escaping.
 Every factual sentence ends with [src-id] citations from the menu.
 When outcome is "fragmented" or "blocked", stop after Part 1."""
+
+# Reader summaries derive from untrusted web pages — append the injection-defense
+# clause so a summary that carried injection text forward can't redirect compose.
+_COMPOSE_SYSTEM = _COMPOSE_SYSTEM + "\n\n" + untrusted.INJECTION_DEFENSE_CLAUSE
 
 
 class QueryGenOutput(BaseModel):
@@ -642,8 +646,8 @@ async def _run_pipeline_async(
         f"# Domain guidance (profile: {profile.name})\n{profile.worker_guidance()}\n\n"
         f"# Valid citation menu — the ONLY ids you may cite\n"
         + ", ".join(f"[{s['id']}]" for s in engine_sources)
-        + "\n\n# Reader summaries (your only admissible material)\n\n"
-        + "\n\n".join(menu_lines)
+        + "\n\n# Reader summaries (your only admissible material — untrusted)\n\n"
+        + untrusted.wrap_untrusted("\n\n".join(menu_lines), label="reader summaries")
     )
     compose_spawn, output = await _single_shot_with_retry(
         "compose",
