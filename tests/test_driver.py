@@ -141,6 +141,35 @@ def test_cli_requires_exactly_one_mode(make_config):
         driver.parse_args(["question", "--resume", "x"])
 
 
+def test_question_file_loads_quote_laden_question_intact(tmp_path):
+    # Root-cause fix 2026-06-30: a question with embedded double-quotes (e.g.
+    # 'FORMAT as "NEW -- test this"') does not survive PowerShell 5.1 native-
+    # command tokenization — it split into 13 argv tokens and driver.py exited 2
+    # with no run dir (silent launch failure). --question-file sidesteps the shell
+    # entirely: arbitrary quotes/newlines/unicode come through byte-for-byte.
+    q = 'Build a strategy. FORMAT as "NEW -- test this" or "BEST PRACTICE".\nLine two: <=35% target.'
+    qf = tmp_path / "q.txt"
+    qf.write_text(q, encoding="utf-8")
+    args = driver.parse_args(["--question-file", str(qf), "--cheap", "--gate", "opus"])
+    assert args.question == q.strip()
+    assert args.gate == "opus" and args.cheap is True
+
+
+def test_question_file_rejects_conflicts_and_bad_input(tmp_path):
+    # both positional + file is ambiguous; empty file / missing file fail loudly
+    # (parser.error -> SystemExit), never silently launching a blank-question run.
+    qf = tmp_path / "q.txt"
+    qf.write_text("a real question", encoding="utf-8")
+    with pytest.raises(SystemExit):
+        driver.parse_args(["positional q", "--question-file", str(qf)])
+    empty = tmp_path / "empty.txt"
+    empty.write_text("   \n", encoding="utf-8")
+    with pytest.raises(SystemExit):
+        driver.parse_args(["--question-file", str(empty)])
+    with pytest.raises(SystemExit):
+        driver.parse_args(["--question-file", str(tmp_path / "nonexistent.txt")])
+
+
 def test_eval_fail_with_empty_queue_finishes_exhausted(make_config, runs_dir, monkeypatch):
     # Observed smoke6 2026-06-10: evaluator FAILs while closing the last open
     # questions -> next worker would crash on an empty queue. The driver must

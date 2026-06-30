@@ -30,6 +30,17 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         prog="driver", description="Run or resume a marathon research run."
     )
     parser.add_argument("question", nargs="?", help="research question for a new run")
+    parser.add_argument(
+        "--question-file",
+        metavar="PATH",
+        help="read the research question from a UTF-8 text file instead of the "
+        "positional arg. Use this whenever the question contains quotes, "
+        "newlines, or shell metacharacters: those do NOT survive command-line "
+        "tokenization (PowerShell 5.1 splits an argument on embedded \" — "
+        "observed 2026-06-30: a quote-laden question became 13 argv tokens and "
+        "argparse exited 2 with no run dir). A file sidesteps the shell entirely. "
+        "Mutually exclusive with the positional question.",
+    )
     parser.add_argument("--resume", metavar="RUN_ID", help="resume an existing run")
     parser.add_argument(
         "--force-resume",
@@ -140,6 +151,15 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="write a machine-readable run summary here (orchestrator hook)",
     )
     args = parser.parse_args(argv)
+    if args.question_file:
+        if args.question:
+            parser.error("provide the question OR --question-file, not both")
+        try:
+            args.question = Path(args.question_file).read_text(encoding="utf-8").strip()
+        except OSError as exc:
+            parser.error(f"--question-file {args.question_file!r} could not be read: {exc}")
+        if not args.question:
+            parser.error(f"--question-file {args.question_file!r} is empty")
     if bool(args.question) == bool(args.resume):
         parser.error("provide exactly one of: a question, or --resume RUN_ID")
     return args
