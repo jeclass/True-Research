@@ -141,10 +141,12 @@ def test_cli_requires_exactly_one_mode(make_config):
         driver.parse_args(["question", "--resume", "x"])
 
 
-def test_eval_fail_with_empty_queue_finishes_clean_stall(make_config, runs_dir, monkeypatch):
+def test_eval_fail_with_empty_queue_finishes_exhausted(make_config, runs_dir, monkeypatch):
     # Observed smoke6 2026-06-10: evaluator FAILs while closing the last open
     # questions -> next worker would crash on an empty queue. The driver must
-    # finish cleanly (exhaustion-stall) with a partial report instead.
+    # finish cleanly with a partial report instead. Audit #19: this exhaustion
+    # condition gets finish_reason "exhausted" (NOT "stall") so run.json alone
+    # distinguishes it from the invariant-5 hash-stall.
     from src.state import Verdict
 
     cfg = make_config()
@@ -191,10 +193,76 @@ def test_eval_fail_with_empty_queue_finishes_clean_stall(make_config, runs_dir, 
 
     run_dir = only_run_dir(runs_dir)
     meta = _meta(run_dir)
-    assert meta.finish_reason == "stall"
+    assert meta.finish_reason == "exhausted"   # audit #19: distinct from "stall"
+    assert meta.stall_count == 0               # exhaustion never trips the hash-stall counter
     progress = (run_dir / "PROGRESS.md").read_text(encoding="utf-8")
     assert "zero open questions" in progress
     assert "PARTIAL" in (run_dir / REPORT_FILE).read_text(encoding="utf-8")
+
+
+def test_final_gate_reject_without_questions_finishes_exhausted(make_config, runs_dir, monkeypatch):
+    # Audit #0: when the Opus final gate REJECTS (passed=False) but opens no
+    # actionable questions and the queue is already empty, the driver used to
+    # assert "state changed" and loop — re-summoning the single most expensive
+    # call in the system on identical state until the firing cap (default 2)
+    # forced acceptance, burning ~2 needless Opus gates. It must instead finish
+    # cleanly as "exhausted" on the FIRST such rejection, gate fired exactly once.
+    import time as _t
+
+    from src.sessions.stub import _result
+    from src.state import Verdict
+
+    cfg = make_config(
+        **{
+            "roles.final_evaluator": {
+                "endpoint": "anthropic", "model": "claude-opus-4-8", "max_turns": 24,
+            },
+            "max_final_evaluations": 2,
+        }
+    )
+    real_backend = get_backend
+    fired = {"n": 0}
+
+    def rejecting_backend(settings):
+        backend = dict(real_backend(settings))
+        real_worker = backend["worker"]
+
+        def worker(run, settings_, cycle, ledger_):
+            result = real_worker(run, settings_, cycle, ledger_)
+            qs = run.load_questions()
+            for q in qs.root:
+                q.status = "resolved"
+            run.save_questions(qs)
+            return result
+
+        def evaluator(run, settings_, cycle, ledger_):  # per-cycle gate: PASS
+            run.write_verdict(cycle, Verdict(passed=True, unmet_criteria=[],
+                              contradictions=[], new_questions=[], notes="cycle pass"))
+            return _result(settings_, "evaluator", "evaluator", _t.monotonic(), "ok", ledger_, cycle)
+
+        def final_evaluator(run, settings_, cycle, ledger_):  # terminal gate: REJECT, no Qs
+            fired["n"] += 1
+            run.write_verdict(cycle, Verdict(passed=False, unmet_criteria=["unmet"],
+                              contradictions=[], new_questions=[],
+                              notes="reject, nothing actionable"), final=True)
+            return _result(settings_, "evaluator", "final_evaluator",
+                           _t.monotonic(), "fail", ledger_, cycle)
+
+        backend["worker"] = worker
+        backend["evaluator"] = evaluator
+        backend["final_evaluator"] = final_evaluator
+        return backend
+
+    monkeypatch.setattr(driver, "get_backend", rejecting_backend)
+    rc = driver.main(["q", "--config", str(cfg)])
+    assert rc == 0
+
+    run_dir = only_run_dir(runs_dir)
+    meta = _meta(run_dir)
+    assert meta.finish_reason == "exhausted"
+    assert fired["n"] == 1  # finished on the FIRST rejection — did NOT loop to the cap
+    progress = (run_dir / "PROGRESS.md").read_text(encoding="utf-8")
+    assert "nothing to deepen" in progress
 
 
 def test_resume_with_empty_queue_skips_worker_and_finishes(make_config, runs_dir, monkeypatch):

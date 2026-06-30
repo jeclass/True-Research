@@ -6,6 +6,8 @@ full text. These tests pin the bounds."""
 
 from pathlib import Path
 
+import pytest
+
 from src.runspace import Runspace
 from src.sessions import common
 from src.state import FindingMeta, OpenQuestion, QuestionList, SourceRecord, SourceRegistry, utcnow
@@ -37,7 +39,36 @@ def test_findings_digest_total_char_budget_bounds_output(tmp_path):
     # every finding still represented (header present) even when truncated
     for i in range(20):
         assert f"q-{i+1:03d}" in bounded
-    assert "truncated" in bounded.lower()
+    assert "elided" in bounded.lower()   # head+tail elision marker (audit #4)
+    run.release_lock()
+
+
+def test_findings_digest_preserves_tail_not_just_head(tmp_path):
+    # audit #4: findings_digest used to head-only-slice, dropping a finding's
+    # tail — so a late claim/citation became invisible to the default-FAIL
+    # evaluator, which then judged on content it never saw. The fix keeps head
+    # AND tail (mirrors reader.py). A sentinel at the very end must survive a
+    # tight budget that forces truncation.
+    run = Runspace.create(tmp_path / "runs", "q", "general")
+    qid = "q-001"
+    run.save_questions(QuestionList(
+        [OpenQuestion(id=qid, question="facet", priority=3, created_by="initializer")]
+    ))
+    body = (
+        "HEAD_SENTINEL begins this finding. "
+        + ("filler middle content. " * 4000)          # ~92k chars of middle
+        + " The conclusion cites TAIL_SENTINEL [src-x]."
+    )
+    run.write_finding(
+        f"{qid}-c01",
+        FindingMeta(question_id=qid, source_ids=["src-x"], confidence=0.8),
+        body,
+    )
+    digest = common.findings_digest(run, full_bodies=True, max_total_chars=4000)
+    assert len(digest) < len(body)             # truncation actually happened
+    assert "HEAD_SENTINEL" in digest           # head kept (old code kept this too)
+    assert "TAIL_SENTINEL" in digest           # tail kept (old head-only code DROPPED this)
+    assert "elided" in digest.lower()          # the gap is marked, not silent
     run.release_lock()
 
 
@@ -227,6 +258,7 @@ def test_exhaustive_promotes_read_dials_beyond_comprehensive():
     assert load_settings(overrides={"exhaustive": True, "max_budget_usd": 3.0}).max_budget_usd == 3.0
 
 
+@pytest.mark.real_preflight  # this test IS the preflight; opt out of the autouse stub
 def test_search_preflight_prefers_serper_then_searxng_then_ddg_then_aborts(monkeypatch):
     # Preference order (2026-06-25): Serper (portable Google API) -> SearXNG
     # (self-host) -> DuckDuckGo (free fallback). Preflight returns the live backend
@@ -316,7 +348,9 @@ def test_evaluator_per_cycle_prompt_is_bounded_final_is_full(tmp_path):
     per_cycle = evaluator._build_user_prompt(run, settings, ledger, 5, final=False)
     final = evaluator._build_user_prompt(run, settings, ledger, 5, final=True)
     assert len(per_cycle) < len(final)              # bounded < full
-    assert "truncated" in per_cycle and "truncated" not in final
+    # per-cycle carries the head+tail elision marker (audit #4); the full Opus
+    # final gate has no elision because it gets untruncated bodies.
+    assert "elided" in per_cycle and "elided" not in final
     assert len(per_cycle) < 30000                   # well under what 5xx-ed
     run.release_lock()
 

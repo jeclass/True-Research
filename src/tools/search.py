@@ -4,13 +4,26 @@ non-first-party endpoints, where Anthropic-hosted WebSearch does not exist
 
 from __future__ import annotations
 
-import json
 from typing import Any
 
 import httpx
 
 from src.settings import RetryCfg, Settings
 from src.tools import ConnectorError, http_get_with_retry, http_post_with_retry
+
+
+def _decode_json(response: httpx.Response, label: str) -> Any:
+    """Decode a response body as JSON, turning ANY decode failure into a clean
+    ConnectorError. response.json() can raise more than JSONDecodeError: a bogus
+    Content-Encoding/charset makes the decoder raise UnicodeDecodeError / LookupError
+    / AssertionError, none of which subclass httpx.HTTPError, so the old narrow
+    `except (httpx.HTTPError, json.JSONDecodeError)` let them escape and crash a
+    worker session (the exact bug fixed in reader.py 72c5546 and ported to
+    academic.py 9192bd1 — ported here too, audit #3, 2026-06-30)."""
+    try:
+        return response.json()
+    except Exception as exc:  # noqa: BLE001 — any decode failure means an unusable body
+        raise ConnectorError(f"{label} returned an undecodable body: {exc!r}") from exc
 
 
 def parse_searxng_results(payload: dict, max_results: int) -> list[dict[str, Any]]:
@@ -48,9 +61,9 @@ async def searxng_results(
             timeout=timeout,
             params={"q": query, "format": "json"},
         )
-        payload = response.json()
-    except (httpx.HTTPError, json.JSONDecodeError) as exc:
+    except httpx.HTTPError as exc:
         raise ConnectorError(f"SearXNG search failed ({base_url}): {exc}") from exc
+    payload = _decode_json(response, f"SearXNG ({base_url})")
     return parse_searxng_results(payload, max_results)
 
 
@@ -133,9 +146,9 @@ async def serper_results(
             json_body=body,
             headers={"X-API-KEY": api_key, "Content-Type": "application/json"},
         )
-        payload = response.json()
-    except (httpx.HTTPError, json.JSONDecodeError) as exc:
+    except httpx.HTTPError as exc:
         raise ConnectorError(f"Serper search failed: {exc}") from exc
+    payload = _decode_json(response, "Serper")
     return parse_serper_results(payload, max_results)
 
 
@@ -149,9 +162,9 @@ async def searxng_search(
             timeout=timeout,
             params={"q": query, "format": "json"},
         )
-        payload = response.json()
-    except (httpx.HTTPError, json.JSONDecodeError) as exc:
+    except httpx.HTTPError as exc:
         raise ConnectorError(f"SearXNG search failed ({base_url}): {exc}") from exc
+    payload = _decode_json(response, f"SearXNG ({base_url})")
     return format_results(parse_searxng_results(payload, max_results))
 
 
@@ -186,7 +199,9 @@ def preflight_search(settings: Settings, *, timeout: float = 6.0) -> str:
             response.raise_for_status()
             response.json()
             return "serper"
-        except (httpx.HTTPError, json.JSONDecodeError) as exc:
+        except Exception as exc:  # noqa: BLE001 — HTTPError + an undecodable body
+            # (UnicodeDecodeError/LookupError from a bogus charset) both just mean
+            # "this backend isn't usable"; record it and fall through to the next.
             serper_err = str(exc)
 
     base_url = settings.search.searxng_base_url
@@ -201,7 +216,7 @@ def preflight_search(settings: Settings, *, timeout: float = 6.0) -> str:
             response.raise_for_status()
             response.json()  # JSON output must be enabled — the engine parses it
             return "searxng"
-        except (httpx.HTTPError, json.JSONDecodeError) as exc:
+        except Exception as exc:  # noqa: BLE001 — see serper probe above
             searxng_err = str(exc)
 
     # Serper/SearXNG down or unconfigured — verify the Docker-free DDG fallback.

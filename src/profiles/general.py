@@ -22,7 +22,8 @@ class GeneralProfile(Profile):
         #     Free, no-key, no-Docker; carries title+abstract even when paywalled.
         #   - Web: Serper (Google) when SERPER_API_KEY is present — Google's broad
         #     index, cheap enough that breadth comes from MANY queries, deep-read by
-        #     the engine's own reader. Falls back to DDG on any Serper failure so a
+        #     the engine's own reader. On any Serper failure/quota-exhaustion it
+        #     falls back to a configured SearXNG (if one is set), then to DDG, so a
         #     bad key / outage never kills a run. Without a Serper key, the web slot
         #     is the base SearXNG -> DDG provider (the self-host path).
         # Portable: a GitHub clone runs the same with the user's own key, no Docker.
@@ -40,7 +41,7 @@ class GeneralProfile(Profile):
         )
         if serper_key:
             from src.tools import ConnectorError
-            from src.tools.search import ddg_results, serper_results
+            from src.tools.search import ddg_results, searxng_results, serper_results
 
             key = serper_key.get_secret_value()
 
@@ -52,9 +53,25 @@ class GeneralProfile(Profile):
                     )
                     if results:
                         return results
-                    # Serper up but no hits — let DDG take a swing before giving up.
+                    # Serper up but no hits — fall through to the next tier.
                 except ConnectorError:
-                    pass  # Serper down / bad key -> DDG so research survives
+                    pass  # Serper down / quota / bad key -> next tier so research survives
+                # A configured, healthy SearXNG is a better fallback than DDG's
+                # narrower index, so consult it BEFORE DDG when both are available
+                # (matches preflight's Serper -> SearXNG -> DDG order; audit #5).
+                # An operator running hybrid (Serper key + local SearXNG safety net)
+                # who exhausts Serper's free quota mid-run now gets their full index,
+                # not a silent degrade straight to DDG. Skipped when no SearXNG is
+                # configured (the common portable case), leaving Serper -> DDG.
+                if sc.searxng_base_url:
+                    try:
+                        results = await searxng_results(
+                            sc.searxng_base_url, query, max_results, timeout, settings.retry
+                        )
+                        if results:
+                            return results
+                    except ConnectorError:
+                        pass  # SearXNG down too -> DDG
                 return await ddg_results(query, max_results, timeout)
 
             web_providers = [("serper", _web)]

@@ -15,7 +15,13 @@ from src.errors import StateError
 from src.settings import SessionType
 
 QuestionStatus = Literal["open", "in_progress", "resolved"]
-FinishReason = Literal["conclusive", "budget", "time", "max_cycles", "stall"]
+# "stall" = invariant-5 hash-stall (consecutive no-delta cycles; stall_count > 0).
+# "exhausted" = every open question was resolved but the evaluator never produced
+# a passing verdict — a DIFFERENT stop condition that used to also be reported as
+# "stall" with stall_count=0, making run.json alone ambiguous (audit #19).
+FinishReason = Literal[
+    "conclusive", "budget", "time", "max_cycles", "stall", "exhausted"
+]
 
 _FRONT_MATTER_SEP = "---"
 

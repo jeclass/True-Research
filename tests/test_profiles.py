@@ -219,6 +219,33 @@ def test_serper_parser_rejects_garbage():
         parse_serper_results({"organic": "not-a-list"}, max_results=5)
 
 
+def test_decode_json_wraps_non_jsondecode_failures():
+    # audit #3: response.json() can raise UnicodeDecodeError / LookupError /
+    # AssertionError from a bogus Content-Encoding/charset — NONE of which subclass
+    # httpx.HTTPError or json.JSONDecodeError, so the old narrow
+    # `except (httpx.HTTPError, json.JSONDecodeError)` let them escape search.py
+    # and crash a worker session (the bug fixed in reader.py 72c5546 and ported to
+    # academic.py 9192bd1). The shared guard must convert ANY decode failure into a
+    # clean ConnectorError so the run degrades (fall to next provider) not crashes.
+    from src.tools import ConnectorError
+    from src.tools.search import _decode_json
+
+    class _Resp:
+        def __init__(self, exc):
+            self._exc = exc
+
+        def json(self):
+            raise self._exc
+
+    for exc in (
+        LookupError("unknown encoding: base64"),
+        UnicodeDecodeError("utf-8", b"\xff", 0, 1, "invalid start byte"),
+        AssertionError("httpx decoder invariant"),
+    ):
+        with pytest.raises(ConnectorError, match="undecodable body"):
+            _decode_json(_Resp(exc), "TestProvider")
+
+
 def test_general_profile_prefers_serper_when_key_present(tmp_path):
     # Portability contract: with SERPER_API_KEY in .env the web slot is Serper
     # (Google) + OpenAlex; without it, the engine falls back to the SearXNG->DDG

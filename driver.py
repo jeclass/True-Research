@@ -373,8 +373,27 @@ def _drive(
                         cycle += 1
                         continue
                     return _finish(backend, run, settings, ledger, console, "conclusive")
-                # Final gate rejected: its new questions are open now — the
-                # loop deepens. State changed, so this cycle is not a stall.
+                if run.no_open_questions():
+                    # Final gate rejected but opened NO actionable questions (the
+                    # evaluator contract doesn't enforce attaching them, and any it
+                    # proposed can be dropped as duplicates or by the question cap).
+                    # The queue is still empty, so the next cycle would skip the
+                    # worker, re-judge identical state, and re-summon the (most
+                    # expensive) Opus gate — burning up to max_final_evaluations of
+                    # them for zero progress. This is exhaustion, not a deepening
+                    # cycle: finish cleanly, same as the per-cycle exhaustion path
+                    # below (audit #0 — the old code asserted "state changed" here
+                    # without checking it and reset the stall counter every time).
+                    run.log_decision(
+                        f"final gate (cycle {cycle}) rejected but opened no "
+                        "actionable questions and the queue is empty — nothing to "
+                        "deepen; finishing with a partial report rather than "
+                        "re-summoning the Opus gate on unchanged state."
+                    )
+                    run.complete_cycle(cycle, stalled=False)
+                    return _finish(backend, run, settings, ledger, console, "exhausted")
+                # Final gate rejected and opened new questions — the loop genuinely
+                # deepens (state changed), so this cycle is not a stall.
                 run.complete_cycle(cycle, stalled=False)
                 cycle += 1
                 continue
@@ -395,7 +414,12 @@ def _drive(
                 "nothing actionable remains; finishing with a partial report."
             )
             run.complete_cycle(cycle, stalled=False)
-            return _finish(backend, run, settings, ledger, console, "stall")
+            # "exhausted", NOT "stall": all open questions were resolved, the
+            # evaluator just never passed. The invariant-5 hash-stall guard (below)
+            # is a different condition (no-delta looping, stall_count > 0). Giving
+            # this path its own finish_reason keeps run.json unambiguous without
+            # needing to cross-reference PROGRESS.md (audit #19).
+            return _finish(backend, run, settings, ledger, console, "exhausted")
 
         stalled = run.state_hash() == before
         stall_count = run.complete_cycle(cycle, stalled)

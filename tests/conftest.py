@@ -5,6 +5,32 @@ from pathlib import Path
 import pytest
 import yaml
 
+
+def pytest_configure(config):
+    config.addinivalue_line(
+        "markers",
+        "real_preflight: run the real preflight_search (opt out of the autouse "
+        "DDG-network stub); for tests that exercise preflight tiering itself.",
+    )
+
+
+@pytest.fixture(autouse=True)
+def _stub_preflight_search(request, monkeypatch):
+    """driver.main() runs preflight_search before the loop. With no Serper key and
+    no SearXNG configured (the test default) it falls through to a REAL DuckDuckGo
+    network probe, which DDG rate-limits under the suite's many rapid runs — so the
+    probe intermittently returns "No results found" and fails otherwise-unrelated
+    driver tests (a long-standing flaky-suite source: a single bad test rotated each
+    run). The stub backends never search for real, so neutralize the probe to a
+    deterministic "ddg". Tests that exercise preflight_search itself opt out with
+    @pytest.mark.real_preflight."""
+    if request.node.get_closest_marker("real_preflight"):
+        return
+    import src.tools.search as search_mod
+
+    monkeypatch.setattr(search_mod, "preflight_search", lambda settings, **kw: "ddg")
+
+
 BASE_CONFIG: dict = {
     "runs_dir": None,  # filled per test
     "max_budget_usd": 10.0,

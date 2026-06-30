@@ -233,7 +233,23 @@ def findings_digest(
             continue
         text = body.strip()
         if per_finding is not None and len(text) > per_finding:
-            text = text[:per_finding].rstrip() + "\n…[truncated to fit evaluator context]"
+            # HEAD + TAIL, not head-only (mirrors reader.py's 2026-06-29 fix,
+            # audit #4). Plain text[:per_finding] dropped the back of every long
+            # finding, so a late claim or citation in its tail became invisible to
+            # the default-FAIL evaluator — which then judged the question
+            # unresolved / the claim untraceable on content it never saw. Keep the
+            # head AND the tail, eliding only the middle, with a marker so the
+            # evaluator treats the gap as UNKNOWN rather than absence.
+            head_n = int(per_finding * 0.75)
+            tail_n = per_finding - head_n
+            elided = len(text) - per_finding
+            text = (
+                text[:head_n].rstrip()
+                + f"\n…[{elided} chars elided from the MIDDLE to fit evaluator "
+                "context; head+tail kept — treat anything missing here as UNKNOWN, "
+                "not absent]…\n"
+                + text[-tail_n:].lstrip()
+            )
         parts.append(f"{head}\n{text}")
     return "\n\n".join(parts)
 
