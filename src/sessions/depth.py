@@ -38,8 +38,17 @@ def seed_depth_questions(run: Runspace, settings: Settings) -> int:
     deepening and the driver finishes instead of entering the DEPTH wave.
     """
     findings = run.load_findings()
+    # Per-question early-stopping (roadmap quick win): optionally skip leads already
+    # cross-validated by >= N sources, so DEPTH hardens the under-corroborated leads
+    # that need it. skip_n=0 (default) deepens the top-N regardless, as before.
+    skip_n = settings.waves.skip_corroborated_min_sources
     factual = sorted(
-        ((slug, m) for slug, (m, _body) in findings.items() if m.track == "factual"),
+        (
+            (slug, m)
+            for slug, (m, _body) in findings.items()
+            if m.track == "factual"
+            and not (skip_n and len(m.source_ids) >= skip_n)
+        ),
         key=lambda t: t[1].confidence,
         reverse=True,
     )[: settings.waves.depth_findings]

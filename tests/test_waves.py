@@ -104,6 +104,34 @@ def test_seed_depth_skips_and_logs_when_parent_question_is_gone(tmp_path):
     run.release_lock()
 
 
+def test_seed_depth_skips_well_corroborated_when_configured(tmp_path):
+    # roadmap per-question early-stopping: with skip_corroborated_min_sources=2 a
+    # lead already backed by >= 2 sources is NOT re-deepened — the DEPTH budget
+    # goes to the under-corroborated lead instead. Default 0 deepens top-N as before.
+    run = Runspace.create(tmp_path / "runs", "q", "general")
+    run.save_questions(QuestionList([
+        OpenQuestion(id="q-multi", question="well-sourced facet", priority=3, created_by="initializer"),
+        OpenQuestion(id="q-single", question="thin facet", priority=3, created_by="initializer"),
+    ]))
+    run.write_finding("q-multi-c01",
+        FindingMeta(question_id="q-multi", source_ids=["src-a", "src-b"], confidence=0.95),
+        "well-corroborated [src-a][src-b]")
+    run.write_finding("q-single-c01",
+        FindingMeta(question_id="q-single", source_ids=["src-a"], confidence=0.85),
+        "single-source [src-a]")
+    raw = yaml.safe_load(yaml.safe_dump(BASE_CONFIG))
+    raw["runs_dir"] = str(tmp_path / "runs")
+    raw["secrets"] = {"ANTHROPIC_API_KEY": "sk-test", "OLLAMA_AUTH": "ollama"}
+    raw["waves"] = {"enabled": True, "depth_findings": 6, "skip_corroborated_min_sources": 2}
+    settings = Settings.model_validate(raw)
+
+    n = seed_depth_questions(run, settings)
+    assert n == 1   # only the single-source lead deepened; the 2-source one skipped
+    depth = [q for q in run.load_questions().root if q.created_by == "depth"]
+    assert {q.parent_id for q in depth} == {"q-single"}
+    run.release_lock()
+
+
 def _meta(run_dir):
     return parse_run_meta((run_dir / "run.json").read_text())
 

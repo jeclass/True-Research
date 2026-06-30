@@ -198,6 +198,20 @@ class VerificationCfg(_Frozen):
     enabled: bool
     max_findings: int = Field(ge=1)         # top-N by confidence (cost bound)
     min_confidence: float = Field(ge=0.0, le=1.0)  # only verify load-bearing
+    # Risk-first targeting (roadmap quick win): spend the fixed max_findings
+    # verifier budget where adversarial refutation has the most LEVERAGE — the
+    # under-corroborated load-bearing claims — instead of always the highest-
+    # confidence ones. A claim already cross-validated by several independent
+    # sources needs the verifier least; a high-confidence SINGLE-source claim is
+    # exactly CLAUDE.md's flagged risk ("two independent origins for every
+    # load-bearing claim"). Orders candidates by (fewest sources, then highest
+    # confidence). Default on — a strict targeting improvement at the same spend.
+    risk_first: bool = True
+    # Opt-in spend cut (default 0 = off): skip verifying findings ALREADY backed
+    # by >= N sources (well cross-validated -> low refutation value), focusing the
+    # verifier on single-/few-source claims. Approximates "independent" by source
+    # COUNT — the available signal; pair with risk_first.
+    skip_corroborated_min_sources: int = Field(ge=0, default=0)
 
 
 class WavesCfg(_Frozen):
@@ -208,6 +222,11 @@ class WavesCfg(_Frozen):
     # consults the wave field and behaves byte-identically.
     enabled: bool
     depth_findings: int = Field(ge=1)  # top-N findings deepened when breadth concludes
+    # Per-question early-stopping (roadmap quick win): skip re-deepening a lead
+    # already cross-validated by >= N sources, so the DEPTH budget hardens the
+    # under-corroborated leads that actually need it instead of re-confirming
+    # settled ones. Default 0 = off (deepen the top-N regardless, as before).
+    skip_corroborated_min_sources: int = Field(ge=0, default=0)
 
 
 class StubCfg(_Frozen):

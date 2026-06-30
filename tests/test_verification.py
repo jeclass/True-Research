@@ -96,3 +96,47 @@ def test_verify_phase_stops_at_budget(tmp_path, monkeypatch):
     assert calls["n"] == 0  # budget 0 => halted before any verify
     assert any("budget breaker" in d for d in run.decisions())
     run.release_lock()
+
+
+def test_verify_risk_first_targets_single_source_over_high_confidence(tmp_path, monkeypatch):
+    # roadmap: with risk_first (default on) a FIXED verifier budget refutes the
+    # riskiest claim — a high-confidence SINGLE-source finding — BEFORE one at even
+    # higher confidence that is already corroborated by several sources (lower
+    # refutation leverage). The old confidence-first order would verify the
+    # multi-source one first and, at budget 1, skip the under-corroborated claim.
+    s = _settings(tmp_path, **{"verification.enabled": True, "session.backend": "sdk",
+                               "verification.max_findings": 1})
+    run = Runspace.create(tmp_path / "runs", "q", "general")
+    run.write_finding("multi", FindingMeta(question_id="q-001",
+        source_ids=["src-a", "src-b", "src-c"], confidence=0.95), "Body [src-a].")
+    run.write_finding("single", FindingMeta(question_id="q-002",
+        source_ids=["src-a"], confidence=0.85), "Body [src-a].")
+    import src.sessions.verifier as v
+
+    verified: list[str] = []
+    monkeypatch.setattr(v, "verify_finding",
+                        lambda *a, **k: (verified.append(a[5]), ("verified", ""))[1])
+    driver._verify_phase(run, s, Ledger(run), Console())
+    assert verified == ["single"]   # the single-source claim got the one budget slot
+    run.release_lock()
+
+
+def test_verify_skip_corroborated_excludes_multi_source(tmp_path, monkeypatch):
+    # opt-in spend cut: skip_corroborated_min_sources=2 excludes a finding already
+    # backed by >= 2 sources (cross-validated), focusing the verifier on the
+    # single-source claim where an undetected error would hide.
+    s = _settings(tmp_path, **{"verification.enabled": True, "session.backend": "sdk",
+                               "verification.skip_corroborated_min_sources": 2})
+    run = Runspace.create(tmp_path / "runs", "q", "general")
+    run.write_finding("multi", FindingMeta(question_id="q-001",
+        source_ids=["src-a", "src-b"], confidence=0.9), "Body [src-a].")
+    run.write_finding("single", FindingMeta(question_id="q-002",
+        source_ids=["src-a"], confidence=0.9), "Body [src-a].")
+    import src.sessions.verifier as v
+
+    verified: list[str] = []
+    monkeypatch.setattr(v, "verify_finding",
+                        lambda *a, **k: (verified.append(a[5]), ("verified", ""))[1])
+    driver._verify_phase(run, s, Ledger(run), Console())
+    assert verified == ["single"]   # 2-source finding skipped, only single-source verified
+    run.release_lock()

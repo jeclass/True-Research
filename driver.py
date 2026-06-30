@@ -195,17 +195,26 @@ def _verify_phase(
 
     vcfg = settings.verification
     findings = run.load_findings()
-    candidates = sorted(
-        (
-            (slug, m, b)
-            for slug, (m, b) in findings.items()
-            if m.track == "factual"
-            and m.verification_status == "unverified"
-            and m.confidence >= vcfg.min_confidence
-        ),
-        key=lambda t: t[1].confidence,
-        reverse=True,
-    )[: vcfg.max_findings]
+    eligible = [
+        (slug, m, b)
+        for slug, (m, b) in findings.items()
+        if m.track == "factual"
+        and m.verification_status == "unverified"
+        and m.confidence >= vcfg.min_confidence
+        # Opt-in spend cut: skip findings already cross-validated by >= N sources.
+        and not (
+            vcfg.skip_corroborated_min_sources
+            and len(m.source_ids) >= vcfg.skip_corroborated_min_sources
+        )
+    ]
+    if vcfg.risk_first:
+        # Riskiest first: fewest sources (single-source load-bearing claims are
+        # CLAUDE.md's flagged risk), then highest confidence (most damage if wrong)
+        # — so the fixed budget refutes where it has the most leverage.
+        eligible.sort(key=lambda t: (len(t[1].source_ids), -t[1].confidence))
+    else:
+        eligible.sort(key=lambda t: t[1].confidence, reverse=True)  # legacy: confidence-first
+    candidates = eligible[: vcfg.max_findings]
     if not candidates:
         return
 
