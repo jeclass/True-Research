@@ -127,6 +127,14 @@ class WorkerPipelineCfg(_Frozen):
     urls_per_query: int = Field(ge=1)
     max_reads: int = Field(ge=1)
     per_domain_cap: int = Field(ge=1)
+    # Parallel worker fan-out (roadmap): investigate up to N distinct open
+    # questions CONCURRENTLY per cycle, merging before the evaluator. A wall-clock
+    # win (overlaps search/read/compose latency), NOT a quality win — token volume,
+    # not parallelism, drives result quality — so default 1 (sequential, the proven
+    # path). Only takes effect in pipeline mode (the agentic worker is sync). Keep
+    # small: each question already fans out max_reads concurrent reads, so N*max_
+    # reads bounds total in-flight reads against endpoint rate limits.
+    parallel_questions: int = Field(ge=1, default=1)
     # Pre-read relevance reranking of search snippets vs the question
     # (FlashRank, CPU). Optional dependency; unavailable => authority-first
     # rules only. Relevance becomes the primary selection sort key.

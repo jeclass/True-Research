@@ -373,3 +373,7 @@ worker_pipeline:
   rerank: true                   # FlashRank (CPU) scores snippet-vs-question
                                  # relevance; on-target pages outrank merely
                                  # high-authority tangential ones
+  parallel_questions: 1          # >1: investigate N questions concurrently per
+                                 # cycle (wall-clock win, pipeline mode only). Keep
+                                 # small — N*max_reads bounds in-flight reads. 1 =
+                                 # the proven sequential path (default).

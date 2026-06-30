@@ -98,6 +98,19 @@ def pick_target_question(questions: QuestionList) -> OpenQuestion | None:
     return sorted(candidates, key=lambda q: (-q.priority, q.id))[0]
 
 
+def pick_target_questions(questions: QuestionList, k: int) -> list[OpenQuestion]:
+    """Up to k DISTINCT targets for a parallel-fan-out cycle (roadmap): orphaned
+    in_progress questions first (same precedence as the single picker), then the
+    highest-priority open ones, in deterministic order. k<=1 collapses to the same
+    single target pick_target_question would return, so parallel mode is a strict
+    superset of the sequential path."""
+    ordered = (
+        sorted(questions.in_progress_items(), key=lambda q: (-q.priority, q.id))
+        + sorted(questions.open_items(), key=lambda q: (-q.priority, q.id))
+    )
+    return ordered[: max(1, k)]
+
+
 def merge_sources(
     run: Runspace,
     proposed: list[dict],

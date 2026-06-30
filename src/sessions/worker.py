@@ -232,6 +232,12 @@ def _build_reader_mcp(
 
 def run(run: Runspace, settings: Settings, cycle: int, ledger: Ledger) -> SessionResult:
     questions = run.load_questions()
+    wp = settings.worker_pipeline
+    if wp.enabled and wp.parallel_questions > 1:
+        # Parallel fan-out (roadmap): investigate up to N questions concurrently.
+        # Pipeline mode only — the agentic path below is a sync open loop.
+        return _run_parallel(run, settings, cycle, ledger, questions, wp.parallel_questions)
+
     target = common.pick_target_question(questions)
     if target is None:
         raise WorkerError(
@@ -306,6 +312,72 @@ def run(run: Runspace, settings: Settings, cycle: int, ledger: Ledger) -> Sessio
         usd=spawn.usd,
         wall_seconds=spawn.wall_seconds,
         summary=f"{summary} ({stats['reads']} reads, {spawn.num_turns} turns)",
+    )
+
+
+def _run_parallel(
+    run: Runspace,
+    settings: Settings,
+    cycle: int,
+    ledger: Ledger,
+    questions,
+    k: int,
+) -> SessionResult:
+    """Investigate up to k distinct questions CONCURRENTLY in one event loop
+    (roadmap: parallel worker fan-out). Correctness rests on the pipeline's apply
+    sections being await-free, so cooperative scheduling serializes the shared-
+    state writes for free (see pipeline.run_pipeline_batch). The driver loop is
+    otherwise unchanged — one evaluator pass still judges the merged result."""
+    from src.sessions import pipeline
+
+    targets = common.pick_target_questions(questions, k)
+    if not targets:
+        raise WorkerError(
+            "worker invoked with no open or in_progress questions — "
+            "the driver should have exited conclusively before this"
+        )
+    for t in targets:
+        t.status = "in_progress"
+    run.save_questions(questions)
+    run.log(
+        f"worker (cycle {cycle}): parallel fan-out over {len(targets)} "
+        f"questions ({', '.join(t.id for t in targets)})"
+    )
+
+    profile = get_profile(run.meta.profile)
+    results = pipeline.run_pipeline_batch(run, settings, cycle, ledger, targets, profile)
+
+    ok: list[SessionResult] = []
+    errored: list[str] = []
+    for t, res in zip(targets, results):
+        if isinstance(res, BaseException):
+            # One question's failure must not lose the others' work. Leave it
+            # in_progress: the orphan picker re-claims it next cycle (invariant 8).
+            run.log_decision(
+                f"parallel worker for {t.id} errored ({res!r}); left in_progress "
+                "for the orphan picker to retry next cycle"
+            )
+            errored.append(t.id)
+        else:
+            ok.append(res)
+
+    role_cfg = settings.roles[_ROLE]
+    summary = f"parallel: {len(ok)}/{len(targets)} questions investigated"
+    if errored:
+        summary += f", {len(errored)} errored ({', '.join(errored)})"
+    return SessionResult(
+        session_type="worker",
+        model=role_cfg.model,
+        endpoint=role_cfg.endpoint,
+        # Per-session spend is already in the ledger (each inner session records
+        # itself); these sums are display-only. wall_seconds is the MAX, not the
+        # sum — the whole point is they overlapped.
+        input_tokens=sum(r.input_tokens for r in ok),
+        output_tokens=sum(r.output_tokens for r in ok),
+        cached_tokens=sum(r.cached_tokens for r in ok),
+        usd=sum(r.usd for r in ok),
+        wall_seconds=max((r.wall_seconds for r in ok), default=0.0),
+        summary=summary,
     )
 
 

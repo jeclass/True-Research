@@ -496,6 +496,36 @@ def run_pipeline(
     )
 
 
+def run_pipeline_batch(
+    run: Runspace,
+    settings: Settings,
+    cycle: int,
+    ledger: Ledger,
+    targets: list[OpenQuestion],
+    profile: Profile,
+) -> list[SessionResult | BaseException]:
+    """Investigate several questions CONCURRENTLY in one event loop (roadmap:
+    parallel worker fan-out). The wall-clock win comes from overlapping each
+    question's search/read/compose AWAITS; correctness is free because every
+    state-mutating apply section (merge_sources / write_finding / save_questions)
+    is synchronous — asyncio's cooperative scheduler cannot preempt an await-free
+    block, so two questions' applies never interleave mid-write and no lock is
+    needed. return_exceptions keeps one bad question from killing the batch; the
+    caller leaves a failed question for the next cycle (the orphan picker re-claims
+    its in_progress status)."""
+
+    async def _gather() -> list[SessionResult | BaseException]:
+        return await asyncio.gather(
+            *(
+                _run_pipeline_async(run, settings, cycle, ledger, t, profile)
+                for t in targets
+            ),
+            return_exceptions=True,
+        )
+
+    return asyncio.run(_gather())
+
+
 async def _run_pipeline_async(
     run: Runspace,
     settings: Settings,
