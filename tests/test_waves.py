@@ -78,6 +78,32 @@ def test_seed_depth_questions_empty_when_no_findings(tmp_path):
     run.release_lock()
 
 
+def test_seed_depth_skips_and_logs_when_parent_question_is_gone(tmp_path):
+    # audit completeness gap: if a finding's parent question is absent from
+    # open_questions.yaml (pruned/closed), the old bare-except fallback silently
+    # seeded a useless, depth-RESET question (text = the raw id, depth = 1 — losing
+    # the tree bound). It must instead skip + log loudly (invariant 8).
+    run = Runspace.create(tmp_path / "runs", "q", "general")
+    run.save_questions(QuestionList([
+        OpenQuestion(id="q-present", question="facet present", priority=3,
+                     created_by="initializer"),
+    ]))
+    run.write_finding("q-present-c01",
+                      FindingMeta(question_id="q-present", source_ids=["src-x"], confidence=0.9),
+                      "finding for present")
+    run.write_finding("q-gone-c01",   # higher confidence -> sorted first, hits the orphan path
+                      FindingMeta(question_id="q-gone", source_ids=["src-x"], confidence=0.95),
+                      "finding whose parent question was pruned")
+
+    n = seed_depth_questions(run, _settings(tmp_path, depth_findings=5))
+    assert n == 1   # only the present-parent finding got a depth question; orphan skipped
+    depth = [q for q in run.load_questions().root if q.created_by == "depth"]
+    assert {q.parent_id for q in depth} == {"q-present"}
+    progress = (run.root / "PROGRESS.md").read_text(encoding="utf-8")
+    assert "q-gone" in progress and "no longer in open_questions.yaml" in progress
+    run.release_lock()
+
+
 def _meta(run_dir):
     return parse_run_meta((run_dir / "run.json").read_text())
 

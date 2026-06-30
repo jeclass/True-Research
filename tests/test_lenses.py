@@ -229,3 +229,31 @@ def test_synthesizer_pdf_failure_is_logged_decision_not_a_crash(run, tmp_path, m
     assert not (run.root / "REPORT.pdf").exists()                 # no bogus PDF written
     progress = (run.root / "PROGRESS.md").read_text(encoding="utf-8")
     assert "REPORT.pdf not generated" in progress                # logged as a DECISION
+
+
+def test_synthesizer_refuses_report_citing_unregistered_source(run, tmp_path, monkeypatch):
+    # invariant 3 (CLAUDE.md §3): "a claim with no source is a bug, surfaced
+    # loudly." The traceability HAPPY path is well covered, but the FAILURE path —
+    # the model fabricating a citation to a source id that isn't in sources.json —
+    # had no test (audit completeness gap). The synthesizer must REFUSE to emit,
+    # not silently ship the fabricated citation.
+    from src.sessions.base import SynthesisError
+
+    settings = _settings(tmp_path)
+    run.mark_finishing("conclusive")
+    _seed_sources(run)   # registers src-fact / src-comm
+    run.write_finding("q-001-c01",
+                      FindingMeta(question_id="q-001", source_ids=["src-fact"], confidence=0.8),
+                      "Vacuums last ~5 years [src-fact].")
+
+    class _Spawn:
+        # the model cites src-bogus, which was never registered in sources.json
+        structured = type("O", (), {"report_markdown": "# Report\n\nA claim [src-bogus]."})()
+        input_tokens = output_tokens = cached_tokens = 1
+        usd = 0.0
+        wall_seconds = 0.1
+        num_turns = 1
+
+    monkeypatch.setattr(synthesizer, "run_role_session", lambda **kw: _Spawn())
+    with pytest.raises(SynthesisError, match="invariant 3"):
+        synthesizer.run(run, settings, cycle=1, ledger=Ledger(run))

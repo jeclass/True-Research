@@ -13,6 +13,7 @@ to refute those same claims.
 
 from __future__ import annotations
 
+from src.errors import StateError
 from src.runspace import Runspace
 from src.settings import Settings
 from src.state import OpenQuestion
@@ -56,9 +57,23 @@ def seed_depth_questions(run: Runspace, settings: Settings) -> int:
             continue
         try:
             parent = questions.get(parent_id)
-            qtext, depth = parent.question, parent.depth + 1
-        except Exception:  # noqa: BLE001 — parent pruned/closed; deepen by topic id
-            qtext, depth = parent_id, 1
+        except StateError:
+            # The finding's parent question is absent from open_questions.yaml.
+            # The old bare-except fallback silently seeded a useless question
+            # (text = the raw id) at a RESET depth of 1 — losing the tree-depth
+            # bound, so an orphaned deepen could fragment past max_depth, with no
+            # record. That violates invariant 8 (log tradeoffs, never silently
+            # absorb). Questions are status-changed, not deleted, so this is a
+            # defensive path that should be loud if it ever fires: log it and skip
+            # rather than fabricate a bound-breaking, topic-less question (audit
+            # completeness gap, 2026-06-30).
+            run.log_decision(
+                f"DEPTH: skipped deepening a finding for question {parent_id!r} — "
+                "its parent is no longer in open_questions.yaml (pruned/closed), so "
+                "no bounded, meaningful depth question can be formed."
+            )
+            continue
+        qtext, depth = parent.question, parent.depth + 1
         new_id = _unique_id(parent_id, existing_ids)
         questions.root.append(
             OpenQuestion(
