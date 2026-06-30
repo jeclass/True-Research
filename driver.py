@@ -93,12 +93,13 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument(
         "--gate",
-        choices=["qwen", "opus"],
+        choices=["qwen", "sonnet", "opus"],
         default=None,
         help="override JUST the once-firing terminal gate (auditor), independent "
-        "of the preset: qwen=Qwen 3.7 Max (~$0.06, high-abstention), opus=Opus "
-        "4.8 (~$0.11, lowest hallucination). Wins over --cheap/--accurate, so "
-        "e.g. `--cheap --gate opus` = cheap build with a trusted gate.",
+        "of the preset: qwen=Qwen 3.7 Max (~$0.06, high-abstention, needs the "
+        "LiteLLM proxy up), sonnet=Sonnet 4.6 (reliable cloud default, the --cheap "
+        "gate), opus=Opus 4.8 (~$0.11, lowest hallucination). Wins over "
+        "--cheap/--accurate, so e.g. `--cheap --gate opus` = cheap build, trusted gate.",
     )
     parser.add_argument(
         "--verify-depth",

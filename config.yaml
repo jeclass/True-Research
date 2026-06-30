@@ -156,7 +156,7 @@ accurate:
   verification_max_findings: 10    # MORE DeepSeek verify passes = the accuracy lever (cheap, grounded)
   max_budget_usd: 3.0
 
-# --- Gate options (--gate {qwen,opus}): the once-firing terminal auditor -------
+# --- Gate options (--gate {qwen,sonnet,opus}): the once-firing terminal auditor -
 # Architect review 2026-06-16: gate-trust and verify-depth are ORTHOGONAL knobs,
 # so they get independent flags. --gate picks the terminal "is this conclusive?"
 # auditor; --verify-depth (an int -> verification.max_findings) picks how many

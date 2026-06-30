@@ -335,3 +335,68 @@ def test_sources_digest_caps_to_most_credible(tmp_path):
     assert "src-099" in capped                # highest credibility kept
     assert "src-000" not in capped            # lowest dropped
     assert "more" in capped.lower()           # truncation disclosed
+
+
+# --- Config validation: dangling refs, required roles, preset typos (audit batch A) ---
+
+
+def test_dangling_role_endpoint_fails_loudly_at_load(make_config):
+    # ultracode audit #9: the cross-check's dangling-reference detection had no
+    # test. A role pointing at a nonexistent endpoint must fail at config LOAD.
+    import pytest
+
+    from src.errors import ConfigError
+    from src.settings import load_settings
+
+    cfg = make_config(**{"roles.worker.endpoint": "nonesuch"})
+    with pytest.raises(ConfigError, match="unknown endpoint 'nonesuch'"):
+        load_settings(config_path=str(cfg))
+
+
+def test_dangling_endpoint_fallback_fails_loudly_at_load(make_config):
+    # ultracode audit #9: an endpoint whose fallback points at a nonexistent
+    # endpoint must also fail at load (the fallback feature's own validator).
+    import pytest
+
+    from src.errors import ConfigError
+    from src.settings import load_settings
+
+    cfg = make_config(**{"endpoints.anthropic.fallback": {"endpoint": "ghost", "model": "m"}})
+    with pytest.raises(ConfigError, match="fallback references unknown endpoint 'ghost'"):
+        load_settings(config_path=str(cfg))
+
+
+def test_missing_core_role_fails_loudly_at_load(make_config):
+    # ultracode audit #11: the always-required roles (init/worker/eval/synth) are
+    # validated at LOAD, not lazily on the role() lookup mid-run.
+    import copy
+
+    import pytest
+
+    from src.errors import ConfigError
+    from src.settings import load_settings
+    from tests.conftest import BASE_CONFIG
+
+    roles = copy.deepcopy(BASE_CONFIG["roles"])
+    del roles["synthesizer"]
+    cfg = make_config(**{"roles": roles})
+    with pytest.raises(ConfigError, match="always-required role"):
+        load_settings(config_path=str(cfg))
+
+
+def test_preset_typod_role_key_fails_loudly(make_config):
+    # ultracode audit #8 (HIGH): a typo'd role key in a preset block used to
+    # SILENTLY splice in a dead role while leaving the real role's (often pricier)
+    # base routing in place. Now it raises ConfigError at load instead of silently
+    # narrowing — the behavior CLAUDE.md §3 invariant 8 demands.
+    import pytest
+
+    from src.errors import ConfigError
+    from src.settings import load_settings
+
+    cfg = make_config(
+        **{"cheap": {"roles": {"intializer": {"endpoint": "anthropic",
+                                              "model": "m", "max_turns": 4}}}}
+    )
+    with pytest.raises(ConfigError, match="unknown role 'intializer'"):
+        load_settings(config_path=str(cfg), overrides={"cheap": True})

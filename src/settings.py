@@ -262,12 +262,26 @@ class Settings(_Frozen):
     # Known lens names — kept here (not imported from src.lenses) so settings
     # has no dependency on the lens package. Keep in sync when adding a lens.
     _KNOWN_LENSES: ClassVar[frozenset[str]] = frozenset({"community"})
+    # Roles the driver loop ALWAYS invokes, regardless of profile/preset/flags.
+    # (final_evaluator/verifier/compose/reader_subagent are conditional — the
+    # driver guards on their presence — so they are NOT required here.) Validated
+    # at config LOAD so a base-config omission fails loudly up front, not lazily
+    # on the role() lookup mid-run (ultracode audit #11, 2026-06-30).
+    _REQUIRED_ROLES: ClassVar[frozenset[str]] = frozenset(
+        {"initializer", "worker", "evaluator", "synthesizer"}
+    )
 
     @model_validator(mode="after")
     def _cross_check(self) -> "Settings":
         if self.default_profile not in self.profiles:
             raise ValueError(
                 f"default_profile {self.default_profile!r} not in profiles {self.profiles}"
+            )
+        missing = self._REQUIRED_ROLES - set(self.roles)
+        if missing:
+            raise ValueError(
+                f"config is missing always-required role(s) {sorted(missing)} "
+                f"(have: {sorted(self.roles)})"
             )
         for lens in self.lenses:
             if lens not in self._KNOWN_LENSES:
@@ -406,6 +420,18 @@ def load_settings(
             if not isinstance(block, dict):
                 raise ConfigError(f"--{flag_name} requires a `{block_name}:` config block")
             for role, cfg in block.get("roles", {}).items():
+                # A preset may only REPLACE a role the base `roles:` block already
+                # defines — never invent a new one. Without this, a typo'd role key
+                # (e.g. `intializer:`) silently splices in a dead, never-consumed
+                # role entry while the role actually meant to be overridden keeps
+                # its base (often far pricier) routing — silent narrowing, which
+                # CLAUDE.md §3 invariant 8 forbids (ultracode audit #8, 2026-06-30).
+                if role not in raw.get("roles", {}):
+                    raise ConfigError(
+                        f"--{flag_name} preset overrides unknown role {role!r} "
+                        f"(known: {sorted(raw.get('roles', {}))}) — likely a typo in "
+                        f"config.yaml's `{block_name}.roles`"
+                    )
                 raw["roles"][role] = cfg
             if "verification_max_findings" in block:
                 raw.setdefault("verification", {})["max_findings"] = block[
@@ -456,6 +482,12 @@ def load_settings(
                 f"--volume {volume_choice} requires a `volume_options.{volume_choice}` config block"
             )
         for role, cfg in volume_block[volume_choice].items():
+            if role not in raw.get("roles", {}):
+                raise ConfigError(
+                    f"--volume {volume_choice} overrides unknown role {role!r} "
+                    f"(known: {sorted(raw.get('roles', {}))}) — likely a typo in "
+                    f"config.yaml's `volume_options.{volume_choice}`"
+                )
             raw["roles"][role] = cfg
 
     for key, value in overrides.items():
