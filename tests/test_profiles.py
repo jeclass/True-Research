@@ -56,6 +56,24 @@ def test_unknown_profile_is_a_config_error():
         get_profile("astrology")
 
 
+def test_legal_profile_resolves_with_primary_law_rubric_and_guidance():
+    # audit completeness gap: legal.py is enabled in config.yaml's `profiles` but
+    # had zero dedicated coverage (unlike general/scientific/visual). Pin the
+    # distinctive contract so the scaffold can't silently rot or regress.
+    profile = get_profile("legal")
+    assert profile.name == "legal"
+    rubric = profile.rubric()
+    guidance = profile.worker_guidance()
+    # primary-law-first rubric + jurisdiction/currency + the not-advice guardrail
+    assert "Primary law first" in rubric
+    assert "jurisdiction" in rubric.lower() and "not legal advice" in rubric.lower()
+    # worker guidance targets primary legal sources
+    assert "PRIMARY sources" in guidance
+    # authority-first URL preferences lead with official/primary-law domains
+    prefs = profile.url_preferences()["preferred_domains"]
+    assert "courtlistener.com" in prefs and "gov" in prefs
+
+
 # --- search fallback selection (§1 local-mode constraint) -------------------------
 
 
