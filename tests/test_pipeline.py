@@ -103,9 +103,11 @@ def test_select_urls_per_query_cap():
 # --- engine-built sources ------------------------------------------------------------
 
 
-def _ro(title: str, credibility: int = 80, kind: str = "web") -> ReaderOutput:
+def _ro(title: str, credibility: int = 80, kind: str = "web",
+        key_quotes: list[str] | None = None) -> ReaderOutput:
     return ReaderOutput(useful=True, title=title, kind=kind, credibility=credibility,
-                        notes="n", summary_markdown="facts")
+                        notes="n", summary_markdown="facts",
+                        key_quotes=key_quotes or [])
 
 
 def test_build_engine_sources_slugs_and_dedupes():
@@ -124,6 +126,20 @@ def test_build_engine_sources_slugs_and_dedupes():
     for s in sources:
         assert SOURCE_ID_RE.match(s["id"]), s["id"]
         assert s["url"].startswith("http")
+
+
+def test_build_engine_sources_threads_key_quotes_to_excerpts():
+    # roadmap (span-level citation anchors): the reader's engine-verified
+    # key_quotes become the source dict's "excerpts" — merge_sources persists
+    # them onto the SourceRecord from there.
+    reads = [
+        ("https://a.com/1", _ro("With quotes", key_quotes=["exact wording one"])),
+        ("https://a.com/2", _ro("No quotes")),
+    ]
+    sources = pipeline.build_engine_sources(reads)
+    by_url = {s["url"]: s for s in sources}
+    assert by_url["https://a.com/1"]["excerpts"] == ["exact wording one"]
+    assert by_url["https://a.com/2"]["excerpts"] == []
 
 
 def test_pipeline_cfg_profile_overrides(tmp_path):

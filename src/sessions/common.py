@@ -145,6 +145,9 @@ def merge_sources(
             credibility=credibility,
             retrieved_at=utcnow(),
             notes=item.get("notes", ""),
+            # Span-level citation anchors (roadmap): absent for older callers /
+            # an agentic worker that proposed none — SourceRecord defaults to [].
+            excerpts=item.get("excerpts") or [],
         )
         existing = registry.root.get(source_id)
         if existing is not None and existing.url != record.url:

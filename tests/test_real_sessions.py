@@ -77,6 +77,27 @@ def test_merge_sources_rejects_bad_id_and_credibility(run):
         )
 
 
+def test_merge_sources_persists_excerpts(run):
+    # roadmap (span-level citation anchors): excerpts proposed alongside a new
+    # source must land on the persisted SourceRecord; absent entirely defaults
+    # to [] (backward compatible with callers/registries predating the field).
+    registry = common.merge_sources(
+        run,
+        [{"id": "src-quoted", "url": "https://x.org/a", "title": "t", "kind": "web",
+          "credibility": 80, "notes": "", "excerpts": ["The exact wording cited."]}],
+        WorkerError,
+    )
+    assert registry.root["src-quoted"].excerpts == ["The exact wording cited."]
+
+    registry = common.merge_sources(
+        run,
+        [{"id": "src-bare", "url": "https://x.org/b", "title": "t", "kind": "web",
+          "credibility": 80, "notes": ""}],   # no "excerpts" key at all
+        WorkerError,
+    )
+    assert registry.root["src-bare"].excerpts == []
+
+
 def test_next_question_id_continues_numbering():
     questions = QuestionList(
         [
@@ -207,6 +228,50 @@ def test_worker_apply_resolved_happy_path_writes_state(run, settings):
     assert "src-a" in run.load_sources().root
 
 
+def test_worker_apply_resolved_propagates_proposed_source_excerpts(run, settings):
+    # roadmap (span-level citation anchors), agentic-mode path: ProposedSource.
+    # excerpts (the worker's copy-forward of read_source's KEY QUOTES block) must
+    # flow through _apply_resolved -> merge_sources onto the persisted SourceRecord.
+    target = OpenQuestion(id="q-001", question="x", priority=5, created_by="initializer")
+    run.save_questions(QuestionList([target]))
+    output = worker.WorkerOutput(
+        outcome="resolved",
+        finding=worker.ProposedFinding(body_markdown="Claim. [src-a]", confidence=0.8),
+        sources=[
+            worker.ProposedSource(
+                id="src-a", url="https://example.org/a", title="A", kind="web",
+                credibility=85, excerpts=["copied verbatim from read_source"],
+            )
+        ],
+        progress_note="n",
+    )
+    worker._apply_resolved(
+        run, settings, target, output, cycle=2, read_urls={"https://example.org/a"},
+    )
+    assert run.load_sources().root["src-a"].excerpts == ["copied verbatim from read_source"]
+
+
+def test_format_read_result_includes_key_quotes_block_only_when_present():
+    # the read_source MCP tool's returned text must surface KEY QUOTES so the
+    # agentic worker has verbatim text available to copy into ProposedSource.
+    # useful=True + key_quotes triggers the block; no quotes -> no block at all.
+    from src.sessions.reader import ReaderOutput
+    from src.sessions.worker import _format_read_result
+
+    with_quotes = ReaderOutput(
+        useful=True, title="t", kind="web", credibility=80, notes="n",
+        summary_markdown="s", key_quotes=["exact wording"],
+    )
+    without_quotes = ReaderOutput(
+        useful=True, title="t", kind="web", credibility=80, notes="n",
+        summary_markdown="s",
+    )
+    with_text = _format_read_result(with_quotes, "https://x")
+    without_text = _format_read_result(without_quotes, "https://x")
+    assert "KEY QUOTES" in with_text and '"exact wording"' in with_text
+    assert "KEY QUOTES" not in without_text
+
+
 def test_synthesizer_without_findings_needs_no_model(run, settings, tmp_path):
     """No findings -> honest empty report, zero LLM calls, partial banner."""
     run.mark_finishing("budget")
@@ -215,6 +280,54 @@ def test_synthesizer_without_findings_needs_no_model(run, settings, tmp_path):
     assert "PARTIAL REPORT" in report and "budget" in report
     assert "nothing to report" in report.lower()
     assert result.usd == 0.0
+
+
+def test_synthesizer_report_shows_excerpts_as_inline_citations(run, settings, tmp_path, monkeypatch):
+    # roadmap (span-level citation anchors): a cited source with excerpts must
+    # render them as blockquotes under its appendix entry — the "true inline
+    # citation" benefit, so a reader can verify a claim without re-fetching the
+    # source. A source with no excerpts (e.g. an older registry / agentic-mode
+    # source that proposed none) must render exactly as before (no blockquote).
+    registry = run.load_sources()
+    registry.root["src-quoted"] = SourceRecord(
+        url="https://x.org/a", title="Quoted Source", kind="web", credibility=80,
+        retrieved_at=utcnow(), excerpts=["The exact supporting sentence."],
+    )
+    registry.root["src-bare"] = SourceRecord(
+        url="https://x.org/b", title="Bare Source", kind="web", credibility=80,
+        retrieved_at=utcnow(),
+    )
+    run.save_sources(registry)
+    run.write_finding(
+        "q-001-c01",
+        FindingMeta(question_id="q-001", source_ids=["src-quoted", "src-bare"], confidence=0.8),
+        "A claim [src-quoted] and another [src-bare].",
+    )
+    run.mark_finishing("conclusive")
+
+    class _Spawn:
+        structured = type("O", (), {
+            "report_markdown": "# Report\n\nA claim [src-quoted] and another [src-bare]."
+        })()
+        input_tokens = output_tokens = cached_tokens = 1
+        usd = 0.0
+        wall_seconds = 0.1
+        num_turns = 1
+
+    monkeypatch.setattr(synthesizer, "run_role_session", lambda **kw: _Spawn())
+    synthesizer.run(run, settings, cycle=1, ledger=Ledger(run))
+
+    report = (run.root / "REPORT.md").read_text(encoding="utf-8")
+    assert '> "The exact supporting sentence."' in report
+    # the quote appears directly under its OWN source's bullet (sorted("src-bare",
+    # "src-quoted") alphabetically -> bare first, then quoted, then its excerpt)
+    bare_idx = report.index("`src-bare`")
+    quoted_idx = report.index("`src-quoted`")
+    excerpt_idx = report.index('> "The exact supporting sentence."')
+    assert bare_idx < quoted_idx < excerpt_idx
+    # the bare source's own line carries NO blockquote (no excerpts registered)
+    between = report[bare_idx:quoted_idx]
+    assert ">" not in between
 
 
 def test_orphaned_in_progress_question_is_picked_first():

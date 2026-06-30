@@ -458,6 +458,9 @@ def build_engine_sources(
                 "kind": output.kind,
                 "credibility": output.credibility,
                 "notes": output.notes,
+                # Span-level citation anchors (roadmap): already engine-verified
+                # verbatim against the page text in reader.read_source.
+                "excerpts": output.key_quotes,
             }
         )
     return sources

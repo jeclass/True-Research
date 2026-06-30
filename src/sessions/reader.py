@@ -39,7 +39,13 @@ Produce:
 - notes: one line — venue, year, study type, access limits.
 - summary_markdown: the facts from THIS page that bear on the question —
   numbers, effect sizes, sample sizes, conclusions, caveats — compressed and
-  faithful. Quote key figures exactly. No filler, no outside knowledge."""
+  faithful. Quote key figures exactly. No filler, no outside knowledge.
+- key_quotes: 0-3 short sentences COPIED CHARACTER-FOR-CHARACTER from the page
+  text — the exact wording backing the most load-bearing fact in your summary
+  (a key number, a conclusion, a caveat). These become the report's checkable
+  citation anchor, so they MUST be a verbatim substring of the page text, not a
+  paraphrase. The engine discards any quote that isn't an exact match — leave
+  key_quotes empty rather than approximate one."""
 
 # The page text is UNTRUSTED web content — append the injection-defense clause so
 # the reader treats it as data, never instructions (roadmap hardening 2026-06-30).
@@ -54,6 +60,10 @@ class ReaderOutput(BaseModel):
     credibility: int
     notes: str
     summary_markdown: str
+    # Span-level citation anchors (roadmap). Verified verbatim against the page
+    # text in read_source — see _verify_quotes — so a non-empty entry here is a
+    # genuine quote, never a model paraphrase.
+    key_quotes: list[str] = []
 
 
 class _TextExtractor(HTMLParser):
@@ -197,6 +207,28 @@ async def fetch_page(url: str, settings: Settings) -> str:
             ) from primary
 
 
+def _normalize_for_match(text: str) -> str:
+    """Collapse whitespace runs so HTML-extraction whitespace noise (newlines,
+    repeated spaces) doesn't falsely reject a genuinely verbatim quote."""
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def _verify_quotes(quotes: list[str], page_text: str) -> list[str]:
+    """Keep only key_quotes that are an exact (whitespace-normalized) substring of
+    the page text. This is the trust property that makes a quote a real citation
+    anchor rather than more potentially-hallucinated text: a non-empty result here
+    is GENUINELY verbatim, never a model paraphrase. Silently filtered, not raised
+    — this is best-effort enrichment, not an invariant on the read itself (the
+    summary_markdown / credibility / traceability checks already gate the read)."""
+    haystack = _normalize_for_match(page_text)
+    verified = []
+    for q in quotes:
+        norm = _normalize_for_match(q)
+        if norm and norm in haystack:
+            verified.append(q.strip())
+    return verified
+
+
 async def read_source(
     *,
     run: Runspace,
@@ -236,4 +268,8 @@ async def read_source(
     output: ReaderOutput = spawn.structured
     if not 0 <= output.credibility <= 100:
         raise ReaderError(f"reader returned credibility {output.credibility} outside 0-100")
+    if output.key_quotes:
+        output = output.model_copy(
+            update={"key_quotes": _verify_quotes(output.key_quotes, page_text)}
+        )
     return output, spawn

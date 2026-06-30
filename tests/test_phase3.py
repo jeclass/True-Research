@@ -560,6 +560,66 @@ def test_finalize_text_keeps_head_and_tail_not_just_head(tmp_path):
     assert len(out) <= 1000 + 400        # budget + the elision marker
 
 
+def test_verify_quotes_keeps_only_genuine_substrings():
+    # roadmap (span-level citation anchors): a key_quote is only trustworthy as a
+    # citation anchor if it's GENUINELY verbatim — this is the property that makes
+    # it better than summary_markdown (which can paraphrase). Whitespace noise from
+    # HTML extraction must not falsely reject a real quote.
+    from src.sessions import reader as reader_mod
+
+    page = "The trial enrolled\n  120   participants and found a 0.7kg difference."
+    quotes = [
+        "The trial enrolled 120 participants",   # genuine, just whitespace-normalized
+        "found a 0.7kg difference",               # genuine
+        "the drug cures everything instantly",    # fabricated — not in the page
+    ]
+    verified = reader_mod._verify_quotes(quotes, page)
+    assert verified == [
+        "The trial enrolled 120 participants",
+        "found a 0.7kg difference",
+    ]
+
+
+def test_read_source_drops_unverified_key_quotes(tmp_path, monkeypatch):
+    # end-to-end: a reader that returns a fabricated "quote" must have it
+    # silently filtered before the output leaves read_source — never raised
+    # (this is best-effort enrichment, not a hard invariant on the read itself).
+    import asyncio
+
+    from src.ledger import Ledger
+    from src.runspace import Runspace
+    from src.sessions import reader as reader_mod
+    from src.sessions.reader import ReaderOutput
+
+    settings = _settings(tmp_path)
+    page = "Genuine sentence about the trial result. Other content."
+
+    async def fake_fetch(url, s):
+        return page
+
+    async def fake_session(**kw):
+        class _Spawn:
+            structured = ReaderOutput(
+                useful=True, title="t", kind="web", credibility=80, notes="n",
+                summary_markdown="s",
+                key_quotes=["Genuine sentence about the trial result", "made up text"],
+            )
+
+        return _Spawn()
+
+    monkeypatch.setattr(reader_mod, "fetch_page", fake_fetch)
+    monkeypatch.setattr(reader_mod, "run_role_session_async", fake_session)
+    run = Runspace.create(tmp_path / "runs", "q", "general")
+    try:
+        output, _spawn = asyncio.run(reader_mod.read_source(
+            run=run, settings=settings, ledger=Ledger(run), cycle=1,
+            url="https://x", question="Q", why="snippet",
+        ))
+    finally:
+        run.release_lock()
+    assert output.key_quotes == ["Genuine sentence about the trial result"]
+
+
 def test_fetch_page_stealth_fallback_rescues_bot_walled_page(tmp_path, monkeypatch):
     # 2026-06-11: ~5-7 of 12 selected reads failed on 403/JS-only pages.
     # Tier-2 stealth converts them into usable reads.

@@ -90,6 +90,14 @@ class SourceRecord(_Strict):
     credibility: int = Field(ge=0, le=100)
     retrieved_at: datetime
     notes: str = ""
+    # Span-level citation anchors (roadmap): verbatim quotes pulled from the page
+    # text by the reader that most directly support the facts cited from this
+    # source — so a report citation points at checkable evidence, not just a URL.
+    # Engine-verified substrings only (see reader._verify_quotes); empty for older
+    # registries / sources the agentic worker registered without proposing any.
+    # First-capture wins, same as the rest of the record (merge_sources never
+    # updates an already-registered same-id+same-url source).
+    excerpts: list[str] = Field(default_factory=list)
 
 
 class SourceRegistry(RootModel[dict[str, SourceRecord]]):

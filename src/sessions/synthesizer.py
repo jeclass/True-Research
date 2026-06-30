@@ -244,12 +244,16 @@ def run(run: Runspace, settings: Settings, cycle: int, ledger: Ledger) -> Sessio
     appendix = ["", "## Source registry", ""]
     used = sorted(set(cited))
     if used:
-        appendix += [
-            f"- `{sid}` — {sources.root[sid].title} "
-            f"({sources.root[sid].kind}, credibility {sources.root[sid].credibility}): "
-            f"{sources.root[sid].url}"
-            for sid in used
-        ]
+        for sid in used:
+            rec = sources.root[sid]
+            appendix.append(
+                f"- `{sid}` — {rec.title} ({rec.kind}, credibility {rec.credibility}): "
+                f"{rec.url}"
+            )
+            # Span-level citation anchors (roadmap): the exact wording behind this
+            # source's contribution, so a reader can verify a claim without
+            # re-fetching the source. Capped at 3 — an enrichment, not a transcript.
+            appendix += [f'  > "{q.strip()}"' for q in rec.excerpts[:3]]
     else:
         appendix += ["- no sources cited"]
 

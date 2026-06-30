@@ -56,6 +56,10 @@ Method:
 Source rules:
 - Register EVERY source your finding relies on, in `sources`, copying
   title/kind/credibility/notes from the read_source results.
+- excerpts: if a read_source result included a KEY QUOTES block, copy those
+  quotes CHARACTER-FOR-CHARACTER into the source's `excerpts` array — they
+  become the report's checkable citation anchor. Never write your own quote
+  here; only copy what read_source gave you, or leave it empty.
 - READ-GATE (hard rule, enforced by the engine): a source may be registered
   ONLY under the exact URL that returned a successful read_source digest THIS
   session (or an id already in the registry). A source you merely found via
@@ -98,6 +102,14 @@ class ProposedSource(BaseModel):
     kind: Literal["web", "paper", "page_capture"]
     credibility: int
     notes: str = ""
+    # Span-level citation anchors (roadmap): copied verbatim from read_source's
+    # KEY QUOTES block — see the "Source rules" guidance above. The engine does
+    # NOT re-verify these against the page text here (the reader already did, in
+    # reader.read_source); a model that ignores the "copy, don't invent" guidance
+    # could in principle smuggle a paraphrase through this path. Pipeline mode
+    # (the default backend) is engine-verified end-to-end and is the trustworthy
+    # source of this field; treat agentic-mode excerpts as best-effort.
+    excerpts: list[str] = []
 
 
 class ProposedFinding(BaseModel):
@@ -145,6 +157,30 @@ def _build_user_prompt(run: Runspace, target: OpenQuestion) -> str:
         f"{common.sources_digest(sources)}\n\n"
         f"# Existing findings (index)\n{common.findings_digest(run, full_bodies=False)}\n\n"
         f"# Recent run log\n{common.progress_tail(run)}\n"
+    )
+
+
+def _format_read_result(output: reader.ReaderOutput, url: str) -> str:
+    """The read_source MCP tool's result text — what the agentic worker sees
+    after a successful read. A pure function (no SDK dependency) so it unit-tests
+    directly. The KEY QUOTES block only appears when the reader proposed
+    engine-verified quotes (roadmap: span-level citation anchors) — the worker is
+    told to copy them verbatim into ProposedSource.excerpts, never invent its own."""
+    quotes_block = (
+        "\nKEY QUOTES (verbatim — copy character-for-character into this "
+        "source's `excerpts` if you cite it):\n"
+        + "\n".join(f'- "{q}"' for q in output.key_quotes)
+        if output.key_quotes
+        else ""
+    )
+    return (
+        f"TITLE: {output.title}\n"
+        f"KIND: {output.kind}\n"
+        f"CREDIBILITY: {output.credibility}\n"
+        f"NOTES: {output.notes}\n"
+        f"URL: {url}\n"
+        f"SUMMARY:\n{output.summary_markdown}"
+        f"{quotes_block}"
     )
 
 
@@ -217,15 +253,7 @@ def _build_reader_mcp(
             }
         # Only useful reads qualify a URL for citation (the engine's read-gate).
         read_urls.add(common.normalize_url(url))
-        text = (
-            f"TITLE: {output.title}\n"
-            f"KIND: {output.kind}\n"
-            f"CREDIBILITY: {output.credibility}\n"
-            f"NOTES: {output.notes}\n"
-            f"URL: {url}\n"
-            f"SUMMARY:\n{output.summary_markdown}"
-        )
-        return {"content": [{"type": "text", "text": text}]}
+        return {"content": [{"type": "text", "text": _format_read_result(output, url)}]}
 
     return create_sdk_mcp_server("reader", tools=[read_source_tool])
 
