@@ -332,6 +332,23 @@ def _drive(
         tripped = _tripped_breaker(run, settings, ledger, cycle)
         if tripped:
             return _finish(backend, run, settings, ledger, console, tripped)
+        if run.meta.read_outage_streak >= settings.max_read_outage_cycles:
+            # Volume/reader-endpoint outage (audit #20): N consecutive cycles where
+            # every selected URL failed to fetch — the endpoint is down, not the
+            # web. The judgment layer (separate fallback-protected endpoint) keeps
+            # FAILing for lack of evidence, and each soft-block's state delta hides
+            # this from the hash-stall guard, so the run would otherwise churn its
+            # whole budget at zero findings. Stop cleanly with a partial report;
+            # --resume once the endpoint is back picks up where it left off.
+            run.log_decision(
+                f"read-endpoint outage: {run.meta.read_outage_streak} consecutive "
+                f"cycles where every fetch failed (cap {settings.max_read_outage_cycles}) "
+                "— the volume/reader endpoint appears down, not the web. Finishing "
+                "with a partial report instead of burning budget at zero findings; "
+                "--resume once it recovers to continue."
+            )
+            run.complete_cycle(cycle, stalled=False)
+            return _finish(backend, run, settings, ledger, console, "read_outage")
         _run_session(backend, "evaluator", run, settings, cycle, ledger, console)
 
         verdict = run.latest_verdict()

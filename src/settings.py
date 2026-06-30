@@ -223,6 +223,12 @@ class Settings(_Frozen):
     max_wall_hours: float = Field(gt=0)
     max_cycles: int = Field(ge=1)
     stall_cycles: int = Field(ge=1)
+    # Consecutive worker cycles where EVERY selected read failed to fetch before
+    # the driver trips a clean "read_outage" finish — a volume/reader-endpoint
+    # outage (e.g. DeepSeek down) churning budget at zero findings, distinct from
+    # the hash-stall (which a soft-block's state delta defeats). >1 so a transient
+    # blip doesn't trip it (audit #20).
+    max_read_outage_cycles: int = Field(ge=1, default=3)
     # Opus final-gate firings allowed per run; the dominant variable cost in
     # the budget posture. After this many, the run accepts the local
     # evaluator's pass (logged) rather than summoning Opus again.

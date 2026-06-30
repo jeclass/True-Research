@@ -267,6 +267,17 @@ class Runspace:
         self.checkpoint_clock()
         return stall_count
 
+    def note_read_outage(self, outage: bool) -> int:
+        """Track consecutive all-reads-failed cycles (audit #20). `outage` is True
+        when a worker cycle attempted reads but EVERY one failed to fetch — a likely
+        volume/reader-endpoint outage, not a no-answer. Increments on True, resets
+        to 0 on a cycle that read anything; persisted so the streak survives a
+        --resume. Returns the new streak; the driver trips a clean breaker on it."""
+        streak = self.meta.read_outage_streak + 1 if outage else 0
+        self.meta = self.meta.model_copy(update={"read_outage_streak": streak})
+        self.checkpoint_clock()
+        return streak
+
     def mark_finishing(self, reason: state.FinishReason) -> None:
         """Record the finish reason while the synthesizer still has to run.
         If the process dies mid-synthesis, --resume sees the reason and

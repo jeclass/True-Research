@@ -581,6 +581,14 @@ async def _run_pipeline_async(
 
     await asyncio.gather(*(read_one(item) for item in selected))
 
+    if selected:
+        # Circuit-breaker signal (audit #20): if EVERY selected URL failed to fetch
+        # (not "fetched but judged unhelpful"), the volume/reader endpoint is likely
+        # down, not the web. Track consecutive all-failed cycles so the driver can
+        # stop a run cleanly instead of churning budget at zero findings through
+        # soft-blocks (observed: a full DeepSeek outage stalling a run at 0 reads).
+        run.note_read_outage(failures == len(selected))
+
     summary_prefix = (
         f"pipeline: {len(queries)} queries, {total_results} results, "
         f"{len(selected)} selected, {len(reads)} useful reads, {failures} failed"

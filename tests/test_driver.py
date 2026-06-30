@@ -265,6 +265,77 @@ def test_final_gate_reject_without_questions_finishes_exhausted(make_config, run
     assert "nothing to deepen" in progress
 
 
+def test_read_outage_streak_trips_clean_breaker(make_config, runs_dir, monkeypatch):
+    # audit #20: under a full volume/reader-endpoint outage every fetch fails, so
+    # pages_read=0 and the >=3 hard-block never fires — only soft-blocks, whose
+    # per-question state delta ALSO hides the outage from the hash-stall guard. The
+    # run would churn its whole budget at zero findings. A dedicated streak breaker
+    # must stop it cleanly with finish_reason "read_outage".
+    import time as _t
+
+    from src.sessions import common
+    from src.sessions.stub import _result
+    from src.state import FindingMeta, SourceRecord, SourceRegistry, Verdict
+
+    cfg = make_config(**{"max_read_outage_cycles": 2})
+    real_backend = get_backend
+
+    def outage_backend(settings):
+        backend = dict(real_backend(settings))
+
+        def worker(run, settings_, cycle, ledger_):
+            # mimic a soft-block cycle: state changes (so the hash-stall guard
+            # won't fire) but EVERY read failed -> the outage signal accrues. The
+            # finding cites a registered source so synthesis (invariant 3) is clean.
+            reg = run.load_sources()
+            reg.root.setdefault("src-x", SourceRecord(
+                url="https://x", title="t", kind="web", credibility=50,
+                retrieved_at=common.utcnow(), notes=""))
+            run.save_sources(reg)
+            run.write_finding(
+                f"q-001-c{cycle:02d}",
+                FindingMeta(question_id="q-001", source_ids=["src-x"], confidence=0.4),
+                f"cycle {cycle}: all reads failed (endpoint down) [src-x].",
+            )
+            run.note_read_outage(True)
+            return _result(settings_, "worker", "worker", _t.monotonic(), "outage", ledger_, cycle)
+
+        def evaluator(run, settings_, cycle, ledger_):
+            run.write_verdict(cycle, Verdict(passed=False, unmet_criteria=["no evidence"],
+                              contradictions=[], new_questions=[], notes="fail; questions still open"))
+            return _result(settings_, "evaluator", "evaluator", _t.monotonic(), "fail", ledger_, cycle)
+
+        backend["worker"] = worker
+        backend["evaluator"] = evaluator
+        return backend
+
+    monkeypatch.setattr(driver, "get_backend", outage_backend)
+    rc = driver.main(["q", "--config", str(cfg)])
+    assert rc == 0
+
+    run_dir = only_run_dir(runs_dir)
+    meta = _meta(run_dir)
+    assert meta.finish_reason == "read_outage"
+    assert meta.read_outage_streak == 2          # tripped exactly at the cap
+    assert meta.last_cycle == 2                  # stopped promptly, didn't churn budget
+    progress = (run_dir / "PROGRESS.md").read_text(encoding="utf-8")
+    assert "read-endpoint outage" in progress
+    assert "PARTIAL" in (run_dir / REPORT_FILE).read_text(encoding="utf-8")
+
+
+def test_read_outage_streak_resets_when_a_read_succeeds(tmp_path):
+    # The breaker must only fire on SUSTAINED total failure — a single good cycle
+    # resets the streak (audit #20: ">1 so a transient blip doesn't trip it").
+    run = Runspace.create(tmp_path / "runs", "q", "general")
+    try:
+        assert run.note_read_outage(True) == 1
+        assert run.note_read_outage(True) == 2
+        assert run.note_read_outage(False) == 0   # a cycle that read something resets it
+        assert run.note_read_outage(True) == 1
+    finally:
+        run.release_lock()
+
+
 def test_resume_with_empty_queue_skips_worker_and_finishes(make_config, runs_dir, monkeypatch):
     # Root-cause fix 2026-06-25: a run interrupted between the worker resolving the
     # LAST open question and the evaluator's conclusive-exit check, on resume, used

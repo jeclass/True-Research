@@ -20,7 +20,7 @@ QuestionStatus = Literal["open", "in_progress", "resolved"]
 # a passing verdict — a DIFFERENT stop condition that used to also be reported as
 # "stall" with stall_count=0, making run.json alone ambiguous (audit #19).
 FinishReason = Literal[
-    "conclusive", "budget", "time", "max_cycles", "stall", "exhausted"
+    "conclusive", "budget", "time", "max_cycles", "stall", "exhausted", "read_outage"
 ]
 
 _FRONT_MATTER_SEP = "---"
@@ -164,6 +164,12 @@ class RunMeta(_Strict):
     stall_count: int = Field(ge=0, default=0)
     active_seconds: float = Field(ge=0, default=0.0)
     final_eval_count: int = Field(ge=0, default=0)
+    # Consecutive worker cycles where EVERY selected URL failed to fetch (the
+    # volume/reader endpoint is down, not the web) — distinct from "fetched but
+    # judged unhelpful". The driver trips a clean circuit breaker once this hits
+    # settings.max_read_outage_cycles, instead of churning budget at zero findings
+    # through soft-blocks (audit #20). Default 0 keeps old runs schema-compatible.
+    read_outage_streak: int = Field(ge=0, default=0)
     # Wave orchestration (COMPREHENSIVE_RESEARCH_SPEC item 4): the current phase
     # of a wave run. "breadth" maps the seed tree; "depth" re-investigates top
     # findings. Persisted so an 8-hour run resumes into the correct wave.

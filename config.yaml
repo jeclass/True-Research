@@ -18,6 +18,10 @@ max_final_evaluations: 2  # Opus final-gate firings/run — the biggest REAL cos
 
 # --- Stall detection (CLAUDE.md §3.5) ---------------------------------------
 stall_cycles: 2           # consecutive cycles with no state delta => halt
+max_read_outage_cycles: 3 # consecutive cycles where EVERY read failed to fetch
+                          # => clean "read_outage" finish (volume endpoint down,
+                          # e.g. DeepSeek; a soft-block's state delta hides this
+                          # from stall detection, so it churned budget — audit #20)
 
 # --- Question-tree bounds (item 2 — deeper trees) ---------------------------
 # --- Per-cycle evaluator context bounds (root-cause fix 2026-06-15) ----------
