@@ -224,7 +224,7 @@ def test_pipeline_happy_path_resolves_with_engine_sources(run_env, monkeypatch):
     async def fake_read(*, url, **kwargs):
         return _ro(f"Title for {url.split('//')[1]}"), FakeSpawn(None)
 
-    monkeypatch.setattr(pipeline, "run_role_session_async", fake_session)
+    monkeypatch.setattr(pipeline, "run_role_session_with_fallback_async", fake_session)
     monkeypatch.setattr(pipeline.reader, "read_source", fake_read)
 
     profile = FakeProfile([_r("https://a.com/1"), _r("https://b.com/2")])
@@ -253,7 +253,7 @@ def test_pipeline_blocks_without_compose_when_no_useful_reads(run_env, monkeypat
     async def fake_read(*, url, **kwargs):
         raise ReaderError(f"fetch failed for {url}")
 
-    monkeypatch.setattr(pipeline, "run_role_session_async", fake_session)
+    monkeypatch.setattr(pipeline, "run_role_session_with_fallback_async", fake_session)
     monkeypatch.setattr(pipeline.reader, "read_source", fake_read)
 
     profile = FakeProfile([_r("https://a.com/1")])
@@ -280,7 +280,7 @@ def test_pipeline_compose_citing_off_menu_id_fails_loudly(run_env, monkeypatch):
     async def fake_read(*, url, **kwargs):
         return _ro("Real Title"), FakeSpawn(None)
 
-    monkeypatch.setattr(pipeline, "run_role_session_async", fake_session)
+    monkeypatch.setattr(pipeline, "run_role_session_with_fallback_async", fake_session)
     monkeypatch.setattr(pipeline.reader, "read_source", fake_read)
 
     profile = FakeProfile([_r("https://a.com/1")])
@@ -358,7 +358,7 @@ async def test_single_shot_retries_parse_failures(tmp_path, monkeypatch):
             raise WorkerError("worker session did not return parseable JSON - x")
         return "spawn-ok"
 
-    monkeypatch.setattr(pipeline, "run_role_session_async", flaky)
+    monkeypatch.setattr(pipeline, "run_role_session_with_fallback_async", flaky)
     result = await pipeline._single_shot_with_retry(
         "compose", run=run, settings=settings, ledger=Ledger(run), cycle=1,
     )
@@ -375,7 +375,7 @@ async def test_single_shot_exhausts_then_raises(tmp_path, monkeypatch):
     async def always_bad(**kw):
         raise WorkerError("structured output failed validation: y")
 
-    monkeypatch.setattr(pipeline, "run_role_session_async", always_bad)
+    monkeypatch.setattr(pipeline, "run_role_session_with_fallback_async", always_bad)
     with pytest.raises(WorkerError):
         await pipeline._single_shot_with_retry(
             "query-gen", run=run, settings=settings, ledger=Ledger(run), cycle=1,
@@ -393,13 +393,62 @@ async def test_single_shot_does_not_retry_other_errors(tmp_path, monkeypatch):
         calls["n"] += 1
         raise WorkerError("session wall-timeout exceeded")
 
-    monkeypatch.setattr(pipeline, "run_role_session_async", transport_dead)
+    monkeypatch.setattr(pipeline, "run_role_session_with_fallback_async", transport_dead)
     with pytest.raises(WorkerError):
         await pipeline._single_shot_with_retry(
             "compose", run=run, settings=settings, ledger=Ledger(run), cycle=1,
         )
     assert calls["n"] == 1
     run.release_lock()
+
+
+@pytest.mark.anyio
+async def test_single_shot_falls_back_through_pipeline_on_primary_outage(tmp_path, monkeypatch):
+    # Root-cause fix (2026-06-30, ultracode audit): _single_shot_with_retry used to
+    # call run_role_session_async directly, bypassing the endpoint-fallback net
+    # entirely — under worker_pipeline.enabled=true (the DEFAULT), a primary-
+    # endpoint outage on the worker/compose roles crashed the whole run instead of
+    # degrading, contradicting config.yaml's own "driver-called worker/compose
+    # only" fallback comment. This exercises the REAL run_role_session_with_
+    # fallback_async (only mocking one level deeper, base.run_role_session_async)
+    # so it proves the fallback genuinely fires through the pipeline call path —
+    # the existing test_session_falls_back_when_primary_endpoint_fails in
+    # test_batch_a.py only exercises run_role_session (the sync wrapper) directly
+    # and would NOT have caught this gap.
+    from src.sessions import base as base_mod
+
+    settings = _settings(
+        tmp_path,
+        **{
+            "endpoints.flaky": {
+                "base_url": "https://flaky.example", "auth_env": "ANTHROPIC_API_KEY",
+                "fallback": {"endpoint": "anthropic", "model": "claude-sonnet-4-6"},
+            },
+            "roles.worker": {"endpoint": "flaky", "model": "m", "max_turns": 4},
+        },
+    )
+    run = Runspace.create(tmp_path / "runs", "q", "general")
+    calls: list[str] = []
+    sentinel = object()
+
+    async def fake_async(**kw):
+        ep = kw["settings"].roles[kw["role"]].endpoint
+        calls.append(ep)
+        if ep == "anthropic":
+            return sentinel
+        raise WorkerError("primary endpoint down")
+
+    monkeypatch.setattr(base_mod, "run_role_session_async", fake_async)
+    result = await pipeline._single_shot_with_retry(
+        "query-gen", run=run, settings=settings, ledger=Ledger(run), cycle=1,
+        session_type="worker", role="worker",
+        system_prompt="s", user_prompt="u", tools=[],
+    )
+    run.release_lock()
+
+    assert result is sentinel
+    assert calls == ["flaky", "anthropic"]  # primary tried, then fallback — not a crash
+    assert any("falling back to 'anthropic'" in d for d in run.decisions())
 
 
 def test_engine_sources_unique_against_existing_registry():
@@ -672,7 +721,7 @@ def test_compose_routes_to_compose_role_when_configured(tmp_path, monkeypatch):
     run.save_questions(QuestionList([target]))
     roles_used: dict[str, str] = {}
     fake_session, fake_read = _role_capturing_fakes(roles_used)
-    monkeypatch.setattr(pipeline, "run_role_session_async", fake_session)
+    monkeypatch.setattr(pipeline, "run_role_session_with_fallback_async", fake_session)
     monkeypatch.setattr(pipeline.reader, "read_source", fake_read)
 
     result = pipeline.run_pipeline(
@@ -690,7 +739,7 @@ def test_compose_falls_back_to_worker_role_when_unconfigured(run_env, monkeypatc
     run, settings, target = run_env
     roles_used: dict[str, str] = {}
     fake_session, fake_read = _role_capturing_fakes(roles_used)
-    monkeypatch.setattr(pipeline, "run_role_session_async", fake_session)
+    monkeypatch.setattr(pipeline, "run_role_session_with_fallback_async", fake_session)
     monkeypatch.setattr(pipeline.reader, "read_source", fake_read)
 
     pipeline.run_pipeline(

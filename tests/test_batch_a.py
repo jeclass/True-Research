@@ -149,6 +149,33 @@ def test_finalize_metrics_bills_cache_at_discounted_rate():
     assert abs(finalize_metrics(usage, None, conservative, 1.0)["usd"] - 11 * 0.435) < 1e-9
 
 
+def test_finalize_metrics_prices_cache_writes_at_input_not_cache_read_rate():
+    # Root-cause fix (2026-06-30, ultracode audit): cache_creation_input_tokens
+    # (a cache WRITE — first-time caching of new context) was being summed with
+    # cache_read_input_tokens into one `cached` figure and billed ENTIRELY at the
+    # steep cache_read discount. A write is not a discounted hit; mispricing it
+    # there under-counted spend ~50-120x on cache-write-heavy cycles (most cycles,
+    # since the findings digest grows every cycle and rarely byte-matches a prior
+    # call), silently weakening the budget breaker.
+    from src.sessions.base import finalize_metrics
+    from src.settings import EndpointCfg, PriceCfg
+
+    usage = {"input_tokens": 1_000_000, "output_tokens": 0,
+             "cache_read_input_tokens": 10_000_000, "cache_creation_input_tokens": 5_000_000}
+
+    priced = EndpointCfg(base_url="https://x", auth_env="K",
+                         price_per_mtok=PriceCfg(input=0.435, output=0.87, cache_read=0.003625))
+    m = finalize_metrics(usage, None, priced, 1.0)
+    # 1M normal-input + 10M cache-READ (discounted) + 5M cache-WRITE (input rate)
+    expected = 1 * 0.435 + 10 * 0.003625 + 5 * 0.435
+    assert abs(m["usd"] - expected) < 1e-9
+    # The bug's behavior would have been (1 + 15) * cache_read-ish pricing —
+    # assert we are NOT pricing the write at the discounted rate.
+    buggy = 1 * 0.435 + 15 * 0.003625
+    assert abs(m["usd"] - buggy) > 1.0  # materially different, not a rounding gap
+    assert m["cached_tokens"] == 15_000_000  # display figure still combines both
+
+
 def test_session_falls_back_when_primary_endpoint_fails(tmp_path, monkeypatch):
     # Reliability net (2026-06-25): a driver session whose primary endpoint fails
     # after its retry cap re-runs ONCE on the endpoint's configured fallback, so a

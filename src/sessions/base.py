@@ -181,29 +181,39 @@ def finalize_metrics(
     wall_seconds: float,
 ) -> dict[str, Any]:
     """Token/cost numbers for the ledger. Cost precedence:
-    1. endpoint.price_per_mtok configured -> computed from token counts. Cached
-       tokens are billed at price.cache_read when set (providers discount cache
-       hits steeply — DeepSeek ~2% of miss), else at the input rate (conservative).
+    1. endpoint.price_per_mtok configured -> computed from token counts. CACHE
+       READS (cache_read_input_tokens — re-reading stable context already cached)
+       are billed at the discounted price.cache_read when set, else the input rate.
+       CACHE WRITES (cache_creation_input_tokens — first-time caching of new
+       context) are billed at the normal price.input — a write seeds the cache for
+       later reuse, it is not itself a discounted hit, and providers price it at or
+       above the input rate, never below. Root-cause fix 2026-06-30 (ultracode
+       audit): the prior version summed read+write into one `cached` figure and
+       priced the WHOLE thing at the steep read-discount rate, under-counting spend
+       by ~50-120x on cache-write-heavy cycles (which is most cycles, since the
+       findings/source digest grows every cycle and rarely byte-matches a prior
+       call) — silently weakening the budget breaker's input.
        This is how PAID non-first-party endpoints get real spend.
     2. first-party endpoint (base_url None) -> the CLI's client-side estimate.
     3. otherwise (free local) -> usd 0 per §1, tokens still recorded."""
     usage = usage or {}
     input_tokens = int(usage.get("input_tokens") or 0)
     output_tokens = int(usage.get("output_tokens") or 0)
-    cached = int(usage.get("cache_read_input_tokens") or 0) + int(
-        usage.get("cache_creation_input_tokens") or 0
-    )
+    cache_read = int(usage.get("cache_read_input_tokens") or 0)
+    cache_write = int(usage.get("cache_creation_input_tokens") or 0)
+    cached = cache_read + cache_write  # combined figure: ledger display only
     if endpoint_cfg.price_per_mtok is not None:
         price = endpoint_cfg.price_per_mtok
-        # Cache hits (re-read stable context: system prompt, findings digest,
-        # source list) are billed at the discounted cache_read rate when the
-        # endpoint sets one; otherwise fall back to the input rate so an unpriced
-        # endpoint is never under-counted. This stops deep runs that re-read a big
-        # findings digest every cycle from being charged ~50x for cached context.
-        cache_rate = price.cache_read if price.cache_read is not None else price.input
+        # Cache hits billed at the discounted cache_read rate when the endpoint
+        # sets one; otherwise fall back to the input rate so an unpriced endpoint
+        # is never under-counted. Cache writes ALWAYS bill at the input rate —
+        # there is no discount to apply, and using the read rate here is exactly
+        # the bug this fix corrects.
+        cache_read_rate = price.cache_read if price.cache_read is not None else price.input
         usd = (
             input_tokens * price.input
-            + cached * cache_rate
+            + cache_read * cache_read_rate
+            + cache_write * price.input
             + output_tokens * price.output
         ) / 1_000_000
     elif endpoint_cfg.base_url is None:
@@ -465,24 +475,32 @@ async def run_role_session_async(
     )
 
 
-def run_role_session(**kwargs: Any) -> Spawn:
-    """Sync wrapper for driver-called session modules (one event loop per
-    session; readers inside the worker use the async core directly).
+async def run_role_session_with_fallback_async(**kwargs: Any) -> Spawn:
+    """Async core of the reliability net (2026-06-25): spawn the role's primary
+    endpoint, and on a typed SessionError after the primary exhausts its
+    transient-retry cap, re-run the session ONCE on the role's configured fallback
+    endpoint/model. A transient provider outage (e.g. the DeepSeek-Pro degradation
+    that failed the evaluator + synthesizer mid-validation) then can't block a run
+    from finishing. The failed primary's spend is already ledgered; the fallback
+    adds its own entry under the fallback endpoint. Logged as a DECISION
+    (invariant 8).
 
-    Reliability net (2026-06-25): if the role configures a fallback endpoint and
-    the primary fails after its transient-retry cap, re-run the session ONCE on the
-    fallback endpoint/model. A transient provider outage (e.g. the DeepSeek-Pro
-    degradation that failed the evaluator + synthesizer mid-validation) then can't
-    block a run from finishing. The failed primary's spend is already ledgered; the
-    fallback adds its own entry under the fallback endpoint. Logged as a DECISION
-    (invariant 8). Only the driver-called judgment sessions pass through here — the
-    high-volume async readers do not, so the fallback never multiplies read cost."""
+    Split out from run_role_session (2026-06-30, ultracode audit) so the pipeline's
+    worker/compose single-shot calls can share it: those calls used to invoke
+    run_role_session_async directly, bypassing the fallback entirely under the
+    DEFAULT worker_pipeline.enabled=true posture — a primary-endpoint outage there
+    crashed the whole run instead of degrading, contradicting config.yaml's own
+    'driver-called worker/compose only' comment. Per-page reads (reader_subagent,
+    inside the worker's read_one loop) intentionally still do NOT route through
+    here — a fallback retry per page would multiply read cost across dozens of
+    reads/cycle; a single failed read already degrades gracefully on its own
+    (logged, the page just contributes no finding)."""
     settings = kwargs["settings"]
     role = kwargs["role"]
     role_cfg = settings.roles[role]
     error_cls = _ERROR_BY_TYPE[kwargs["session_type"]]
     try:
-        return asyncio.run(run_role_session_async(**kwargs))
+        return await run_role_session_async(**kwargs)
     except error_cls as exc:
         fallback = settings.endpoints[role_cfg.endpoint].fallback
         if fallback is None:
@@ -498,4 +516,12 @@ def run_role_session(**kwargs: Any) -> Spawn:
         fb_settings = settings.model_copy(
             update={"roles": {**settings.roles, role: fb_role}}
         )
-        return asyncio.run(run_role_session_async(**{**kwargs, "settings": fb_settings}))
+        return await run_role_session_async(**{**kwargs, "settings": fb_settings})
+
+
+def run_role_session(**kwargs: Any) -> Spawn:
+    """Sync wrapper for driver-called session modules (one event loop per
+    session; readers inside the worker use the async core directly). Fallback
+    logic lives in run_role_session_with_fallback_async (shared with the
+    pipeline's worker/compose calls — see that docstring)."""
+    return asyncio.run(run_role_session_with_fallback_async(**kwargs))

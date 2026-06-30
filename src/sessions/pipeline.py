@@ -33,7 +33,7 @@ from src.sessions.base import (
     SessionResult,
     WorkerError,
     parse_prompted_json,
-    run_role_session_async,
+    run_role_session_with_fallback_async,
 )
 from src.sessions.worker import (
     ChildQuestion,
@@ -207,7 +207,14 @@ async def _single_shot_with_retry(what: str, postprocess=None, **session_kwargs)
     engine's standard transient policy, loudly; transport/timeout errors are
     handled in base.py and propagate unchanged. `postprocess(spawn)` runs
     inside the net: a ValueError from it (e.g. two-part compose parsing) is
-    retryable like any other parse defect."""
+    retryable like any other parse defect.
+
+    Routes through run_role_session_with_fallback_async (2026-06-30, ultracode
+    audit), not the bare run_role_session_async — these are the worker query-gen
+    and compose roles, the highest-volume calls in the engine under the default
+    worker_pipeline.enabled=true posture, and a primary-endpoint outage here used
+    to crash the whole run uncaught instead of falling back, contradicting
+    config.yaml's own 'driver-called worker/compose only' fallback comment."""
     run: Runspace = session_kwargs["run"]
     settings: Settings = session_kwargs["settings"]
     cycle: int = session_kwargs["cycle"]
@@ -215,7 +222,7 @@ async def _single_shot_with_retry(what: str, postprocess=None, **session_kwargs)
     last: SessionError | None = None
     for attempt in range(1, attempts + 1):
         try:
-            spawn = await run_role_session_async(**session_kwargs)
+            spawn = await run_role_session_with_fallback_async(**session_kwargs)
             return postprocess(spawn) if postprocess else spawn
         except ValueError as exc:
             last = WorkerError(f"pipeline {what}: {exc}")
