@@ -23,6 +23,7 @@ from src.tools.academic import (
     parse_pubmed_esearch,
     parse_pubmed_esummary,
     reconstruct_openalex_abstract,
+    reputation_flag,
 )
 from src.tools.search import format_results, parse_searxng_results, parse_serper_results
 from tests.conftest import BASE_CONFIG
@@ -179,6 +180,65 @@ def test_openalex_parser_reconstructs_abstract():
     )
     assert papers[0]["venue"] == "JAMA" and papers[0]["abstract"] == "Hello world"
     assert "cited_by=41" in format_papers(papers, "OpenAlex")
+
+
+def test_openalex_parser_extracts_retraction_and_doaj_signals():
+    # roadmap (journal-reputation enrichment): OpenAlex carries both signals
+    # directly on the work payload — is_retracted (unambiguous) and the source's
+    # is_in_doaj (legitimacy proxy). is_in_doaj must be None, not False, when
+    # OpenAlex has no source record at all (unknown != a negative signal).
+    papers = parse_openalex_works({"results": [
+        {"title": "Retracted study", "is_retracted": True,
+         "primary_location": {"source": {"display_name": "X", "is_in_doaj": False}}},
+        {"title": "DOAJ journal article",
+         "primary_location": {"source": {"display_name": "Y", "is_in_doaj": True}}},
+        {"title": "No source metadata at all"},  # primary_location absent
+    ]})
+    assert papers[0]["is_retracted"] is True and papers[0]["is_in_doaj"] is False
+    assert papers[1]["is_retracted"] is False and papers[1]["is_in_doaj"] is True
+    assert papers[2]["is_retracted"] is False and papers[2]["is_in_doaj"] is None
+
+
+def test_reputation_flag_retraction_beats_doaj_unknown_is_silent():
+    assert reputation_flag({"is_retracted": True, "is_in_doaj": False}) == "RETRACTED"
+    assert reputation_flag({"is_retracted": False, "is_in_doaj": False}) == (
+        "non-DOAJ venue, verify legitimacy"
+    )
+    assert reputation_flag({"is_retracted": False, "is_in_doaj": True}) == ""
+    # unknown (no source metadata) must NOT be flagged as a negative signal
+    assert reputation_flag({"is_retracted": False, "is_in_doaj": None}) == ""
+    assert reputation_flag({}) == ""
+
+
+def test_format_papers_surfaces_retraction_warning_to_agentic_worker():
+    papers = parse_openalex_works({"results": [
+        {"title": "Bad study", "is_retracted": True,
+         "primary_location": {"source": {"display_name": "X", "is_in_doaj": True}}},
+    ]})
+    text = format_papers(papers, "OpenAlex")
+    assert "RETRACTED" in text
+
+
+def test_openalex_results_snippet_carries_reputation_flag_for_pipeline_mode(monkeypatch):
+    # pipeline mode only carries title/url/snippet past URL selection — the flag
+    # must ride in the snippet (which becomes reader.read_source's `why`) so it
+    # isn't lost before the reader ever sees the paper.
+    import asyncio
+
+    from src.tools import academic
+
+    async def fake_get_json(url, params, timeout, retry_cfg):
+        return {"results": [
+            {"title": "Retracted study", "is_retracted": True,
+             "primary_location": {"landing_page_url": "https://x/retracted",
+                                  "source": {"display_name": "X", "is_in_doaj": False}},
+             "abstract_inverted_index": {"Some": [0], "finding": [1]}},
+        ]}
+
+    monkeypatch.setattr(academic, "_get_json", fake_get_json)
+    results = asyncio.run(academic.openalex_results("q", 5, 10.0, None))
+    assert "RETRACTED" in results[0]["snippet"]
+    assert "Some finding" in results[0]["snippet"]   # the real abstract still present
 
 
 def test_arxiv_atom_parser():

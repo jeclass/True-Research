@@ -84,6 +84,13 @@ def parse_openalex_works(payload: dict) -> list[dict[str, Any]]:
                     "abstract": reconstruct_openalex_abstract(
                         work.get("abstract_inverted_index")
                     )[:_ABSTRACT_CHARS],
+                    # Journal-reputation enrichment (roadmap): OpenAlex carries both
+                    # signals directly on the work payload — no extra API call.
+                    # is_retracted is unambiguous/machine-checkable. is_in_doaj is
+                    # None when OpenAlex has no source record at all (unknown, not
+                    # a negative signal) vs. an explicit True/False when it does.
+                    "is_retracted": bool(work.get("is_retracted")),
+                    "is_in_doaj": source.get("is_in_doaj") if source else None,
                 }
             )
         return papers
@@ -119,6 +126,23 @@ def parse_arxiv_atom(xml_text: str) -> list[dict[str, Any]]:
     return papers
 
 
+def reputation_flag(paper: dict[str, Any]) -> str:
+    """Journal-reputation enrichment (roadmap): retraction is an unambiguous,
+    machine-checkable correctness signal worth surfacing loudly, BEFORE the
+    worker decides whether to read/cite the paper — CLAUDE.md's scientific
+    rubric demands current, non-superseded evidence. DOAJ non-membership is a
+    softer legitimacy signal (DOAJ vets editorial/peer-review standards, so a
+    predatory venue is essentially never a member) — phrased as something to
+    verify, not a verdict, since plenty of legitimate paywalled/non-OA venues
+    are also non-members. Only fires on an EXPLICIT False (real OpenAlex source
+    metadata saying "not DOAJ"), never on missing/unknown source metadata."""
+    if paper.get("is_retracted"):
+        return "RETRACTED"
+    if paper.get("is_in_doaj") is False:
+        return "non-DOAJ venue, verify legitimacy"
+    return ""
+
+
 def format_papers(papers: list[dict[str, Any]], source_name: str) -> str:
     if not papers:
         return f"{source_name}: no results."
@@ -130,6 +154,9 @@ def format_papers(papers: list[dict[str, Any]], source_name: str) -> str:
             extra.append(f"cited_by={p['cited_by']}")
         if p.get("extra"):
             extra.append(f"type={','.join(p['extra'][:3])}")
+        flag = reputation_flag(p)
+        if flag:
+            extra.append(f"⚠ {flag}")
         lines.append(
             f"{i}. {p['title']} ({p.get('venue','')}, {p.get('year','')}) — {authors}"
             + (f" [{'; '.join(extra)}]" if extra else "")
@@ -211,11 +238,20 @@ async def search_arxiv(
 
 
 def _normalize_papers(papers: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    def _snippet(p: dict[str, Any]) -> str:
+        abstract = (p.get("abstract") or "")[:400]
+        # Journal-reputation enrichment (roadmap): the flag rides into the
+        # pipeline-mode snippet (which becomes reader.read_source's `why`) since
+        # that's the only channel carrying paper metadata past URL selection —
+        # prepended (not truncated away) so it survives the 400-char abstract cap.
+        flag = reputation_flag(p)
+        return f"[⚠ {flag}] {abstract}" if flag else abstract
+
     return [
         {
             "title": p.get("title", "(untitled)"),
             "url": p.get("url", ""),
-            "snippet": (p.get("abstract") or "")[:400],
+            "snippet": _snippet(p),
         }
         for p in papers
         if p.get("url")
