@@ -267,6 +267,62 @@ def test_general_profile_prefers_serper_when_key_present(tmp_path):
     ]
 
 
+def test_serper_runtime_fallback_serper_to_searxng_to_ddg(tmp_path, monkeypatch):
+    # audit #14 (and validates the #5 fix): only the static provider-NAME list was
+    # tested; the _web closure's runtime fallback never ran. On a Serper failure (or
+    # empty result) it must fall to a configured SearXNG, THEN DDG — matching
+    # preflight's documented order — not skip a healthy SearXNG straight to DDG.
+    # NOTE: general.py does `from src.tools.search import ...` at provider-BUILD time,
+    # so the closure captures whatever those names resolve to then — patch the source
+    # module BEFORE calling pipeline_search_providers.
+    import asyncio
+
+    import src.tools.search as search_mod
+    from src.profiles.general import GeneralProfile
+    from src.tools import ConnectorError
+
+    calls = {"serper": 0, "searxng": 0, "ddg": 0}
+
+    async def fake_serper(*a, **k):
+        calls["serper"] += 1
+        raise ConnectorError("serper down / quota")
+
+    async def fake_searxng(*a, **k):
+        calls["searxng"] += 1
+        return [{"title": "x", "url": "https://sx/1", "snippet": "s"}]
+
+    async def fake_ddg(*a, **k):
+        calls["ddg"] += 1
+        return [{"title": "d", "url": "https://ddg/1", "snippet": "s"}]
+
+    monkeypatch.setattr(search_mod, "serper_results", fake_serper)
+    monkeypatch.setattr(search_mod, "searxng_results", fake_searxng)
+    monkeypatch.setattr(search_mod, "ddg_results", fake_ddg)
+
+    def _serper_provider(settings):
+        providers = GeneralProfile().pipeline_search_providers(settings)
+        return next(fn for name, fn in providers if name == "serper")
+
+    secrets = {"ANTHROPIC_API_KEY": "sk", "SERPER_API_KEY": "k"}
+
+    # Case A — no SearXNG configured: a Serper failure falls straight to DDG.
+    s = _settings(tmp_path, **{"search.serper_api_key_env": "SERPER_API_KEY",
+                               "search.searxng_base_url": None}, secrets=secrets)
+    res = asyncio.run(_serper_provider(s)("q"))
+    assert calls == {"serper": 1, "searxng": 0, "ddg": 1}
+    assert res[0]["url"] == "https://ddg/1"
+
+    # Case B — SearXNG configured: a Serper failure falls to SearXNG, NOT DDG
+    # (the bug the #5 fix closed; SearXNG's index beats DDG's).
+    calls.update(serper=0, searxng=0, ddg=0)
+    s = _settings(tmp_path, **{"search.serper_api_key_env": "SERPER_API_KEY",
+                               "search.searxng_base_url": "http://localhost:8888"},
+                  secrets=secrets)
+    res = asyncio.run(_serper_provider(s)("q"))
+    assert calls == {"serper": 1, "searxng": 1, "ddg": 0}
+    assert res[0]["url"] == "https://sx/1"
+
+
 # --- PDF report output -----------------------------------------------------------------
 
 
@@ -305,6 +361,32 @@ def test_evaluator_comprehensive_note_widens_stopping_discipline():
     assert "COMPREHENSIVE run" in comp and "COMPREHENSIVE run" not in normal
     # Still the default-FAIL gate in both modes — we widened scope, not rigor.
     assert "START FROM FAIL" in normal and "START FROM FAIL" in comp
+
+
+def test_sharpened_accuracy_prompts_are_present():
+    # audit #11: commit 885130c sharpened the verifier/synthesizer/worker-guidance
+    # prompts for absence-claim caution + primary-source preference (Opus review
+    # #2/#3/#4). Those edits had ZERO test coverage — reverting all three prompt
+    # rewrites passed the whole suite. Pin the distinctive phrases so a silent
+    # revert fails HERE (mirrors the comprehensive-note test above).
+    from src.profiles.general import GeneralProfile
+    from src.sessions import synthesizer, verifier
+
+    # verifier: prioritize the riskiest claim types; one hit refutes a negative.
+    assert "PRIORITIZE the riskiest" in verifier._QUERYGEN_SYSTEM
+    assert "single hit disproves it" in verifier._QUERYGEN_SYSTEM
+    assert "ONE credible" in verifier._VERDICT_SYSTEM
+
+    # synthesizer: absence is hard to prove; primary sources win on numbers.
+    assert "ABSENCE IS HARD TO PROVE" in synthesizer._SYSTEM_PROMPT
+    assert "PRIMARY SOURCES WIN" in synthesizer._SYSTEM_PROMPT
+
+    # general profile: negative-claim caution (rubric) + primary-source-for-numbers
+    # and absence-from-partial-read caution (worker guidance).
+    rubric = GeneralProfile().rubric()
+    guidance = GeneralProfile().worker_guidance()
+    assert "Negative claims" in rubric
+    assert "absence" in guidance.lower() and "PRIMARY study" in guidance
 
 
 # --- capture + vision flow ----------------------------------------------------------------

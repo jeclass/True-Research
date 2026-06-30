@@ -183,24 +183,6 @@ def test_gate_and_verify_depth_override_presets_independently():
         load_settings(overrides={"gate": "bogus"})
 
 
-def test_exhaustive_promotes_read_budget_and_deep_bounds():
-    # --exhaustive is comprehensive PLUS the read dials — the per-cycle read budget
-    # is the whole point (1000+ pages on a vast topic), so it must lift far above
-    # the default 12. Explicit --max-* flags still win over the bundle.
-    from src.settings import load_settings
-
-    s = load_settings(overrides={"cheap": True, "exhaustive": True})
-    assert s.worker_pipeline.max_reads == 45        # the dial that matters (was 12)
-    assert s.worker_pipeline.per_domain_cap == 5
-    assert s.max_cycles == 200
-    assert s.question_tree.seed_target == 20 and s.question_tree.max_depth == 8
-    assert s.verification.enabled and s.waves.enabled
-    # explicit flag still wins over the promoted bundle
-    assert load_settings(
-        overrides={"exhaustive": True, "max_budget_usd": 3.0}
-    ).max_budget_usd == 3.0
-
-
 def test_volume_override_swaps_backend_independently():
     # Provider-outage knob (Groq Dev gated 2026-06-16): --volume swaps the 4 volume
     # roles to a fallback backend WITHOUT touching judgment/gate routing — same
@@ -245,17 +227,44 @@ def test_volume_override_swaps_backend_independently():
 
 def test_exhaustive_promotes_read_dials_beyond_comprehensive():
     # --exhaustive (Opus review depth dials): comprehensive's deep bundle PLUS the
-    # read budget, so a vast topic ingests 1000+ pages. Explicit CLI flags still win.
+    # read budget, so a vast topic ingests 1000+ pages. Merged 2026-06-30 (audit
+    # #15): absorbed the near-identical test_exhaustive_promotes_read_budget_and_
+    # deep_bounds — its cheap-combo + max_cycles/max_depth assertions live here now
+    # so the exhaustive dials have ONE regression home. Explicit CLI flags still win.
     from src.settings import load_settings
 
     s = load_settings(overrides={"exhaustive": True})
     assert s.worker_pipeline.max_reads == 45          # the read dial (vs 12 default)
     assert s.worker_pipeline.per_domain_cap == 5      # vs 3
+    assert s.max_cycles == 200
     assert s.question_tree.seed_target == 20           # deeper tree than comprehensive's 12
     assert s.question_tree.max_questions == 200
+    assert s.question_tree.max_depth == 8
     assert s.verification.enabled and s.waves.enabled  # verify + waves on, like comprehensive
+    # composing with a cost preset still promotes the read dials — the depth bundle
+    # is orthogonal to the cheap/accurate routing build (was a separate test).
+    combo = load_settings(overrides={"cheap": True, "exhaustive": True})
+    assert combo.worker_pipeline.max_reads == 45 and combo.worker_pipeline.per_domain_cap == 5
     # an explicit --max-budget-usd still wins over the bundle
     assert load_settings(overrides={"exhaustive": True, "max_budget_usd": 3.0}).max_budget_usd == 3.0
+
+
+def test_comprehensive_with_cost_preset_keeps_depth_bundle():
+    # audit #9: --comprehensive promotes max_cycles/max_wall_hours/max_budget_usd as
+    # one bundle (150 / 8.0 / 25.0); a cost preset applied AFTER overwrites only the
+    # scalars it names. --cheap names only max_budget_usd (2.0), so the composition
+    # is INTENDED to be "comprehensive ambition, cheap ceiling" — the tight $2 budget
+    # breaker is the binding constraint and trips long before 150 cycles / 8h. This
+    # pins that behavior so a future preset edit can't silently change it.
+    from src.settings import load_settings
+
+    s = load_settings(overrides={"comprehensive": True, "cheap": True})
+    assert s.max_budget_usd == 2.0      # cheap's ceiling wins (the binding constraint)
+    assert s.max_cycles == 150          # comprehensive's cycle bundle survives
+    assert s.max_wall_hours == 8.0      # comprehensive's wall bundle survives
+    # --accurate names max_budget_usd 3.0; same composition shape.
+    a = load_settings(overrides={"comprehensive": True, "accurate": True})
+    assert a.max_budget_usd == 3.0 and a.max_cycles == 150 and a.max_wall_hours == 8.0
 
 
 @pytest.mark.real_preflight  # this test IS the preflight; opt out of the autouse stub
@@ -352,6 +361,46 @@ def test_evaluator_per_cycle_prompt_is_bounded_final_is_full(tmp_path):
     # final gate has no elision because it gets untruncated bodies.
     assert "elided" in per_cycle and "elided" not in final
     assert len(per_cycle) < 30000                   # well under what 5xx-ed
+    run.release_lock()
+
+
+def test_final_gate_digest_is_bounded_when_oversized(tmp_path):
+    # audit #12: the Opus final gate's digest caps (final_findings_chars=150000 /
+    # final_max_sources=120) were wired but no test pushed past them — the only
+    # final=True test seeds ~90k chars (< 150k default), so it couldn't tell the
+    # cap from no-cap; reverting the wiring passed the suite. Override both caps
+    # SMALL and seed past them: the final prompt must actually truncate findings
+    # AND cap the source list, proving the cost-discipline wiring is live.
+    import yaml
+    from src.ledger import Ledger
+    from src.sessions import evaluator
+    from src.settings import Settings
+    from src.state import SourceRecord, SourceRegistry
+    from tests.conftest import BASE_CONFIG
+
+    raw = yaml.safe_load(yaml.safe_dump(BASE_CONFIG))
+    raw["runs_dir"] = str(tmp_path / "runs")
+    raw["secrets"] = {"ANTHROPIC_API_KEY": "sk-test", "OLLAMA_AUTH": "ollama"}
+    raw["evaluator"] = {
+        "per_cycle_findings_chars": 8000, "per_cycle_max_sources": 10,
+        "final_findings_chars": 10000, "final_max_sources": 3,  # min allowed / tiny, to force the caps
+    }
+    settings = Settings.model_validate(raw)
+
+    run = _run_with_findings(tmp_path, n=15, body_chars=6000)  # ~90k chars >> 10000 cap
+    run.write_text("PLAN.md", "# plan\n")
+    reg = SourceRegistry({})
+    for i in range(8):  # 8 sources >> final_max_sources=3
+        reg.root[f"src-{i:02d}"] = SourceRecord(
+            url=f"https://ex/{i}", title=f"t{i}", kind="web",
+            credibility=10 + i, retrieved_at=utcnow(), notes="",
+        )
+    run.save_sources(reg)
+    ledger = Ledger(run)
+
+    final = evaluator._build_user_prompt(run, settings, ledger, 5, final=True)
+    assert "elided" in final                    # findings truncated by final_findings_chars
+    assert "omitted to fit context" in final    # sources capped by final_max_sources
     run.release_lock()
 
 

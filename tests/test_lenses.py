@@ -169,3 +169,63 @@ def test_synthesizer_no_community_section_when_none(run, tmp_path, monkeypatch):
     synthesizer.run(run, settings, cycle=1, ledger=Ledger(run))
     report = (run.root / "REPORT.md").read_text(encoding="utf-8")
     assert "Community & practitioner perspective" not in report
+
+
+def _fake_synth_session():
+    class _Spawn:
+        structured = type("O", (), {"report_markdown": "# Report\n\nVacuums last ~5 years [src-fact]."})()
+        input_tokens = output_tokens = cached_tokens = 1
+        usd = 0.0
+        wall_seconds = 0.1
+        num_turns = 1
+
+    return _Spawn()
+
+
+def test_synthesizer_emits_pdf_next_to_report(run, tmp_path, monkeypatch):
+    # audit #13: settings.emit_pdf defaults True and the synthesizer hook renders
+    # REPORT.pdf next to REPORT.md, but 4+ synthesizer.run() tests exercised it as
+    # a silent side effect with NO assertion — reverting the emit hook entirely
+    # would pass the suite. Assert the artifact is actually written and is a real
+    # PDF (the render_markdown_pdf unit tests cover the renderer; this covers the
+    # integration point).
+    settings = _settings(tmp_path)  # emit_pdf defaults True
+    run.mark_finishing("conclusive")
+    _seed_sources(run)
+    run.write_finding("q-001-c01",
+                      FindingMeta(question_id="q-001", source_ids=["src-fact"], confidence=0.8),
+                      "Vacuums last ~5 years [src-fact].")
+
+    monkeypatch.setattr(synthesizer, "run_role_session", lambda **kw: _fake_synth_session())
+    synthesizer.run(run, settings, cycle=1, ledger=Ledger(run))
+
+    pdf = run.root / "REPORT.pdf"
+    assert pdf.is_file()
+    assert pdf.read_bytes()[:5] == b"%PDF-"   # a real PDF, not an empty/garbage file
+
+
+def test_synthesizer_pdf_failure_is_logged_decision_not_a_crash(run, tmp_path, monkeypatch):
+    # audit #13 + invariant 8: a PDF render failure (missing dep / bad path) must
+    # be a logged DECISION, never a crash — REPORT.md is the source of truth and is
+    # already on disk. Force the renderer to fail and assert the run still finishes
+    # with REPORT.md intact and the failure recorded in the DECISIONS log.
+    import src.tools.report_pdf as report_pdf
+
+    settings = _settings(tmp_path)
+    run.mark_finishing("conclusive")
+    _seed_sources(run)
+    run.write_finding("q-001-c01",
+                      FindingMeta(question_id="q-001", source_ids=["src-fact"], confidence=0.8),
+                      "Vacuums last ~5 years [src-fact].")
+
+    # synthesizer does `from src.tools.report_pdf import render_markdown_pdf` at call
+    # time, so patch the source module attribute the late import resolves.
+    monkeypatch.setattr(report_pdf, "render_markdown_pdf",
+                        lambda md, path: (False, "forced failure for test"))
+    monkeypatch.setattr(synthesizer, "run_role_session", lambda **kw: _fake_synth_session())
+    synthesizer.run(run, settings, cycle=1, ledger=Ledger(run))
+
+    assert (run.root / "REPORT.md").read_text(encoding="utf-8")   # report intact
+    assert not (run.root / "REPORT.pdf").exists()                 # no bogus PDF written
+    progress = (run.root / "PROGRESS.md").read_text(encoding="utf-8")
+    assert "REPORT.pdf not generated" in progress                # logged as a DECISION
