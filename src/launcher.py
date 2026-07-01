@@ -14,6 +14,9 @@ The public replacement for the Windows-only runs/launch_research.ps1
 Usage:
     python -m src.launcher "question" --cheap --verify --detach
     true-research run "question" --cheap --detach        (via src.cli)
+
+Argument order contract: the QUESTION comes FIRST, then flags — the resume
+flag extractor treats a bare token after a flag as that flag's value.
 """
 
 from __future__ import annotations
@@ -61,7 +64,16 @@ def supervise(
     with tempfile.NamedTemporaryFile("r", suffix=".rid", delete=False) as tf:
         rid_path = Path(tf.name)
     try:
-        rc = _driver_main([*driver_args, "--run-id-file", str(rid_path)])
+        try:
+            rc = _driver_main([*driver_args, "--run-id-file", str(rid_path)])
+        except SystemExit as exc:
+            # driver.main -> argparse parser.error() raises SystemExit, not an
+            # ordinary exception. Convert it so the supervisor exits via the
+            # clean "LAUNCH FAILED" path instead of a traceback.
+            raise LaunchError(
+                f"driver rejected the launch arguments (argparse exit {exc.code}); "
+                "nothing to resume"
+            ) from exc
         run_id = rid_path.read_text(encoding="utf-8").strip() if rid_path.exists() else ""
     finally:
         rid_path.unlink(missing_ok=True)
@@ -94,7 +106,16 @@ def supervise(
     for attempt in range(1, max_attempts + 1):
         if _run_status(runs_dir, run_id) == "finished":
             return run_id
-        _driver_main(["--resume", run_id, *flags])
+        try:
+            _driver_main(["--resume", run_id, *flags])
+        except SystemExit as exc:
+            # An argv that argparse rejects will NEVER succeed — fail loudly
+            # once instead of burning max_attempts on a hopeless resume.
+            raise LaunchError(
+                f"driver rejected the resume arguments (argparse exit {exc.code}) "
+                "— flags extracted from the original invocation are malformed; "
+                "put the QUESTION FIRST when invoking the launcher"
+            ) from exc
         time.sleep(sleep_seconds)
     if _run_status(runs_dir, run_id) == "finished":
         return run_id
@@ -129,7 +150,9 @@ def spawn_detached(argv: list[str], *, log_path: Path) -> int:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="src.launcher",
-        description="Detached launch + auto-resume supervision for research runs.",
+        description="Detached launch + auto-resume supervision for research runs. "
+        'Put the QUESTION FIRST, then flags: python -m src.launcher "question" '
+        "--cheap --detach",
     )
     parser.add_argument("--detach", action="store_true",
                         help="spawn detached (survives closing this terminal) and exit")

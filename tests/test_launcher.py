@@ -69,6 +69,45 @@ def test_supervise_fails_loudly_when_no_run_created(tmp_path, monkeypatch):
         launcher.supervise(["q"], runs_dir=tmp_path / "runs", max_attempts=3)
 
 
+def test_supervise_converts_argparse_rejection_to_launch_error(tmp_path, monkeypatch):
+    # driver.main -> parser.error -> SystemExit(2). supervise() must convert
+    # that to LaunchError so the (detached) supervisor exits via the clean
+    # "LAUNCH FAILED" path instead of dying with a traceback.
+    def rejecting_driver_main(argv):
+        raise SystemExit(2)
+
+    monkeypatch.setattr(launcher, "_driver_main", rejecting_driver_main)
+    with pytest.raises(launcher.LaunchError, match="rejected the launch"):
+        launcher.supervise(["--bogus"], runs_dir=tmp_path / "runs", max_attempts=3)
+
+
+def test_supervise_resume_rejection_fails_loudly_not_crash(tmp_path, monkeypatch):
+    # Flag-before-question invocations make the flag extractor consume the
+    # question as a flag value; the resume argv then trips driver argparse
+    # (positional question + --resume). That must fail loudly ONCE — not crash
+    # with a traceback, and not spin the retry loop on a hopeless argv.
+    runs_dir = tmp_path / "runs"
+    resume_calls = []
+
+    def driver_main(argv):
+        if "--resume" not in argv:
+            _write_run(runs_dir, "run-003", "running")
+            idx = argv.index("--run-id-file")
+            Path(argv[idx + 1]).write_text("run-003\n", encoding="utf-8")
+            return 1
+        resume_calls.append(list(argv))
+        raise SystemExit(2)
+
+    monkeypatch.setattr(launcher, "_driver_main", driver_main)
+    monkeypatch.setattr(launcher.time, "sleep", lambda s: None)
+
+    with pytest.raises(launcher.LaunchError, match="QUESTION FIRST"):
+        launcher.supervise(
+            ["--cheap", "my question"], runs_dir=runs_dir, max_attempts=40
+        )
+    assert len(resume_calls) == 1                 # no retry loop on bad argv
+
+
 def test_spawn_detached_uses_platform_flags(tmp_path, monkeypatch):
     captured = {}
 
