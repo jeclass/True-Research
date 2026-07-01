@@ -309,10 +309,16 @@ def test_search_preflight_prefers_serper_then_searxng_then_ddg_then_aborts(monke
         update={"search": s.search.model_copy(update={"searxng_base_url": "http://127.0.0.1:59321"})}
     )
 
+    class _SearXNGFail:
+        """Mock httpx.get response for a failed SearXNG probe."""
+        def raise_for_status(self):
+            raise Exception("Connection refused")
+
     async def _ddg_ok(query, max_results, timeout=10.0):
         return [{"title": "t", "url": "u", "snippet": "s"}]
 
     # SearXNG dead + DDG works -> graceful fallback to "ddg", no abort.
+    monkeypatch.setattr(search_mod.httpx, "get", lambda *a, **k: _SearXNGFail())
     monkeypatch.setattr(search_mod, "ddg_results", _ddg_ok)
     assert search_mod.preflight_search(dead, timeout=2.0) == "ddg"
 
