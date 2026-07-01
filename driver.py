@@ -41,6 +41,13 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "argparse exited 2 with no run dir). A file sidesteps the shell entirely. "
         "Mutually exclusive with the positional question.",
     )
+    parser.add_argument(
+        "--run-id-file",
+        metavar="PATH",
+        help="write the run id to PATH right after the run directory is "
+        "created (fresh run) or resolved (--resume). Lets a supervisor "
+        "(launcher, web UI) learn the id without scraping output.",
+    )
     parser.add_argument("--resume", metavar="RUN_ID", help="resume an existing run")
     parser.add_argument(
         "--force-resume",
@@ -606,6 +613,11 @@ def main(argv: list[str] | None = None) -> int:
                     "run started in FULL-LOCAL posture — all roles on "
                     "non-first-party endpoints (§1 warning issued)"
                 )
+
+        if args.run_id_file:
+            Path(args.run_id_file).write_text(
+                run.meta.run_id + "\n", encoding="utf-8"
+            )
     except EngineError as exc:
         console.print("error: ", style="red", end="")
         console.print(str(exc), markup=False, highlight=False)

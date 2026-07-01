@@ -429,3 +429,15 @@ def test_resume_with_empty_queue_skips_worker_and_finishes(make_config, runs_dir
     assert meta.status == "finished" and meta.finish_reason == "conclusive"
     assert (run_dir / REPORT_FILE).is_file()
     assert "skipped — no open questions" in (run_dir / "PROGRESS.md").read_text(encoding="utf-8")
+
+
+def test_run_id_file_receives_created_run_id(make_config, runs_dir, tmp_path):
+    # The cross-platform launcher (and the web UI) need the new run's id
+    # without scraping stdout or diffing runs/. --run-id-file writes it
+    # atomically right after Runspace.create.
+    idf = tmp_path / "rid.txt"
+    rc = driver.main(["q", "--config", str(make_config()), "--max-cycles", "2",
+                      "--run-id-file", str(idf)])
+    assert rc == 0
+    run_dir = only_run_dir(runs_dir)
+    assert idf.read_text(encoding="utf-8").strip() == run_dir.name
