@@ -489,3 +489,17 @@ def test_preset_typod_role_key_fails_loudly(make_config):
     )
     with pytest.raises(ConfigError, match="unknown role 'intializer'"):
         load_settings(config_path=str(cfg), overrides={"cheap": True})
+
+
+def test_default_config_needs_only_anthropic_key():
+    # Release gate (v1.0): a fresh clone with ONLY an ANTHROPIC_API_KEY must
+    # work out of the box. Before this change the base config routed
+    # worker/reader_subagent/evaluator to a local Ollama model
+    # (gpt-oss-20b-32k) that no new user has — first cycle failed. Every
+    # BASE role must resolve to the anthropic endpoint; local/DeepSeek/Groq
+    # postures remain opt-in via presets, --volume, or --config.
+    from src.settings import load_settings
+
+    s = load_settings()
+    endpoints = {name: rc.endpoint for name, rc in s.roles.items()}
+    assert set(endpoints.values()) == {"anthropic"}, endpoints

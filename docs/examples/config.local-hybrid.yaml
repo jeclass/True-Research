@@ -1,3 +1,10 @@
+# LOCAL-HYBRID EXAMPLE (the 16GB-VRAM battle-tested posture, 2026-06):
+# volume tiers (worker query-gen/compose, readers, per-cycle evaluator) on a
+# local Ollama gpt-oss-20b-32k at $0; judgment (initializer, final gate,
+# synthesizer, verifier) on cloud Opus. Requires: Ollama >= 0.14 with the
+# model pulled, and search.searxng_base_url or SERPER_API_KEY.
+# Use:  python driver.py "question" --config docs/examples/config.local-hybrid.yaml
+
 # Marathon Research Engine — all tunable knobs live here (CLAUDE.md §1).
 # No magic numbers in code; the driver accepts explicit CLI overrides for the
 # breaker values below.
@@ -262,22 +269,27 @@ endpoints:
     # thinking LEFT ON — auditing benefits from reasoning (unlike the volume tier)
     fallback: {endpoint: anthropic, model: claude-sonnet-4-6}   # the --cheap terminal gate runs here; if it fails, finish via Sonnet rather than stall
 
-# Default posture = all-Anthropic (CLAUDE.md §1 routing) so a fresh clone
-# with only ANTHROPIC_API_KEY works out of the box. Cost levers are opt-in:
-# --cheap/--accurate (DeepSeek build), --volume local (Ollama), or
-# --config docs/examples/config.local-hybrid.yaml (the full local-hybrid).
+# --- Role routing — BUDGET POSTURE (operator decision 2026-06-10) -----------
+# Cloud Opus ONLY where judgment ends the run: initializer, final_evaluator
+# (terminal conclusiveness gate), synthesizer. Everything else local on the
+# operator's -32k Modelfile variants. Visual profile is OUT of this posture
+# (needs a cloud agentic worker) — use a separate config for visual runs.
 roles:
   initializer:     {endpoint: anthropic, model: claude-opus-4-8,    max_turns: 16, max_wall_seconds: 600}
-  worker:          {endpoint: anthropic, model: claude-sonnet-4-6,  max_turns: 4,  max_wall_seconds: 1200}
+  # worker: LOCAL via pipeline mode (worker_pipeline.enabled below). The
+  # agentic-local path is empirically closed on 16GB (LOCAL_SETUP_REPORT);
+  # pipeline mode uses this role only for single-shot query-gen + compose
+  # sessions — the pattern locals execute flawlessly.
+  worker:          {endpoint: local,     model: gpt-oss-20b-32k,    max_turns: 4,  max_wall_seconds: 1200}
   # pipeline compose (COMPREHENSIVE_RESEARCH_SPEC §1): the ONE one-shot
   # synthesis call per resolved question — the cheapest quality lever past the
   # local-9B ceiling. Query-gen + readers stay local. REMOVE this role to fall
   # back to compose-on-worker (the certified full-local-volume posture).
   compose:         {endpoint: anthropic, model: claude-haiku-4-5-20251001, max_turns: 4, max_wall_seconds: 600}
-  reader_subagent: {endpoint: anthropic, model: claude-haiku-4-5-20251001, max_turns: 12, max_wall_seconds: 900}
-  # per-cycle evaluator: Sonnet (cheap-ish gate; engine force-fails dishonest
+  reader_subagent: {endpoint: local,     model: gpt-oss-20b-32k,    max_turns: 12, max_wall_seconds: 900}
+  # per-cycle evaluator: local (cheap gate; engine force-fails dishonest
   # passes). The run can only END through final_evaluator below.
-  evaluator:       {endpoint: anthropic, model: claude-sonnet-4-6,  max_turns: 24, max_wall_seconds: 1200}
+  evaluator:       {endpoint: local,     model: gpt-oss-20b-32k,    max_turns: 24, max_wall_seconds: 1200}
   # terminal conclusiveness gate — Opus, fires only when the per-cycle
   # evaluator passes with zero open questions. Remove this role to fall back
   # to single-tier evaluation.
