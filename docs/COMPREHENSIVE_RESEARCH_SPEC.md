@@ -125,7 +125,7 @@ biggest scale unlock, and the thing that lets comprehensive mode actually
 *surpass* the frontier services on coverage. Operator will source it if the
 pipeline proves useful (it now has: certified 7.2, scientific 7.8). Pin
 instances per card (`CUDA_VISIBLE_DEVICES`), don't split one model across both
-(see operator's model research, `docs/LOCAL_SETUP_REPORT.md` addendum).
+(see operator's model research, `docs/archive/LOCAL_SETUP_REPORT.md` addendum).
 
 ---
 

@@ -33,3 +33,6 @@ experiments/gate_ab/results.csv
 _*.log
 _dump*.py
 _*.tmp
+
+# Session working notes to the operator (local only, never published)
+MORNING_UPDATE.md

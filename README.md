@@ -80,7 +80,7 @@ web) — see docs/SDK_NOTES.md "Host-broker auth override".
 - `evals/` — eval set + Opus judge + `run_evals.py` (bake-off model A/B)
 - `scripts/check_local_backend.py` — pre-flight for a local/hybrid endpoint
 - `docs/RUNBOOK.md` — machine-side setup, validation run, model bake-off
-- `docs/LOCAL_SETUP_HANDOFF.md` — executable plan for a local Claude Code
+- `docs/archive/LOCAL_SETUP_HANDOFF.md` — executable plan for a local Claude Code
   session to stand up Ollama + run the bake-off
 - `docs/SDK_NOTES.md` — verified Agent SDK facts this build relies on
 - `docs/DECISIONS.md` — one line per non-obvious choice
