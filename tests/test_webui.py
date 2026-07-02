@@ -168,6 +168,7 @@ def test_report_md_download_route(tmp_path):
     r = c.get("/api/runs/20260102-000000-bbbb/report.md")
     assert r.status_code == 200
     assert "Source registry" in r.text
+    assert r.headers["content-type"].startswith("text/markdown")
     cd = r.headers["content-disposition"]
     assert "attachment" in cd and "true-research-20260102-000000-bbbb.md" in cd
 

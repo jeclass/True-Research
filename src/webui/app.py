@@ -29,7 +29,7 @@ from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import ValidationError
 
-from src.webui import keys_api, launch_api, runs_api
+from src.webui import distill_api, keys_api, launch_api, runs_api
 
 _STATIC_DIR = Path(__file__).parent / "static"
 _FALLBACK_INDEX_HTML = "<!doctype html><meta charset=utf-8><title>True Research</title>"
@@ -85,6 +85,10 @@ def create_app(runs_dir: Path, env_path: Path = Path(".env")) -> FastAPI:
             raise HTTPException(status_code=422, detail=detail)
         return keys_api.set_key(req, env_path)
 
+    @app.post("/api/distill", dependencies=[Depends(_require_local_origin)])
+    async def api_distill(req: distill_api.DistillRequest):
+        return await distill_api.distill(req, env_path)
+
     @app.get("/api/runs/{run_id}")
     def api_run_detail(run_id: str):
         if "/" in run_id or "\\" in run_id:
@@ -125,6 +129,8 @@ def create_app(runs_dir: Path, env_path: Path = Path(".env")) -> FastAPI:
             raise HTTPException(status_code=404, detail="run not found")
         if md_path is None:
             raise HTTPException(status_code=404, detail="report not available")
+        # Intentional sibling asymmetry: report.pdf serves inline (browser tab
+        # preview); report.md forces attachment download (below).
         return FileResponse(
             md_path,
             media_type="text/markdown",
