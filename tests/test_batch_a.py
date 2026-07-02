@@ -199,7 +199,11 @@ def test_session_falls_back_when_primary_endpoint_fails(tmp_path, monkeypatch):
         calls.append(ep)
         if ep == "anthropic":
             return sentinel              # fallback endpoint succeeds
-        raise WorkerError("primary endpoint down")
+        # TRANSPORT-class, as base.py's real raise sites now mark it (final
+        # review): only endpoint-level failures are fallback-eligible.
+        err = WorkerError("primary endpoint down")
+        err.fallback_eligible = True
+        raise err
 
     monkeypatch.setattr(base_mod, "run_role_session_async", fake_async)
     try:
@@ -222,7 +226,9 @@ def test_session_falls_back_when_primary_endpoint_fails(tmp_path, monkeypatch):
     run2 = Runspace.create(tmp_path / "runs2", "q", "general")
 
     async def always_fail(**kwargs):
-        raise WorkerError("down")
+        err = WorkerError("down")
+        err.fallback_eligible = True     # transport-class, but no fallback exists
+        raise err
 
     monkeypatch.setattr(base_mod, "run_role_session_async", always_fail)
     try:
@@ -234,6 +240,42 @@ def test_session_falls_back_when_primary_endpoint_fails(tmp_path, monkeypatch):
             )
     finally:
         run2.release_lock()
+
+
+def test_output_class_failure_never_buys_the_fallback_endpoint(tmp_path, monkeypatch):
+    # Final review: run_role_session_with_fallback_async used to catch ANY typed
+    # error — including structured-output failures ("no structured output",
+    # "failed validation", "did not return parseable JSON") — and re-run on the
+    # paid cloud fallback. A parse defect isn't an endpoint outage: the fix is a
+    # same-endpoint reroll (pipeline._single_shot_with_retry). OUTPUT-class and
+    # UNCLASSIFIED errors must propagate; only marked transport-class falls back.
+    from src.sessions import base as base_mod
+    from src.sessions.base import WorkerError
+
+    settings = _settings(tmp_path, **{
+        "endpoints.flaky": {"base_url": "https://flaky.example", "auth_env": "ANTHROPIC_API_KEY",
+                            "fallback": {"endpoint": "anthropic", "model": "claude-sonnet-4-6"}},
+        "roles.worker": {"endpoint": "flaky", "model": "m", "max_turns": 4},
+    })
+    run = Runspace.create(tmp_path / "runs", "q", "general")
+    calls: list[str] = []
+
+    async def output_class_fail(**kwargs):
+        calls.append(kwargs["settings"].roles[kwargs["role"]].endpoint)
+        raise WorkerError("worker session did not return parseable JSON")  # unmarked
+
+    monkeypatch.setattr(base_mod, "run_role_session_async", output_class_fail)
+    try:
+        with pytest.raises(WorkerError, match="parseable JSON"):
+            base_mod.run_role_session(
+                run=run, settings=settings, ledger=Ledger(run), cycle=1,
+                session_type="worker", role="worker",
+                system_prompt="s", user_prompt="u", tools=[],
+            )
+    finally:
+        run.release_lock()
+    assert calls == ["flaky"]            # fallback endpoint NEVER invoked
+    assert not any("falling back" in d for d in run.decisions())
 
 
 def test_dead_session_keeps_partial_stream_usage(tmp_path, monkeypatch):

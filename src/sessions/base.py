@@ -152,6 +152,22 @@ class _TransientSpawnFailure(Exception):
     """Internal marker: this spawn attempt failed transiently; retry."""
 
 
+def _transport_error(error_cls: type[SessionError], message: str) -> SessionError:
+    """Build a typed session error marked TRANSPORT-class: the ENDPOINT failed
+    (SDK/connection/HTTP failure, session died without a ResultMessage, or the
+    transient-retry cap exhausted against it) — re-running once on the role's
+    configured FALLBACK endpoint can genuinely help, so
+    run_role_session_with_fallback_async honors `fallback_eligible`.
+    OUTPUT-class failures (session completed but structured output missing/
+    invalid/unparseable) stay UNMARKED: a different endpoint doesn't fix a
+    parse defect — the fix is a same-endpoint reroll (pipeline.
+    _single_shot_with_retry) — and unmarked-defaults-to-not-eligible means an
+    unclassified error can never silently buy paid cloud time (final review)."""
+    err = error_cls(message)
+    err.fallback_eligible = True
+    return err
+
+
 def is_transient_result(is_error: bool, subtype: str, api_error_status: int | None) -> bool:
     return bool(
         (is_error or subtype != "success")
@@ -371,7 +387,9 @@ async def run_role_session_async(
             raise _TransientSpawnFailure(f"transport: {exc}") from exc
         except ClaudeSDKError as exc:
             _reconcile_partial(time.monotonic() - started)
-            raise error_cls(f"{session_type} session transport failure: {exc}") from exc
+            raise _transport_error(
+                error_cls, f"{session_type} session transport failure: {exc}"
+            ) from exc
         except Exception as exc:
             # The SDK raises a BARE Exception (not a ClaudeSDKError) when the
             # CLI returns an error result mid-stream — notably "Failed to
@@ -414,7 +432,9 @@ async def run_role_session_async(
             )
             if is_transient_result(final.is_error, final.subtype, final.api_error_status):
                 raise _TransientSpawnFailure(message)
-            raise error_cls(message)
+            # Non-transient error RESULT (auth/validation/model failure against
+            # this endpoint) — transport-class: the endpoint refused the session.
+            raise _transport_error(error_cls, message)
         return final, metrics
 
     retry_cfg = settings.retry
@@ -437,9 +457,10 @@ async def run_role_session_async(
                 final, metrics = await _attempt()
     except RetryError as exc:
         last = exc.last_attempt.exception()
-        raise error_cls(
+        raise _transport_error(
+            error_cls,
             f"{session_type} session failed after {retry_cfg.attempts} attempts "
-            f"(transient): {last}"
+            f"(transient): {last}",
         ) from exc
 
     structured: Any = None
@@ -502,6 +523,14 @@ async def run_role_session_with_fallback_async(**kwargs: Any) -> Spawn:
     try:
         return await run_role_session_async(**kwargs)
     except error_cls as exc:
+        if not getattr(exc, "fallback_eligible", False):
+            # OUTPUT-class (structured output missing/invalid/unparseable) or
+            # unclassified: the session REACHED the endpoint — a different one
+            # doesn't fix a parse defect. Re-raise so the caller's reroll logic
+            # (pipeline._single_shot_with_retry) resamples the PRIMARY instead
+            # of every flaky-JSON roll silently buying the paid cloud fallback
+            # (final review). Unmarked defaults to NOT eligible by design.
+            raise
         fallback = settings.endpoints[role_cfg.endpoint].fallback
         if fallback is None:
             raise
