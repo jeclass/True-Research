@@ -3,6 +3,7 @@
 Thin routing only — all real logic lives in driver.py / src/launcher.py:
     true-research run "question" [driver flags] [--detach]   -> supervised launch
     true-research resume <run-id> [driver flags]             -> driver --resume
+    true-research ui [server flags]                          -> web UI server
     true-research "question" [driver flags]                  -> plain driver.main
 """
 
@@ -23,12 +24,20 @@ def _launcher_main(argv: list[str]) -> int:
     return launcher_main(argv)
 
 
+def _ui_main(argv: list[str]) -> int:
+    from src.webui.server import main as ui_main
+
+    return ui_main(argv)
+
+
 def main(argv: list[str] | None = None) -> int:
     args = list(sys.argv[1:] if argv is None else argv)
     if args and args[0] == "run":
         return _launcher_main(args[1:])
     if args and args[0] == "resume":
         return _driver_main(["--resume", *args[1:]])
+    if args and args[0] == "ui":
+        return _ui_main(args[1:])
     return _driver_main(args)
 
 

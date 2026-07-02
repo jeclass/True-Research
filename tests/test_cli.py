@@ -22,3 +22,10 @@ def test_bare_invocation_passes_through_to_driver(monkeypatch):
     monkeypatch.setattr(cli, "_driver_main", lambda argv: seen.update(a=argv) or 0)
     assert cli.main(["a question", "--comprehensive"]) == 0
     assert seen["a"] == ["a question", "--comprehensive"]
+
+
+def test_ui_subcommand_routes_to_server(monkeypatch):
+    seen = {}
+    monkeypatch.setattr(cli, "_ui_main", lambda argv: seen.update(a=argv) or 0)
+    assert cli.main(["ui", "--port", "9999"]) == 0
+    assert seen["a"] == ["--port", "9999"]
