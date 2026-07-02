@@ -163,7 +163,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
             parser.error("provide the question OR --question-file, not both")
         try:
             args.question = Path(args.question_file).read_text(encoding="utf-8").strip()
-        except OSError as exc:
+        except (OSError, UnicodeDecodeError) as exc:
+            # UnicodeDecodeError is a ValueError, not an OSError — a non-UTF-8
+            # file must exit via parser.error, not an uncaught decode crash.
             parser.error(f"--question-file {args.question_file!r} could not be read: {exc}")
         if not args.question:
             parser.error(f"--question-file {args.question_file!r} is empty")

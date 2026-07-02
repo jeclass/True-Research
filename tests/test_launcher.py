@@ -72,20 +72,36 @@ def test_supervise_fails_loudly_when_no_run_created(tmp_path, monkeypatch):
 def test_supervise_converts_argparse_rejection_to_launch_error(tmp_path, monkeypatch):
     # driver.main -> parser.error -> SystemExit(2). supervise() must convert
     # that to LaunchError so the (detached) supervisor exits via the clean
-    # "LAUNCH FAILED" path instead of dying with a traceback.
+    # "LAUNCH FAILED" path instead of dying with a traceback. Uses an argv the
+    # launch-time probe accepts (clean flags) so the FRESH-LAUNCH conversion
+    # guard itself is what fires (an unknown flag like --bogus is now caught
+    # earlier, by the probe).
     def rejecting_driver_main(argv):
         raise SystemExit(2)
 
     monkeypatch.setattr(launcher, "_driver_main", rejecting_driver_main)
     with pytest.raises(launcher.LaunchError, match="rejected the launch"):
+        launcher.supervise(["q"], runs_dir=tmp_path / "runs", max_attempts=3)
+
+
+def test_supervise_probe_rejects_unknown_flag_before_launch(tmp_path, monkeypatch):
+    # An argv whose extracted flags the driver's argparse rejects (e.g. an
+    # unknown flag) must be refused by the launch-time probe — before the
+    # driver is ever invoked.
+    calls = []
+    monkeypatch.setattr(
+        launcher, "_driver_main", lambda argv: calls.append(list(argv)) or 0
+    )
+    with pytest.raises(launcher.LaunchError, match="reconstructed resume flags"):
         launcher.supervise(["--bogus"], runs_dir=tmp_path / "runs", max_attempts=3)
+    assert calls == []
 
 
 def test_supervise_resume_rejection_fails_loudly_not_crash(tmp_path, monkeypatch):
-    # Flag-before-question invocations make the flag extractor consume the
-    # question as a flag value; the resume argv then trips driver argparse
-    # (positional question + --resume). That must fail loudly ONCE — not crash
-    # with a traceback, and not spin the retry loop on a hopeless argv.
+    # Defense in depth at the RESUME site: even when the launch-time probe
+    # passed (clean flags), a resume that trips driver argparse must fail
+    # loudly ONCE — not crash with a traceback, and not spin the retry loop
+    # on a hopeless argv.
     runs_dir = tmp_path / "runs"
     resume_calls = []
 
@@ -102,10 +118,29 @@ def test_supervise_resume_rejection_fails_loudly_not_crash(tmp_path, monkeypatch
     monkeypatch.setattr(launcher.time, "sleep", lambda s: None)
 
     with pytest.raises(launcher.LaunchError, match="QUESTION FIRST"):
-        launcher.supervise(
-            ["--cheap", "my question"], runs_dir=runs_dir, max_attempts=40
-        )
+        launcher.supervise(["q"], runs_dir=runs_dir, max_attempts=40)
     assert len(resume_calls) == 1                 # no retry loop on bad argv
+
+
+def test_flags_before_question_rejected_at_launch_not_at_first_resume(tmp_path, monkeypatch):
+    # Final review: a flags-BEFORE-question invocation (["--cheap", "my question"])
+    # launched fine but corrupted the extracted resume flags, so auto-resume
+    # failed HOURS later at the first crash. The launch-time probe dry-parses
+    # the reconstructed resume argv through the driver's own argparse and must
+    # reject the run BEFORE any spend — the stub driver is NEVER called.
+    calls = []
+
+    def recording_driver_main(argv):
+        calls.append(list(argv))
+        return 0
+
+    monkeypatch.setattr(launcher, "_driver_main", recording_driver_main)
+
+    with pytest.raises(launcher.LaunchError, match="QUESTION FIRST"):
+        launcher.supervise(
+            ["--cheap", "my question"], runs_dir=tmp_path / "runs", max_attempts=3
+        )
+    assert calls == []  # rejected before ANY launch, fresh or resume
 
 
 def test_spawn_detached_uses_platform_flags(tmp_path, monkeypatch):

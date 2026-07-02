@@ -41,6 +41,15 @@ def _driver_main(argv: list[str]) -> int:
     return driver.main(argv)
 
 
+def _probe_resume_argv(flags: list[str]) -> None:
+    """Dry-parse the argv every future auto-resume will use, so a malformed
+    invocation (question after flags, exotic value shapes) is rejected NOW —
+    at launch, before any spend — instead of at the first crash-resume."""
+    import driver
+
+    driver.parse_args(["--resume", "__probe__", *flags])
+
+
 def _run_status(runs_dir: Path, run_id: str) -> str:
     meta = runs_dir / run_id / "run.json"
     try:
@@ -61,6 +70,37 @@ def supervise(
     driver_args are passed through verbatim (question/--question-file plus any
     flags); flags are RE-PASSED on every resume — run settings rebuild from
     flags, not from state."""
+    # Extract the pass-through FLAGS (everything except the question/
+    # --question-file) BEFORE launching anything: the reconstructed resume argv
+    # is probed through the driver's own argparse so a flags-before-question
+    # invocation is rejected at launch — not hours later at the first
+    # crash-resume, the worst possible moment.
+    flags: list[str] = []
+    skip_next = False
+    for i, tok in enumerate(driver_args):
+        if skip_next:
+            skip_next = False
+            continue
+        if tok == "--question-file":
+            skip_next = True
+            continue
+        if tok.startswith("-"):
+            flags.append(tok)
+            # keep a flag's value token attached (e.g. --gate opus)
+            if i + 1 < len(driver_args) and not driver_args[i + 1].startswith("-"):
+                flags.append(driver_args[i + 1])
+                skip_next = True
+        # bare positional (the question) is dropped for resumes
+    try:
+        _probe_resume_argv(flags)
+    except SystemExit as exc:
+        raise LaunchError(
+            f"driver rejected the reconstructed resume flags (argparse exit "
+            f"{exc.code}) — put the QUESTION FIRST, then flags (e.g. "
+            f'python -m src.launcher "question" --cheap); refusing to launch '
+            "a run whose auto-resume would fail"
+        ) from exc
+
     with tempfile.NamedTemporaryFile("r", suffix=".rid", delete=False) as tf:
         rid_path = Path(tf.name)
     try:
@@ -86,23 +126,6 @@ def supervise(
             "Runspace.create; check the log for the real error"
         )
 
-    # Extract the pass-through FLAGS (everything except the question/--question-file)
-    flags: list[str] = []
-    skip_next = False
-    for i, tok in enumerate(driver_args):
-        if skip_next:
-            skip_next = False
-            continue
-        if tok == "--question-file":
-            skip_next = True
-            continue
-        if tok.startswith("-"):
-            flags.append(tok)
-            # keep a flag's value token attached (e.g. --gate opus)
-            if i + 1 < len(driver_args) and not driver_args[i + 1].startswith("-"):
-                flags.append(driver_args[i + 1])
-                skip_next = True
-        # bare positional (the question) is dropped for resumes
     for attempt in range(1, max_attempts + 1):
         if _run_status(runs_dir, run_id) == "finished":
             return run_id

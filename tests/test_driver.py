@@ -170,6 +170,17 @@ def test_question_file_rejects_conflicts_and_bad_input(tmp_path):
         driver.parse_args(["--question-file", str(tmp_path / "nonexistent.txt")])
 
 
+def test_question_file_with_non_utf8_bytes_errors_cleanly(tmp_path):
+    # Final review: read_text(encoding="utf-8") on a non-UTF-8 file raises
+    # UnicodeDecodeError — a ValueError, NOT an OSError — so the except OSError
+    # guard missed it: an uncaught crash that also bypassed the launcher's
+    # SystemExit->LaunchError conversion. It must exit via parser.error.
+    bad = tmp_path / "bad.txt"
+    bad.write_bytes(b"\xff\xfe invalid \x9c")
+    with pytest.raises(SystemExit):
+        driver.parse_args(["--question-file", str(bad)])
+
+
 def test_eval_fail_with_empty_queue_finishes_exhausted(make_config, runs_dir, monkeypatch):
     # Observed smoke6 2026-06-10: evaluator FAILs while closing the last open
     # questions -> next worker would crash on an empty queue. The driver must
