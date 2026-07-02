@@ -21,7 +21,7 @@ from pydantic import BaseModel, ConfigDict
 from src.ledger import Ledger
 from src.profiles import WorkerToolContext, get_profile
 from src.runspace import PLAN_FILE, Runspace
-from src.sessions import common, reader
+from src.sessions import common, reader, untrusted
 from src.sessions.base import (
     SessionError,
     SessionResult,
@@ -92,6 +92,12 @@ outcome:
   ambiguity); explain in blocked_reason. Do NOT fabricate.
 
 progress_note: one line for the run log describing what you did."""
+
+# read_source digests embed summary/quotes derived from attacker-controlled
+# page text (fenced in _format_read_result) — append the defense clause so the
+# agentic worker treats fenced content as data, never instructions (final
+# review; same pattern as reader.py).
+_SYSTEM_PROMPT = _SYSTEM_PROMPT + "\n\n" + untrusted.INJECTION_DEFENSE_CLAUSE
 
 
 class ProposedSource(BaseModel):
@@ -165,7 +171,13 @@ def _format_read_result(output: reader.ReaderOutput, url: str) -> str:
     after a successful read. A pure function (no SDK dependency) so it unit-tests
     directly. The KEY QUOTES block only appears when the reader proposed
     engine-verified quotes (roadmap: span-level citation anchors) — the worker is
-    told to copy them verbatim into ProposedSource.excerpts, never invent its own."""
+    told to copy them verbatim into ProposedSource.excerpts, never invent its own.
+
+    The summary + quotes are freeform text derived from attacker-controlled page
+    content (verbatim quotes especially — engine-certified as EXACTLY what the
+    page said), so they ride INSIDE the untrusted fence; the TITLE/KIND/
+    CREDIBILITY/NOTES/URL header is engine/reader-adjudicated metadata and stays
+    outside (final review)."""
     quotes_block = (
         "\nKEY QUOTES (verbatim — copy character-for-character into this "
         "source's `excerpts` if you cite it):\n"
@@ -173,14 +185,14 @@ def _format_read_result(output: reader.ReaderOutput, url: str) -> str:
         if output.key_quotes
         else ""
     )
+    digest = f"SUMMARY:\n{output.summary_markdown}{quotes_block}"
     return (
         f"TITLE: {output.title}\n"
         f"KIND: {output.kind}\n"
         f"CREDIBILITY: {output.credibility}\n"
         f"NOTES: {output.notes}\n"
         f"URL: {url}\n"
-        f"SUMMARY:\n{output.summary_markdown}"
-        f"{quotes_block}"
+        + untrusted.wrap_untrusted(digest, label="reader digest")
     )
 
 

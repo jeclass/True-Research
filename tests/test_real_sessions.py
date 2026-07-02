@@ -301,6 +301,21 @@ def test_format_read_result_includes_key_quotes_block_only_when_present():
     assert "KEY QUOTES" in with_text and '"exact wording"' in with_text
     assert "KEY QUOTES" not in without_text
 
+    # Final review: the summary + quotes are derived from attacker-controlled
+    # page text — they must sit INSIDE the untrusted fence. The engine/reader-
+    # adjudicated metadata header (TITLE/KIND/CREDIBILITY/URL) stays outside.
+    for text in (with_text, without_text):
+        open_i = text.index("<<<UNTRUSTED_WEB_CONTENT>>>")
+        close_i = text.rindex("<<<END_UNTRUSTED_WEB_CONTENT>>>")
+        assert text.index("TITLE:") < open_i
+        assert text.index("URL: https://x") < open_i
+        assert open_i < text.index("SUMMARY:") < close_i
+    open_i = with_text.index("<<<UNTRUSTED_WEB_CONTENT>>>")
+    close_i = with_text.rindex("<<<END_UNTRUSTED_WEB_CONTENT>>>")
+    assert open_i < with_text.index("KEY QUOTES") < close_i
+    assert open_i < with_text.index('"exact wording"') < close_i
+    assert "reader digest" in with_text          # fence label names the surface
+
 
 def test_synthesizer_without_findings_needs_no_model(run, settings, tmp_path):
     """No findings -> honest empty report, zero LLM calls, partial banner."""

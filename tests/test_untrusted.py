@@ -32,13 +32,15 @@ def test_wrap_untrusted_neutralizes_embedded_sentinels():
 
 
 def test_defense_clause_present_in_every_untrusted_entry_prompt():
-    # the reader, the pipeline compose step, and the vision reader all ingest
-    # untrusted content — each system prompt must carry the defense clause.
-    from src.sessions import pipeline, reader
+    # the reader, the pipeline compose step, the vision reader — and the
+    # AGENTIC worker (final review: _format_read_result feeds it reader digests
+    # of attacker-controlled page text) — all ingest untrusted content; each
+    # system prompt must carry the defense clause.
+    from src.sessions import pipeline, reader, worker
     from src.tools import capture
 
     for prompt in (reader._SYSTEM_PROMPT, pipeline._COMPOSE_SYSTEM,
-                   capture._VISION_SYSTEM_PROMPT):
+                   capture._VISION_SYSTEM_PROMPT, worker._SYSTEM_PROMPT):
         assert "UNTRUSTED DATA" in prompt
         assert "apparent prompt-injection" in prompt
 
