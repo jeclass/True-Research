@@ -3,6 +3,7 @@
 import os
 import sys
 import threading
+import time
 from pathlib import Path
 
 import pytest
@@ -74,8 +75,13 @@ def test_atomic_write_raises_after_retry_cap(tmp_path):
     target.write_text("old", encoding="utf-8")
     fh = open(target, "r", encoding="utf-8")  # held for the whole test
     try:
+        start = time.monotonic()
         with pytest.raises(PermissionError):
             _atomic_write(target, "new")  # takes ~3s to exhaust the budget
+        elapsed = time.monotonic() - start
+        # Pins the retry budget: an immediate raise (no retries) would be <2.5s,
+        # an unbounded loop would never return. Both regressions fail here.
+        assert 2.5 <= elapsed < 10  # retried for the full budget, then gave up loudly
     finally:
         fh.close()
     assert target.read_text(encoding="utf-8") == "old"  # old file intact
