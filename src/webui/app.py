@@ -1,5 +1,8 @@
 """FastAPI app exposing the read-only run-state layer (src/webui/runs_api.py)
-plus the one mutating route: POST /api/runs (src/webui/launch_api.py).
+plus the state-changing routes: POST /api/runs launches a research run
+(src/webui/launch_api.py) and POST /api/keys writes a key to .env
+(src/webui/keys_api.py). Both POSTs enforce a localhost-origin check
+(_require_local_origin) as drive-by CSRF defense.
 
 SECURITY: the GET routes are a thin read-only view over runs/<id>/ state
 files and must NEVER serialize Settings, .env, os.environ, or any SecretStr
@@ -18,8 +21,10 @@ The /api/keys routes return names + set-booleans only; values are write-only
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
+from urllib.parse import urlsplit
 
-from fastapi import Body, FastAPI, HTTPException
+from fastapi import Body, Depends, FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import ValidationError
@@ -28,6 +33,24 @@ from src.webui import keys_api, launch_api, runs_api
 
 _STATIC_DIR = Path(__file__).parent / "static"
 _FALLBACK_INDEX_HTML = "<!doctype html><meta charset=utf-8><title>True Research</title>"
+
+_LOCAL_HOSTS = frozenset({"127.0.0.1", "localhost", "::1"})
+
+
+def _require_local_origin(request: Request) -> None:
+    """CSRF defense for the localhost server: browsers attach an Origin
+    header to cross-origin (and modern same-origin) POSTs. Absent Origin
+    (curl, tests, older same-origin fetch) is allowed — the threat is a
+    hostile WEBSITE, which cannot suppress Origin. Non-local Origin -> 403."""
+    origin = request.headers.get("origin")
+    if origin is None:
+        return
+    try:
+        host = urlsplit(origin).hostname
+    except ValueError:
+        host = None
+    if host not in _LOCAL_HOSTS:
+        raise HTTPException(status_code=403, detail="cross-origin request rejected")
 
 
 def create_app(runs_dir: Path, env_path: Path = Path(".env")) -> FastAPI:
@@ -40,7 +63,7 @@ def create_app(runs_dir: Path, env_path: Path = Path(".env")) -> FastAPI:
     def api_list_runs():
         return runs_api.list_runs(runs_dir)
 
-    @app.post("/api/runs")
+    @app.post("/api/runs", dependencies=[Depends(_require_local_origin)])
     def api_launch_run(req: launch_api.LaunchRequest):
         return launch_api.launch(req, runs_dir, env_path=env_path)
 
@@ -48,8 +71,10 @@ def create_app(runs_dir: Path, env_path: Path = Path(".env")) -> FastAPI:
     def api_keys_status():
         return keys_api.key_status(env_path)
 
-    @app.post("/api/keys")
-    def api_keys_set(payload: dict = Body(...)):
+    @app.post("/api/keys", dependencies=[Depends(_require_local_origin)])
+    def api_keys_set(payload: Any = Body(...)):
+        if not isinstance(payload, dict):
+            raise HTTPException(status_code=422, detail="body must be a JSON object")
         try:
             req = keys_api.SetKeyRequest.model_validate(payload)
         except ValidationError as exc:

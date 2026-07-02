@@ -258,6 +258,35 @@ def test_launch_rejects_unknown_preset(tmp_path):
         assert c.post("/api/runs", json={"question": "ok", "preset": old}).status_code == 422
 
 
+def test_post_routes_reject_cross_origin(tmp_path, monkeypatch):
+    """Drive-by CSRF defense: a browser on evil.com POSTing to the local
+    server sends Origin: https://evil.com — must be 403, never a spawn or a
+    key write. Same-origin/localhost Origins (any port) and absent Origin
+    (curl, tests) pass."""
+    import src.webui.launch_api as la
+    monkeypatch.setattr(la, "_spawn_detached", lambda argv, log_path: 1)
+    c = _client(tmp_path / "runs")
+    evil = {"Origin": "https://evil.com"}
+    assert c.post("/api/runs", json={"question": "q"}, headers=evil).status_code == 403
+    assert c.post("/api/keys", json={"name": "SERPER_API_KEY", "value": "x"},
+                  headers=evil).status_code == 403
+    for ok_origin in ["http://127.0.0.1:8787", "http://localhost:8787", "http://[::1]:8787"]:
+        r = c.post("/api/runs", json={"question": "q"},
+                   headers={"Origin": ok_origin})
+        assert r.status_code == 200, ok_origin
+    assert c.post("/api/keys", json={"name": "SERPER_API_KEY", "value": "x"}).status_code == 200
+
+
+def test_api_keys_non_dict_body_not_echoed(tmp_path):
+    # FastAPI's default validation echoes non-dict bodies back; the handler
+    # must accept Any and reject non-dicts itself so a pasted secret sent as
+    # a bare string is never reflected.
+    c = _client(tmp_path / "runs")
+    r = c.post("/api/keys", json="sk-bare-secret-body")
+    assert r.status_code == 422
+    assert "sk-bare-secret-body" not in r.text
+
+
 def test_frontend_assets_served_and_wired(tmp_path):
     c = _client(tmp_path / "runs")
     html = c.get("/").text
