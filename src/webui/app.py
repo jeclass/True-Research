@@ -42,7 +42,7 @@ def create_app(runs_dir: Path, env_path: Path = Path(".env")) -> FastAPI:
 
     @app.post("/api/runs")
     def api_launch_run(req: launch_api.LaunchRequest):
-        return launch_api.launch(req, runs_dir)
+        return launch_api.launch(req, runs_dir, env_path=env_path)
 
     @app.get("/api/keys")
     def api_keys_status():

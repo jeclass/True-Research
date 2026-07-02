@@ -191,17 +191,51 @@ def test_launch_validates_and_spawns(tmp_path, monkeypatch):
     spawned = {}
     monkeypatch.setattr(la, "_spawn_detached",
                         lambda argv, log_path: spawned.update(argv=argv, log=str(log_path)) or 4321)
-    c = _client(tmp_path / "runs")
+    env = tmp_path / ".env"
+    env.write_text("DEEPSEEK_API_KEY=sk-deep\n", encoding="utf-8")
+    c = _client(tmp_path / "runs", env_path=env)
     r = c.post("/api/runs", json={"question": "Is the sky blue?",
-                                  "preset": "comprehensive", "verify": True,
+                                  "preset": "comprehensive",
                                   "max_budget_usd": 5, "max_wall_hours": 2})
     assert r.status_code == 200
     body = r.json()
     assert body["launched"] is True and body["pid"] == 4321
+    assert body["backend"] == "cheap"
     argv = spawned["argv"]
     assert "--question-file" in argv and "--comprehensive" in argv and "--verify" in argv
+    assert "--cheap" in argv and "--gate" in argv and "opus" in argv
     assert "--max-budget-usd" in argv and "5.0" in argv
     assert "Is the sky blue?" not in argv
+
+
+def test_launch_preset_matrix_backend_fallback(tmp_path, monkeypatch):
+    """quick/comprehensive x deepseek-present/absent -> exact flag bundles."""
+    import src.webui.launch_api as la
+    calls = []
+    monkeypatch.setattr(la, "_spawn_detached", lambda argv, log_path: calls.append(argv) or 1)
+    monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
+
+    env_with = tmp_path / "with.env"
+    env_with.write_text("DEEPSEEK_API_KEY=sk-deep\n", encoding="utf-8")
+    env_without = tmp_path / "without.env"
+    env_without.write_text("", encoding="utf-8")
+
+    expectations = [
+        (env_with, "quick", "cheap", ["--cheap", "--gate", "opus"]),
+        (env_with, "comprehensive", "cheap",
+         ["--cheap", "--gate", "opus", "--comprehensive", "--verify"]),
+        (env_without, "quick", "anthropic", []),
+        (env_without, "comprehensive", "anthropic", ["--comprehensive", "--verify"]),
+    ]
+    for env, preset, backend, flags in expectations:
+        calls.clear()
+        c = _client(tmp_path / "runs", env_path=env)
+        r = c.post("/api/runs", json={"question": "q?", "preset": preset})
+        assert r.status_code == 200, (preset, env.name)
+        assert r.json()["backend"] == backend
+        argv = calls[0]
+        assert argv[0] == "--question-file"
+        assert argv[2:] == flags, (preset, env.name, argv)
 
 
 def test_launch_rejects_empty_question(tmp_path):
@@ -220,8 +254,8 @@ def test_launch_rejects_nonfinite_and_negative_budget(tmp_path):
 
 def test_launch_rejects_unknown_preset(tmp_path):
     c = _client(tmp_path / "runs")
-    r = c.post("/api/runs", json={"question": "ok", "preset": "bogus"})
-    assert r.status_code == 422
+    for old in ["standard", "exhaustive", "cheap", "bogus"]:
+        assert c.post("/api/runs", json={"question": "ok", "preset": old}).status_code == 422
 
 
 def test_frontend_assets_served_and_wired(tmp_path):
