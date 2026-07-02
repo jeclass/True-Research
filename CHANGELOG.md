@@ -2,6 +2,13 @@
 
 ## v1.1 — unreleased (web UI usability)
 
+**Certified via a fresh-clone smoke (2026-07-02):** GitHub clone → `pip
+install -e ".[dev]"` → 312/312 tests → `true-research ui` with NO `.env` →
+all keys added via the Keys tab (file created by the panel; values never
+readable back) → live distill of a long paste → Quick launch auto-selected
+the cheap backend → bounded run finished with a 52-citation report served
+as `.md` + PDF downloads. Zero terminal file-editing on the golden path.
+
 - **Two presets.** The launch view offers Quick (~$1, `--cheap --gate opus`) and
   Comprehensive (~$3–5, adds `--comprehensive --verify` — the showcase-run
   config). No DeepSeek key? The server transparently runs the same depth on the

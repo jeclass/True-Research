@@ -44,30 +44,51 @@ the conclusiveness.**
 ```bash
 python -m venv .venv
 .venv/bin/pip install -e .            # Windows: .venv\Scripts\pip install -e .
-cp .env.example .env                  # add your ANTHROPIC_API_KEY (one key is enough)
-true-research "your hard research question"
+true-research ui                      # serves http://127.0.0.1:8787 and opens your browser
 ```
 
-That runs on the default all-Anthropic posture with a conservative **$2 budget
-cap** — enough to see a complete, cited (if shallower) report. For a full deep
-run, raise the cap or use a preset:
+No `.env` editing required: open the **Keys** tab, paste your
+`ANTHROPIC_API_KEY` (one key is enough to run), and launch from the form. Keys
+are written to a local `.env`, used only when spawning research sessions, and
+are never displayed or readable back — the server reports set / not-set only.
+
+![Launch a run](docs/img/ui-launch.png)
+
+The launch view offers two presets:
+
+- **Quick** (~$1) — a focused pass: DeepSeek does the high-volume reading,
+  Opus fires once as the terminal "is this conclusive?" gate.
+- **Comprehensive** ($3–5) — a deep question tree plus an adversarial
+  verification wave before synthesis. This is the configuration behind the
+  showcase runs in [EVIDENCE.md](EVIDENCE.md).
+
+Both presets use the cost-optimized DeepSeek backend when a
+`DEEPSEEK_API_KEY` is set (add it in the Keys tab). With only an Anthropic
+key, the same depth runs on the all-Anthropic backend — pricier, and the UI
+tells you so honestly before you launch.
+
+Paste a whole page of notes instead of a question? The UI runs a one-cent
+distill first and shows you *"here's the research question I'll pursue"* —
+editable before any run spend, skippable, and your full paste still reaches
+the engine as background.
+
+![Keys onboarding](docs/img/ui-keys.png)
+
+Prefer the terminal?
 
 ```bash
+cp .env.example .env                  # add your ANTHROPIC_API_KEY
+true-research "your hard research question"                      # $2-capped default
 true-research "…" --comprehensive --verify --max-budget-usd 12   # deep, all-Anthropic
 true-research "…" --cheap --gate opus --comprehensive --verify   # ~$3–5, DeepSeek volume + Opus gate
 ```
 
-### The web UI
+### Watching a run
 
-```bash
-true-research ui         # serves http://127.0.0.1:8787 and opens your browser
-```
-
-Launch runs from a form, watch them live (spend vs budget, the question tree
-resolving, findings with VERIFIED/REFUTED badges, the decisions log), and read
-the finished report with clickable citations and a PDF download.
-
-![Launch a run](docs/img/ui-launch.png)
+Watch runs live in the UI — spend vs budget, the question tree resolving,
+findings with VERIFIED/REFUTED badges, the decisions log — then read the
+finished report with clickable citations, and download it as **Markdown or
+PDF** from the report view or straight from the runs list.
 
 ### Unattended / long runs
 
@@ -109,7 +130,8 @@ partial report when it hits one. Actual spend is usually well under the cap.
 |---|---|---|---|
 | `true-research "q"` | all-Anthropic, safe default | $2 | ~$2 (may be partial) |
 | `--comprehensive --verify` | all-Anthropic, deep | $25 | $8–15 |
-| `--cheap --gate opus --comprehensive --verify` | DeepSeek volume + Opus gate | $2 (raise it) | **$3–5 full** |
+| `--cheap --gate opus` (UI: **Quick**) | DeepSeek volume + Opus gate | $2 | **~$1** |
+| `--cheap --gate opus --comprehensive --verify` (UI: **Comprehensive**) | DeepSeek volume + Opus gate | $2 (raise it) | **$3–5 full** |
 | `--exhaustive` | max read depth | $15 | $10–20 |
 
 Real ledger example: `--cheap --gate opus --comprehensive --verify` on a hard
@@ -160,7 +182,7 @@ methodology for comparing against hosted deep-research services.
 - `src/webui/` — the local web app (FastAPI backend + zero-build frontend)
 - `src/{settings,state,runspace,ledger}.py` — config, schemas, atomic run state,
   cost accounting
-- `tests/` — 288-test pytest suite; CI runs it on Linux + Windows (3.11 & 3.13)
+- `tests/` — 312-test pytest suite; CI runs it on Linux + Windows (3.11 & 3.13)
 - `CLAUDE.md` — the full build specification and design invariants
 
 ## License
