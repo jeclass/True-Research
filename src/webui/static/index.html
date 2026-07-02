@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>True Research</title>
+<link rel="stylesheet" href="/static/style.css">
+<script src="/static/vendor/marked.min.js" defer></script>
+<script src="/static/app.js" defer></script>
+</head>
+<body>
+<div id="app">
+
+  <header class="masthead">
+    <div class="nameplate">
+      <span class="nameplate-tick" aria-hidden="true"></span>
+      <div class="nameplate-text">
+        <span class="nameplate-mark">True&nbsp;Research</span>
+        <span class="nameplate-sub">Marathon Research Engine &middot; MRE-2</span>
+      </div>
+    </div>
+    <nav class="tabs" id="nav" aria-label="Views">
+      <a href="#/launch" data-view="launch">New Run</a>
+      <a href="#/runs"   data-view="runs">Runs</a>
+      <a href="#/report" data-view="report">Report</a>
+    </nav>
+  </header>
+
+  <main>
+
+    <!-- ============ LAUNCH ============ -->
+    <section id="view-launch" hidden>
+      <div class="launch-col">
+        <h1 class="view-title">Commission a run</h1>
+        <p class="view-sub">One hard question in &mdash; hours of unattended investigation out.
+           Every claim in the report traces to a registered source.</p>
+
+        <label class="field-label" for="q">Research question</label>
+        <textarea id="q" rows="4" spellcheck="true" autocomplete="off"
+          placeholder="Does creatine supplementation improve cognitive performance in sleep-deprived adults, and at what dose?"></textarea>
+        <div class="field-err" id="err-question" hidden></div>
+
+        <label class="field-label">Preset</label>
+        <div class="preset-grid" id="preset-grid" role="radiogroup" aria-label="Preset">
+          <button type="button" class="preset-card selected" data-preset="standard" role="radio" aria-checked="true">
+            <span class="preset-name">Standard</span>
+            <span class="preset-desc">Quick pass</span>
+            <span class="preset-cost">$2&ndash;8</span>
+          </button>
+          <button type="button" class="preset-card" data-preset="comprehensive" role="radio" aria-checked="false">
+            <span class="preset-name">Comprehensive</span>
+            <span class="preset-desc">Deep tree + verify</span>
+            <span class="preset-cost">$5&ndash;15</span>
+          </button>
+          <button type="button" class="preset-card" data-preset="exhaustive" role="radio" aria-checked="false">
+            <span class="preset-name">Exhaustive</span>
+            <span class="preset-desc">Max reads</span>
+            <span class="preset-cost">$10&ndash;25</span>
+          </button>
+          <button type="button" class="preset-card" data-preset="cheap" role="radio" aria-checked="false">
+            <span class="preset-name">Cheap</span>
+            <span class="preset-desc">DeepSeek build + Opus gate</span>
+            <span class="preset-cost">$2&ndash;7</span>
+          </button>
+        </div>
+        <div class="field-err" id="err-preset" hidden></div>
+
+        <div class="launch-options">
+          <label class="switch-row">
+            <span class="switch">
+              <input type="checkbox" id="verify" autocomplete="off">
+              <span class="knob" aria-hidden="true"></span>
+            </span>
+            <span class="switch-label">Verify<small>adversarial verification pass on findings</small></span>
+          </label>
+
+          <div class="num-field">
+            <label class="field-label" for="budget">Budget&nbsp;USD</label>
+            <input type="number" id="budget" min="0" step="0.5" placeholder="engine default" autocomplete="off">
+            <div class="field-err" id="err-budget" hidden></div>
+          </div>
+
+          <div class="num-field">
+            <label class="field-label" for="wall">Wall&nbsp;hours</label>
+            <input type="number" id="wall" min="0" step="0.5" placeholder="engine default" autocomplete="off">
+            <div class="field-err" id="err-wall" hidden></div>
+          </div>
+        </div>
+
+        <div class="field-err" id="err-general" hidden></div>
+        <button type="button" class="btn-primary" id="btn-launch">Begin research</button>
+      </div>
+    </section>
+
+    <!-- ============ RUNS / LIVE ============ -->
+    <section id="view-runs" hidden>
+      <div class="runs-layout">
+        <aside class="run-list" id="run-list" aria-label="Runs">
+          <div class="empty-state">Loading runs&hellip;</div>
+        </aside>
+        <div class="run-detail" id="run-detail">
+          <div class="empty-state">
+            <span class="empty-glyph" aria-hidden="true">&#9678;</span>
+            Select a run to inspect its live state.
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ REPORT ============ -->
+    <section id="view-report" hidden>
+      <div id="report-shell">
+        <div class="empty-state">
+          <span class="empty-glyph" aria-hidden="true">&#9671;</span>
+          No report selected &mdash; pick a finished run.
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <div id="toasts" aria-live="polite"></div>
+</div>
+</body>
+</html>

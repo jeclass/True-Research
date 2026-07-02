@@ -20,6 +20,8 @@ dependencies = [
     "ddgs>=9.0",
     "markdown>=3.5",
     "xhtml2pdf>=0.2.16",
+    "fastapi>=0.110",
+    "uvicorn>=0.29",
 ]
 
 [project.optional-dependencies]
@@ -35,3 +37,6 @@ py-modules = ["driver"]
 
 [tool.setuptools.packages.find]
 include = ["src*"]
+
+[tool.setuptools.package-data]
+"src.webui" = ["static/*", "static/vendor/*"]
