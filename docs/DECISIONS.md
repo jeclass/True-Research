@@ -45,3 +45,16 @@ One line per non-obvious choice: what, why, alternative rejected.
 - 2026-06-10 — Pipeline pre-emption: zero useful reads => engine marks blocked without paying for compose; rejected: asking a model to compose from nothing.
 - 2026-06-10 — Visual profile refuses pipeline mode loudly (needs in-loop capture decisions; run agentic with a cloud worker outside the budget posture); rejected: a degraded capture-all-candidates pipeline v1 nobody validated.
 - 2026-06-10 — max_final_evaluations breaker (default 4, persisted/resume-safe): the Opus final gate is the budget posture's ONLY variable cost; past the cap the run accepts the local evaluator's pass as conclusive with a logged decision; max_budget_usd dropped to $2.00 as the hard net beneath; rejected: unbounded gate firings (couples spend to local-evaluator quality).
+
+## v1.0 gate certification — 2026-07-02
+
+Fresh-clone smoke (Phase 1, Task 10) PASSED on main @ 3f67ee5:
+clean clone -> `pip install -e ".[dev]"` -> 269/269 tests -> `.env` with ONLY
+`ANTHROPIC_API_KEY` -> `true-research run "<creatine/cognition question>"
+--max-budget-usd 2 --max-wall-hours 0.5` (run 20260702-020644-a7ee).
+Result: finished via the budget breaker as designed (4 cycles, 42 sessions,
+$2.27 — the $0.27 past the cap is the post-breaker synthesizer writing the
+partial report per invariant 4), REPORT.md with 18 resolving [src-] citations
++ source registry, REPORT.pdf emitted, zero tracebacks, search on the no-key
+DDG fallback, one question blocked honestly rather than fabricated.
+The engine is certified finished for the v1.0 public-release track.
