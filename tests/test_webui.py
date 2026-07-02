@@ -120,6 +120,12 @@ def test_run_id_validation_rejects_path_traversal(tmp_path):
     assert runs_api.is_valid_run_id("20260102-000000-bbbb") is True
 
 
+def test_run_id_validation_rejects_trailing_newline():
+    # re.match would let "...-bbbb\n" through ($ matches before a final \n);
+    # the validator must anchor with fullmatch semantics.
+    assert runs_api.is_valid_run_id("20260102-000000-bbbb\n") is False
+
+
 def _client(runs_dir):
     from starlette.testclient import TestClient
     from src.webui.app import create_app
@@ -195,6 +201,15 @@ def test_launch_validates_and_spawns(tmp_path, monkeypatch):
 def test_launch_rejects_empty_question(tmp_path):
     c = _client(tmp_path / "runs")
     assert c.post("/api/runs", json={"question": "   "}).status_code == 422
+
+
+def test_launch_rejects_nonfinite_and_negative_budget(tmp_path):
+    # Negative/zero budgets (and inf/nan, blocked by allow_inf_nan=False)
+    # would disable the budget circuit breaker — must be a 422, never a spawn.
+    c = _client(tmp_path / "runs")
+    for bad in [{"question": "q", "max_budget_usd": -5},
+                {"question": "q", "max_wall_hours": 0}]:
+        assert c.post("/api/runs", json=bad).status_code == 422
 
 
 def test_launch_rejects_unknown_preset(tmp_path):

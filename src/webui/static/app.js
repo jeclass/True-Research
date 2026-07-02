@@ -6,7 +6,12 @@
  * (`<` -> &lt;) before marked.parse so raw HTML embedded in the engine
  * report (which quotes excerpts from untrusted web pages) can never become
  * markup; the parsed result is materialized through DOMParser (inert, no
- * script execution) and adopted node-by-node.
+ * script execution) and adopted node-by-node. The `<`-escape does NOT cover
+ * link destinations — markdown like [x](javascript:...) contains no angle
+ * brackets — so before adoption every <a href> is protocol-allowlisted
+ * (http/https/mailto, plus in-page "#..." anchors); anything else has its
+ * href stripped (see scrubUnsafeLinks). The report click handler re-checks
+ * the protocol as defense in depth.
  */
 (() => {
   "use strict";
@@ -355,10 +360,35 @@
   // is inert once `<` is neutralized.
   const sanitizeMarkdown = (md) => String(md).replace(/</g, "&lt;");
 
+  // marked has no URL sanitizer: [x](javascript:alert(1)) parses to a live
+  // javascript: link. Allowlist every <a href> in the (still inert) parsed
+  // document BEFORE adoption: keep http/https/mailto and in-page "#..."
+  // anchors (citation targets); strip the href from everything else, keeping
+  // the visible text. Relative hrefs resolve to the page origin (http:) and
+  // therefore pass.
+  const SAFE_LINK_PROTOCOLS = new Set(["http:", "https:", "mailto:"]);
+
+  function linkProtocol(href) {
+    try { return new URL(href, document.baseURI).protocol; }
+    catch (_) { return null; }
+  }
+
+  function scrubUnsafeLinks(root) {
+    for (const a of qsa("a[href]", root)) {
+      const href = a.getAttribute("href");
+      if (href.startsWith("#")) continue; // in-page citation anchor — keep
+      if (!SAFE_LINK_PROTOCOLS.has(linkProtocol(href))) {
+        a.removeAttribute("href");
+        a.setAttribute("title", "link removed (unsafe URL)");
+      }
+    }
+  }
+
   // Materialize marked's output via DOMParser (inert document — scripts do
   // not execute) and adopt the nodes. Belt-and-braces on top of the escape.
   function setMarkdownHTML(container, html) {
     const doc = new DOMParser().parseFromString(html, "text/html");
+    scrubUnsafeLinks(doc.body); // before any node reaches the live page
     clear(container);
     for (const node of Array.from(doc.body.childNodes)) {
       container.appendChild(document.adoptNode(node));
@@ -399,6 +429,19 @@
     }
     // 3) smooth scroll + flash on citation click
     container.addEventListener("click", (e) => {
+      // Defense in depth on top of scrubUnsafeLinks: never honor a
+      // scriptable-protocol navigation from inside the report.
+      const anyLink = e.target.closest("a[href]");
+      if (anyLink) {
+        const href = anyLink.getAttribute("href") || "";
+        if (!href.startsWith("#")) {
+          const proto = linkProtocol(href);
+          if (proto === "javascript:" || proto === "vbscript:" || proto === "data:") {
+            e.preventDefault();
+            return;
+          }
+        }
+      }
       const a = e.target.closest("a.cite");
       if (!a) return;
       e.preventDefault();

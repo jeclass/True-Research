@@ -16,15 +16,17 @@ from pathlib import Path
 from typing import Literal
 
 from fastapi import HTTPException
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, Field, field_validator
 
 
 class LaunchRequest(BaseModel):
     question: str
     preset: Literal["standard", "comprehensive", "exhaustive", "cheap"] = "standard"
     verify: bool = False
-    max_budget_usd: float | None = None
-    max_wall_hours: float | None = None
+    # gt=0 + allow_inf_nan=False: a zero/negative/inf/nan cap would disable
+    # the budget/wall-clock circuit breakers (invariant 4).
+    max_budget_usd: float | None = Field(default=None, gt=0, allow_inf_nan=False)
+    max_wall_hours: float | None = Field(default=None, gt=0, allow_inf_nan=False)
 
     @field_validator("question")
     @classmethod

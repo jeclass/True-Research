@@ -26,7 +26,8 @@ _DECISIONS_HEADING = "## DECISIONS"
 
 
 def is_valid_run_id(run_id: str) -> bool:
-    return bool(RUN_ID_RE.match(run_id))
+    # fullmatch, not match: `$` in a match() would accept a trailing newline.
+    return bool(RUN_ID_RE.fullmatch(run_id))
 
 
 def _spend_usd(run_dir: Path) -> float:
