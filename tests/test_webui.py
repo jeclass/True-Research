@@ -201,3 +201,13 @@ def test_launch_rejects_unknown_preset(tmp_path):
     c = _client(tmp_path / "runs")
     r = c.post("/api/runs", json={"question": "ok", "preset": "bogus"})
     assert r.status_code == 422
+
+
+def test_frontend_assets_served_and_wired(tmp_path):
+    c = _client(tmp_path / "runs")
+    html = c.get("/").text
+    assert 'id="app"' in html
+    assert "/static/app.js" in html and "/static/style.css" in html
+    assert c.get("/static/app.js").status_code == 200
+    assert c.get("/static/style.css").status_code == 200
+    assert c.get("/static/vendor/marked.min.js").status_code == 200
