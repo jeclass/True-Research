@@ -118,3 +118,57 @@ def test_run_id_validation_rejects_path_traversal(tmp_path):
     for bad in ["../etc", "a/b", "..\\x", "a b", ""]:
         assert runs_api.is_valid_run_id(bad) is False
     assert runs_api.is_valid_run_id("20260102-000000-bbbb") is True
+
+
+def _client(runs_dir):
+    from starlette.testclient import TestClient
+    from src.webui.app import create_app
+    return TestClient(create_app(runs_dir=runs_dir))
+
+
+def test_api_runs_list_route(tmp_path):
+    runs = tmp_path / "runs"
+    _make_run(runs, "20260102-000000-bbbb", status="finished", finished_files=True)
+    c = _client(runs)
+    r = c.get("/api/runs")
+    assert r.status_code == 200
+    assert r.json()[0]["run_id"] == "20260102-000000-bbbb"
+
+
+def test_api_run_detail_route_and_404(tmp_path):
+    runs = tmp_path / "runs"
+    _make_run(runs, "20260101-000000-aaaa")
+    c = _client(runs)
+    assert c.get("/api/runs/20260101-000000-aaaa").json()["meta"]["profile"] == "general"
+    assert c.get("/api/runs/does-not-exist").status_code == 404
+    assert c.get("/api/runs/..%2f..%2fetc").status_code in (400, 404)
+
+
+def test_api_report_routes(tmp_path):
+    runs = tmp_path / "runs"
+    _make_run(runs, "20260102-000000-bbbb", status="finished", finished_files=True)
+    c = _client(runs)
+    assert "Source registry" in c.get("/api/runs/20260102-000000-bbbb/report").json()["markdown"]
+    pdf = c.get("/api/runs/20260102-000000-bbbb/report.pdf")
+    assert pdf.status_code == 200 and pdf.content[:5] == b"%PDF-"
+
+
+def test_index_html_served(tmp_path):
+    c = _client(tmp_path / "runs")
+    r = c.get("/")
+    assert r.status_code == 200 and "text/html" in r.headers["content-type"]
+
+
+def test_no_route_leaks_secrets(tmp_path):
+    runs = tmp_path / "runs"
+    _make_run(runs, "20260102-000000-bbbb", status="finished", finished_files=True)
+    c = _client(runs)
+    bodies = [
+        c.get("/api/runs").text,
+        c.get("/api/runs/20260102-000000-bbbb").text,
+        c.get("/api/runs/20260102-000000-bbbb/report").text,
+    ]
+    for b in bodies:
+        low = b.lower()
+        for needle in ["api_key", "api-key", "secret", "auth_token", "sk-ant", "authorization", "os.environ"]:
+            assert needle not in low, f"possible secret surface: {needle!r}"
