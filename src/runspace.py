@@ -55,7 +55,29 @@ def _atomic_write(target: Path, content: str) -> None:
             fh.write(content)
             fh.flush()
             os.fsync(fh.fileno())
-        os.replace(tmp, target)
+        # On Windows, os.replace fails with PermissionError (WinError 5) while
+        # ANY other process holds the target open without FILE_SHARE_DELETE —
+        # including a plain Python open()/read_text() or a `tail -f`. The web
+        # UI polls PROGRESS.md/state files every ~3s exactly that way, so the
+        # engine's own UI (or antivirus) could crash a multi-hour run mid-write
+        # (observed live 2026-07-02, twice). Readers hold the file for
+        # milliseconds: retry with bounded backoff. Bounded (~3s) so a
+        # genuinely wedged file still fails loudly (§0 no-silent-failure).
+        # Deliberately no logging in here — runspace logging itself writes
+        # files through this function (recursion risk); the exception after
+        # the cap is the signal. On the raise path the finally below still
+        # cleans up the tmp file, same as before.
+        delay = 0.05
+        deadline = time.monotonic() + 3.0
+        while True:
+            try:
+                os.replace(tmp, target)
+                break
+            except PermissionError:
+                if time.monotonic() >= deadline:
+                    raise
+                time.sleep(min(delay, 0.5))
+                delay *= 1.6
     finally:
         if tmp.exists():
             tmp.unlink()

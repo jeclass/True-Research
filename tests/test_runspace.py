@@ -1,6 +1,8 @@
 """Atomic-write crash safety, the stall hash, and lock semantics."""
 
 import os
+import sys
+import threading
 from pathlib import Path
 
 import pytest
@@ -41,6 +43,43 @@ def test_atomic_write_replaces_on_success(tmp_path):
     _atomic_write(target, "v2")
     assert target.read_text() == "v2"
     assert list(tmp_path.glob("*.tmp")) == []
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows share-lock semantics")
+def test_atomic_write_retries_past_transient_reader(tmp_path):
+    # On Windows a plain open()-for-read holds the target without
+    # FILE_SHARE_DELETE, so os.replace gets PermissionError (WinError 5).
+    # The web UI polls PROGRESS.md every ~3s this way — a transient reader
+    # must never crash the run; _atomic_write retries past it.
+    target = tmp_path / "PROGRESS.md"
+    target.write_text("old", encoding="utf-8")
+    fh = open(target, "r", encoding="utf-8")  # denies delete/rename on Windows
+    releaser = threading.Timer(0.4, fh.close)
+    releaser.start()
+    try:
+        _atomic_write(target, "new")
+    finally:
+        releaser.cancel()
+        if not fh.closed:
+            fh.close()
+    assert target.read_text(encoding="utf-8") == "new"
+    assert list(tmp_path.glob(".*.tmp")) == []
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows share-lock semantics")
+def test_atomic_write_raises_after_retry_cap(tmp_path):
+    # A reader that never releases (genuinely wedged file) must still fail
+    # loudly after the ~3s retry budget — bounded retries, no silent failure.
+    target = tmp_path / "PROGRESS.md"
+    target.write_text("old", encoding="utf-8")
+    fh = open(target, "r", encoding="utf-8")  # held for the whole test
+    try:
+        with pytest.raises(PermissionError):
+            _atomic_write(target, "new")  # takes ~3s to exhaust the budget
+    finally:
+        fh.close()
+    assert target.read_text(encoding="utf-8") == "old"  # old file intact
+    assert list(tmp_path.glob(".*.tmp")) == []  # tmp cleaned up on the raise path
 
 
 def test_open_readonly_reads_finished_run_without_lock(tmp_path):
