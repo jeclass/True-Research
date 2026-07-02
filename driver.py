@@ -1,0 +1,672 @@
+"""Marathon Research Engine — deterministic driver loop (CLAUDE.md §5).
+
+This file contains ZERO prompt text and ZERO model calls. All cognition lives
+in session modules selected via src.sessions.get_backend(). The loop's job:
+breakers before every session, the stall guard, atomic bookkeeping, and a
+partial report on every exit path.
+"""
+
+from __future__ import annotations
+
+import argparse
+import sys
+from pathlib import Path
+
+from rich.console import Console
+from rich.table import Table
+
+from src.errors import ConfigError, EngineError
+from src.ledger import Ledger
+from src.runspace import PLAN_FILE, REPORT_FILE, Runspace, _atomic_write
+from src.profiles import get_profile
+from src.sessions import Backend, get_backend
+from src.sessions.base import EvalError
+from src.settings import Settings, load_settings
+from src.state import FinishReason
+
+
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        prog="driver", description="Run or resume a marathon research run."
+    )
+    parser.add_argument("question", nargs="?", help="research question for a new run")
+    parser.add_argument(
+        "--question-file",
+        metavar="PATH",
+        help="read the research question from a UTF-8 text file instead of the "
+        "positional arg. Use this whenever the question contains quotes, "
+        "newlines, or shell metacharacters: those do NOT survive command-line "
+        "tokenization (PowerShell 5.1 splits an argument on embedded \" — "
+        "observed 2026-06-30: a quote-laden question became 13 argv tokens and "
+        "argparse exited 2 with no run dir). A file sidesteps the shell entirely. "
+        "Mutually exclusive with the positional question.",
+    )
+    parser.add_argument(
+        "--run-id-file",
+        metavar="PATH",
+        help="write the run id to PATH right after the run directory is "
+        "created (fresh run) or resolved (--resume). Lets a supervisor "
+        "(launcher, web UI) learn the id without scraping output.",
+    )
+    parser.add_argument("--resume", metavar="RUN_ID", help="resume an existing run")
+    parser.add_argument(
+        "--force-resume",
+        action="store_true",
+        help="with --resume, re-open a FINISHED run to keep researching it (e.g. "
+        "add budget after a stall). Resets status to running; the next finish "
+        "overwrites the reason.",
+    )
+    parser.add_argument("--profile", help="research profile (default from config)")
+    parser.add_argument("--config", default="config.yaml", help="path to config.yaml")
+    parser.add_argument("--max-cycles", type=int, dest="max_cycles")
+    parser.add_argument("--max-budget-usd", type=float, dest="max_budget_usd")
+    parser.add_argument("--max-wall-hours", type=float, dest="max_wall_hours")
+    parser.add_argument(
+        "--comprehensive",
+        action="store_true",
+        help="deep-research posture: promote the config `comprehensive:` bundle "
+        "(more cycles/wall/budget, deeper question tree, more seed questions). "
+        "Explicit --max-* flags still win.",
+    )
+    parser.add_argument(
+        "--exhaustive",
+        action="store_true",
+        help="DEEPEST posture: comprehensive PLUS a much higher per-cycle read "
+        "budget (1000+ pages) for genuinely vast topics. Pricier/longer; a focused "
+        "question concludes before this matters. Explicit --max-* flags still win.",
+    )
+    parser.add_argument(
+        "--lens",
+        action="append",
+        metavar="NAME",
+        help="activate an evidence lens (e.g. community); repeatable",
+    )
+    parser.add_argument(
+        "--verify",
+        action="store_true",
+        help="run the adversarial verification wave before synthesis (an "
+        "independent verifier tries to refute each load-bearing finding). "
+        "Implied by --comprehensive.",
+    )
+    parser.add_argument(
+        "--budget",
+        action="store_true",
+        help="cost-optimized posture: swap the config `budget:` role overrides "
+        "(local compose, Haiku synthesis/verifier, capped verification) to keep "
+        "a comprehensive run under ~$1. Trades some Opus judgment quality.",
+    )
+    parser.add_argument(
+        "--cheap",
+        action="store_true",
+        help="cheap posture: gpt-oss-120b @ Groq volume + DeepSeek V4 Pro on "
+        "init/verify/synth (grounded), and the once-firing gate on Qwen 3.7 Max "
+        "(non-hallucinating auditor). ~$0.7-1/run. Needs the proxy + DASHSCOPE.",
+    )
+    parser.add_argument(
+        "--accurate",
+        action="store_true",
+        help="high-accuracy posture: identical to --cheap but the once-firing gate "
+        "is Opus 4.8 (vs Qwen) + more verify passes. Frontier touches only the "
+        "gate. ~$1-1.5/run. Requires the LiteLLM/Groq proxy.",
+    )
+    parser.add_argument(
+        "--gate",
+        choices=["qwen", "sonnet", "opus"],
+        default=None,
+        help="override JUST the once-firing terminal gate (auditor), independent "
+        "of the preset: qwen=Qwen 3.7 Max (~$0.06, high-abstention, needs the "
+        "LiteLLM proxy up), sonnet=Sonnet 4.6 (reliable cloud default, the --cheap "
+        "gate), opus=Opus 4.8 (~$0.11, lowest hallucination). Wins over "
+        "--cheap/--accurate, so e.g. `--cheap --gate opus` = cheap build, trusted gate.",
+    )
+    parser.add_argument(
+        "--verify-depth",
+        type=int,
+        default=None,
+        metavar="N",
+        help="override JUST how many lead findings the verifier refutes (grounded "
+        "DeepSeek passes), independent of the preset. More passes = more accuracy "
+        "at low cost. Wins over --cheap/--accurate (cheap=3, accurate=10).",
+    )
+    parser.add_argument(
+        "--volume",
+        choices=["groq", "deepseek", "local"],
+        default=None,
+        help="override the volume-tier backend (worker/reader/compose/per-cycle "
+        "gate) independent of the preset: deepseek=V4 Flash (the OPERATIVE default "
+        "while Groq's Dev tier is externally gated), groq=gpt-oss-120b (restore "
+        "when it opens), local=Ollama gpt-oss-20b-32k ($0, slower). Wins over the preset.",
+    )
+    parser.add_argument(
+        "--skip-search-check",
+        action="store_true",
+        help="skip the SearXNG reachability preflight. By default the engine probes "
+        "the search backend at startup and aborts if it's down (pipeline mode needs "
+        "it) rather than blocking every cycle; use this to bypass that check.",
+    )
+    parser.add_argument(
+        "--waves",
+        action="store_true",
+        help="orchestrate waves: after BREADTH resolves the seed tree, seed a "
+        "DEPTH wave that re-investigates the top findings (primary-source "
+        "insistence + cross-validation) before verify/synthesis. Implied by "
+        "--comprehensive; use this to enable it on a shorter run.",
+    )
+    parser.add_argument(
+        "--json-summary",
+        metavar="PATH",
+        help="write a machine-readable run summary here (orchestrator hook)",
+    )
+    args = parser.parse_args(argv)
+    if args.question_file:
+        if args.question:
+            parser.error("provide the question OR --question-file, not both")
+        try:
+            args.question = Path(args.question_file).read_text(encoding="utf-8").strip()
+        except (OSError, UnicodeDecodeError) as exc:
+            # UnicodeDecodeError is a ValueError, not an OSError — a non-UTF-8
+            # file must exit via parser.error, not an uncaught decode crash.
+            parser.error(f"--question-file {args.question_file!r} could not be read: {exc}")
+        if not args.question:
+            parser.error(f"--question-file {args.question_file!r} is empty")
+    if bool(args.question) == bool(args.resume):
+        parser.error("provide exactly one of: a question, or --resume RUN_ID")
+    return args
+
+
+def _tripped_breaker(
+    run: Runspace, settings: Settings, ledger: Ledger, cycle: int
+) -> FinishReason | None:
+    """Checked before EVERY session (invariant 4). Order: budget, time, cycles."""
+    if ledger.spend_usd >= settings.max_budget_usd:
+        return "budget"
+    if run.wall_hours() >= settings.max_wall_hours:
+        return "time"
+    if cycle > settings.max_cycles:
+        return "max_cycles"
+    return None
+
+
+def _run_session(
+    backend: Backend,
+    name: str,
+    run: Runspace,
+    settings: Settings,
+    cycle: int,
+    ledger: Ledger,
+    console: Console,
+) -> None:
+    console.log(f"[cycle {cycle}] {name}: starting")
+    # Sessions record their own ledger entries (so a failed session still
+    # accounts its spend); the driver only checkpoints and reads totals.
+    result = backend[name](run, settings, cycle, ledger)
+    ledger.checkpoint()
+    console.log(
+        f"[cycle {cycle}] {name}: {result.summary} "
+        f"(${result.usd:.4f}, {result.wall_seconds:.1f}s, run total ${ledger.spend_usd:.4f})"
+    )
+
+
+def _verify_phase(
+    run: Runspace, settings: Settings, ledger: Ledger, console: Console
+) -> None:
+    """Adversarial verification wave (COMPREHENSIVE_RESEARCH_SPEC §3): before
+    synthesis, an independent verifier tries to REFUTE each load-bearing
+    finding; the verdict is written into the finding's meta so the synthesizer
+    can demote refuted claims. Opt-in (settings.verification.enabled). Skips
+    already-verified findings, so a resumed finish re-enters cleanly. Budget-
+    guarded: verification spends Opus, so it stops at the budget breaker rather
+    than blowing past it in the breaker-exempt finish path."""
+    if not settings.verification.enabled or settings.session.backend != "sdk":
+        return
+    from src.profiles import get_profile
+    from src.sessions import verifier
+
+    vcfg = settings.verification
+    findings = run.load_findings()
+    eligible = [
+        (slug, m, b)
+        for slug, (m, b) in findings.items()
+        if m.track == "factual"
+        and m.verification_status == "unverified"
+        and m.confidence >= vcfg.min_confidence
+        # Opt-in spend cut: skip findings already cross-validated by >= N sources.
+        and not (
+            vcfg.skip_corroborated_min_sources
+            and len(m.source_ids) >= vcfg.skip_corroborated_min_sources
+        )
+    ]
+    if vcfg.risk_first:
+        # Riskiest first: fewest sources (single-source load-bearing claims are
+        # CLAUDE.md's flagged risk), then highest confidence (most damage if wrong)
+        # — so the fixed budget refutes where it has the most leverage.
+        eligible.sort(key=lambda t: (len(t[1].source_ids), -t[1].confidence))
+    else:
+        eligible.sort(key=lambda t: t[1].confidence, reverse=True)  # legacy: confidence-first
+    candidates = eligible[: vcfg.max_findings]
+    if not candidates:
+        return
+
+    profile = get_profile(run.meta.profile)
+    cycle = run.last_cycle()
+    console.log(f"verification wave: challenging {len(candidates)} findings")
+    counts = {"verified": 0, "refuted": 0, "unverified": 0}
+    for slug, meta, body in candidates:
+        if ledger.spend_usd >= settings.max_budget_usd:
+            run.log_decision(
+                "verification wave halted: budget breaker reached "
+                f"({len(candidates) - sum(counts.values())} findings left unverified)"
+            )
+            break
+        try:
+            status, note = verifier.verify_finding(
+                run, settings, ledger, cycle, profile, slug, meta, body
+            )
+        except Exception as exc:  # noqa: BLE001 — one bad verify must not kill the report
+            run.log_decision(f"verification of {slug} errored: {exc}")
+            continue
+        run.write_finding(
+            slug,
+            meta.model_copy(
+                update={"verification_status": status, "verification_note": note}
+            ),
+            body,
+        )
+        ledger.checkpoint()
+        counts[status] = counts.get(status, 0) + 1
+        run.log_decision(f"verification {slug}: {status.upper()} — {note}")
+        console.log(f"[verify] {slug}: {status}")
+    run.log(
+        f"verification wave: {counts['verified']} verified, "
+        f"{counts['refuted']} refuted, {counts['unverified']} inconclusive"
+    )
+
+
+def _finish(
+    backend: Backend,
+    run: Runspace,
+    settings: Settings,
+    ledger: Ledger,
+    console: Console,
+    reason: FinishReason,
+) -> FinishReason:
+    """Every exit path lands here: reason is recorded first, then the
+    verification wave (opt-in) annotates findings, then the synthesizer ALWAYS
+    writes a (possibly partial) report — it is the one session exempt from
+    breakers, by design (§3.4)."""
+    run.log(f"Run ending: {reason}")
+    run.mark_finishing(reason)
+    _verify_phase(run, settings, ledger, console)
+    _run_session(backend, "synthesizer", run, settings, run.last_cycle(), ledger, console)
+    run.mark_finished()
+    return reason
+
+
+def _advance_to_depth(run: Runspace, settings: Settings, console: Console) -> bool:
+    """Wave orchestration (COMPREHENSIVE_RESEARCH_SPEC item 4). Called at every
+    point BREADTH would finish 'conclusive': if waves are on and we're still in
+    BREADTH, seed DEPTH questions from the top findings and return True so the
+    caller keeps looping (the worker/evaluator machinery resolves them, breakers
+    still armed) instead of finishing. Returns False — finish normally — when
+    waves are off, we're already in DEPTH, or nothing is worth deepening. This
+    is the ONLY new control in the loop; everything else is the existing flow."""
+    if not settings.waves.enabled or run.meta.wave != "breadth":
+        return False
+    from src.sessions.depth import seed_depth_questions
+
+    seeded = seed_depth_questions(run, settings)
+    if seeded == 0:
+        return False
+    run.set_wave("depth")
+    run.log_decision(
+        f"BREADTH concluded; entering DEPTH wave — seeded {seeded} deepening "
+        "question(s) for primary-source re-investigation + cross-validation."
+    )
+    console.log(f"wave: BREADTH -> DEPTH ({seeded} findings to deepen)")
+    return True
+
+
+def _drive(
+    backend: Backend,
+    run: Runspace,
+    settings: Settings,
+    ledger: Ledger,
+    console: Console,
+) -> FinishReason:
+    # A finish that was interrupted mid-synthesis resumes straight to finish.
+    if run.meta.finish_reason is not None:
+        console.log(f"resuming an interrupted finish (reason: {run.meta.finish_reason})")
+        return _finish(backend, run, settings, ledger, console, run.meta.finish_reason)
+
+    if not (run.root / PLAN_FILE).is_file():
+        tripped = _tripped_breaker(run, settings, ledger, cycle=1)
+        if tripped:
+            return _finish(backend, run, settings, ledger, console, tripped)
+        _run_session(backend, "initializer", run, settings, 0, ledger, console)
+
+    cycle = run.last_cycle() + 1
+    while True:
+        tripped = _tripped_breaker(run, settings, ledger, cycle)
+        if tripped:
+            return _finish(backend, run, settings, ledger, console, tripped)
+
+        before = run.state_hash()
+        if run.no_open_questions():
+            # Empty actionable queue at the top of a cycle. This happens on RESUME
+            # when the run was interrupted between the worker resolving the last
+            # open question and the evaluator's conclusive-exit check (root-cause
+            # fix 2026-06-25: a reaped/crashed run resumed here and the worker
+            # raised "invoked with no open or in_progress questions", crash-looping
+            # the launcher). Skip the worker — it has nothing to do and would crash
+            # — and let the evaluator render its verdict, which routes to the
+            # conclusive exit / final gate / exhaustion-stall below.
+            run.log(
+                f"worker (cycle {cycle}): skipped — no open questions remain; "
+                "evaluating for conclusive exit"
+            )
+        else:
+            _run_session(backend, "worker", run, settings, cycle, ledger, console)
+
+        tripped = _tripped_breaker(run, settings, ledger, cycle)
+        if tripped:
+            return _finish(backend, run, settings, ledger, console, tripped)
+        if run.meta.read_outage_streak >= settings.max_read_outage_cycles:
+            # Volume/reader-endpoint outage (audit #20): N consecutive cycles where
+            # every selected URL failed to fetch — the endpoint is down, not the
+            # web. The judgment layer (separate fallback-protected endpoint) keeps
+            # FAILing for lack of evidence, and each soft-block's state delta hides
+            # this from the hash-stall guard, so the run would otherwise churn its
+            # whole budget at zero findings. Stop cleanly with a partial report;
+            # --resume once the endpoint is back picks up where it left off.
+            run.log_decision(
+                f"read-endpoint outage: {run.meta.read_outage_streak} consecutive "
+                f"cycles where every fetch failed (cap {settings.max_read_outage_cycles}) "
+                "— the volume/reader endpoint appears down, not the web. Finishing "
+                "with a partial report instead of burning budget at zero findings; "
+                "--resume once it recovers to continue."
+            )
+            run.complete_cycle(cycle, stalled=False)
+            return _finish(backend, run, settings, ledger, console, "read_outage")
+        _run_session(backend, "evaluator", run, settings, cycle, ledger, console)
+
+        verdict = run.latest_verdict()
+        if verdict is None:
+            raise EvalError(f"evaluator finished cycle {cycle} without writing a verdict")
+
+        if verdict.passed and run.no_open_questions():
+            # Two-tier evaluation (operator decision 2026-06-10): the run may
+            # only END through the final_evaluator gate when one is configured.
+            if "final_evaluator" in settings.roles and "final_evaluator" in backend:
+                # Opus final-gate firing cap (budget posture's variable cost):
+                # once exhausted, accept the local evaluator's pass rather than
+                # re-summon Opus — spend stays deterministic, finish stays
+                # conclusive. The budget breaker is still the hard net beneath.
+                if run.meta.final_eval_count >= settings.max_final_evaluations:
+                    run.log_decision(
+                        f"Opus final-gate budget ({settings.max_final_evaluations}) "
+                        "exhausted; accepting the per-cycle evaluator's pass as "
+                        "conclusive (local-judged, not Opus-confirmed this cycle)."
+                    )
+                    run.complete_cycle(cycle, stalled=False)
+                    if _advance_to_depth(run, settings, console):
+                        cycle += 1
+                        continue
+                    return _finish(backend, run, settings, ledger, console, "conclusive")
+                tripped = _tripped_breaker(run, settings, ledger, cycle)
+                if tripped:
+                    return _finish(backend, run, settings, ledger, console, tripped)
+                _run_session(backend, "final_evaluator", run, settings, cycle, ledger, console)
+                run.bump_final_eval()
+                final_verdict = run.latest_verdict()
+                if final_verdict is None:
+                    raise EvalError(
+                        f"final evaluator finished cycle {cycle} without a verdict"
+                    )
+                if final_verdict.passed and run.no_open_questions():
+                    run.complete_cycle(cycle, stalled=False)
+                    if _advance_to_depth(run, settings, console):
+                        cycle += 1
+                        continue
+                    return _finish(backend, run, settings, ledger, console, "conclusive")
+                if run.no_open_questions():
+                    # Final gate rejected but opened NO actionable questions (the
+                    # evaluator contract doesn't enforce attaching them, and any it
+                    # proposed can be dropped as duplicates or by the question cap).
+                    # The queue is still empty, so the next cycle would skip the
+                    # worker, re-judge identical state, and re-summon the (most
+                    # expensive) Opus gate — burning up to max_final_evaluations of
+                    # them for zero progress. This is exhaustion, not a deepening
+                    # cycle: finish cleanly, same as the per-cycle exhaustion path
+                    # below (audit #0 — the old code asserted "state changed" here
+                    # without checking it and reset the stall counter every time).
+                    run.log_decision(
+                        f"final gate (cycle {cycle}) rejected but opened no "
+                        "actionable questions and the queue is empty — nothing to "
+                        "deepen; finishing with a partial report rather than "
+                        "re-summoning the Opus gate on unchanged state."
+                    )
+                    run.complete_cycle(cycle, stalled=False)
+                    return _finish(backend, run, settings, ledger, console, "exhausted")
+                # Final gate rejected and opened new questions — the loop genuinely
+                # deepens (state changed), so this cycle is not a stall.
+                run.complete_cycle(cycle, stalled=False)
+                cycle += 1
+                continue
+            run.complete_cycle(cycle, stalled=False)
+            if _advance_to_depth(run, settings, console):
+                cycle += 1
+                continue
+            return _finish(backend, run, settings, ledger, console, "conclusive")
+
+        if run.no_open_questions():
+            # FAIL verdict with an empty queue: the evaluator closed the last
+            # open questions without opening new ones (observed smoke6
+            # 2026-06-10). Another worker cycle would crash on an empty queue;
+            # this is an exhaustion-stall — finish cleanly with the partial
+            # report, unmet criteria standing.
+            run.log_decision(
+                f"evaluator (cycle {cycle}) FAILED with zero open questions — "
+                "nothing actionable remains; finishing with a partial report."
+            )
+            run.complete_cycle(cycle, stalled=False)
+            # "exhausted", NOT "stall": all open questions were resolved, the
+            # evaluator just never passed. The invariant-5 hash-stall guard (below)
+            # is a different condition (no-delta looping, stall_count > 0). Giving
+            # this path its own finish_reason keeps run.json unambiguous without
+            # needing to cross-reference PROGRESS.md (audit #19).
+            return _finish(backend, run, settings, ledger, console, "exhausted")
+
+        stalled = run.state_hash() == before
+        stall_count = run.complete_cycle(cycle, stalled)
+        if stalled:
+            run.log_decision(
+                f"STALL: cycle {cycle} produced no change to open_questions.yaml "
+                f"or findings/ ({stall_count}/{settings.stall_cycles} consecutive)."
+            )
+            if stall_count >= settings.stall_cycles:
+                run.log_decision(
+                    f"STALL: threshold of {settings.stall_cycles} consecutive "
+                    "no-delta cycles reached; halting per invariant 5."
+                )
+                return _finish(backend, run, settings, ledger, console, "stall")
+        cycle += 1
+
+
+def _print_summary(
+    run: Runspace, ledger: Ledger, reason: FinishReason, console: Console
+) -> None:
+    table = Table(title=f"Run {run.meta.run_id} — {reason}")
+    table.add_column("metric")
+    table.add_column("value")
+    table.add_row("question", run.meta.question)
+    table.add_row("profile", run.meta.profile)
+    table.add_row("finish reason", reason)
+    table.add_row("cycles completed", str(run.last_cycle()))
+    table.add_row("sessions ledgered", str(len(ledger.entries)))
+    table.add_row("spend (client-side estimate)", f"${ledger.spend_usd:.4f}")
+    table.add_row("active wall hours", f"{run.wall_hours():.3f}")
+    table.add_row("report", str(run.root / REPORT_FILE))
+    console.print(table)
+
+
+def _write_summary(path: str, payload: dict) -> None:
+    import json
+
+    _atomic_write(Path(path), json.dumps(payload, indent=2))
+
+
+def main(argv: list[str] | None = None) -> int:
+    console = Console()
+    args = parse_args(argv)
+    overrides = {
+        "max_cycles": args.max_cycles,
+        "max_budget_usd": args.max_budget_usd,
+        "max_wall_hours": args.max_wall_hours,
+        "lenses": args.lens,  # None when unset => config default (empty)
+        "comprehensive": args.comprehensive,  # promotes the deep bundle
+        "exhaustive": args.exhaustive,  # deepest: comprehensive + high read budget
+        "verify": args.verify,  # enables the verification wave
+        "waves": args.waves,  # enables BREADTH->DEPTH wave orchestration
+        "budget": args.budget,  # swaps in the Haiku role overrides
+        "cheap": args.cheap,  # efficient build; once-firing gate on Qwen 3.7 Max
+        "accurate": args.accurate,  # same build; once-firing gate on Opus 4.8
+        "gate": args.gate,  # override terminal auditor (qwen|opus), wins over preset
+        "verify_depth": args.verify_depth,  # override verifier pass count, wins over preset
+        "volume": args.volume,  # override volume backend (groq|deepseek|local), wins over preset
+    }
+    try:
+        settings = load_settings(config_path=args.config, overrides=overrides)
+        # Routing banner: show where each tier resolves BEFORE spending a cent, so
+        # a misrouted run (e.g. volume silently on Groq while it 429s) is visible
+        # up front rather than discovered in the ledger. Defensive on role lookups
+        # — minimal/test configs may omit some roles.
+        def _route(role: str) -> str:
+            rc = settings.roles.get(role)
+            return f"{rc.endpoint}/{rc.model}" if rc else "(unset)"
+
+        _volume, _judgment, _gate = (
+            _route("reader_subagent"),
+            _route("synthesizer"),
+            _route("final_evaluator"),
+        )
+        console.print(
+            f"[cyan]routing[/cyan]  volume=[bold]{_volume}[/bold]  "
+            f"judgment=[bold]{_judgment}[/bold]  gate=[bold]{_gate}[/bold]"
+        )
+        if args.comprehensive or args.exhaustive:
+            mode = "EXHAUSTIVE" if args.exhaustive else "COMPREHENSIVE"
+            reads = (
+                f", read budget={settings.worker_pipeline.max_reads}/cycle"
+                if args.exhaustive else ""
+            )
+            console.print(
+                f"[bold cyan]{mode} mode — deep bounds applied: "
+                f"max_cycles={settings.max_cycles}, "
+                f"max_wall_hours={settings.max_wall_hours}, "
+                f"max_budget_usd=${settings.max_budget_usd}, "
+                f"tree depth<={settings.question_tree.max_depth}, "
+                f"<={settings.question_tree.max_questions} questions, "
+                f"seed_target={settings.question_tree.seed_target}{reads}.[/bold cyan]"
+            )
+        if settings.is_full_local():
+            # §1: full-local is permitted but must be LOUD — judgment roles
+            # (evaluator/adjudication/synthesis) degrade most on local models.
+            console.print(
+                "[bold yellow]WARNING: FULL-LOCAL posture — every role routes to a "
+                "non-first-party endpoint. Conclusiveness judgment degrades most "
+                "on local models (CLAUDE.md §1); hybrid is the recommended "
+                "posture.[/bold yellow]"
+            )
+        # Fail fast if the search backend is down (pipeline mode needs SearXNG) —
+        # otherwise every worker cycle blocks and the run wastes its whole budget
+        # to produce an empty report (observed 2026-06-24: Docker stopped).
+        if not args.skip_search_check:
+            from src.tools.search import preflight_search
+
+            backend = preflight_search(settings)
+            console.print(
+                f"[cyan]search[/cyan]   backend=[bold]{backend}[/bold]"
+                + (
+                    " [yellow](SearXNG down — DuckDuckGo fallback, lower breadth; "
+                    "start Docker/SearXNG for full aggregation)[/yellow]"
+                    if backend == "ddg"
+                    else ""
+                )
+            )
+        runs_dir = Path(settings.runs_dir)
+        if args.resume:
+            run = Runspace.resume(runs_dir, args.resume, force=args.force_resume)
+            get_profile(run.meta.profile)  # fail fast if unimplemented
+            console.log(f"resumed run {run.meta.run_id} at cycle {run.last_cycle() + 1}")
+        else:
+            profile = args.profile or settings.default_profile
+            if profile not in settings.profiles:
+                raise ConfigError(
+                    f"unknown profile {profile!r}; configured: {settings.profiles}"
+                )
+            get_profile(profile)  # fail fast if unimplemented
+            run = Runspace.create(runs_dir, args.question, profile)
+            console.log(f"created run {run.meta.run_id} (profile: {profile})")
+            run.log_decision(
+                f"routing — volume={_volume}, judgment={_judgment}, gate={_gate}"
+            )
+            if settings.is_full_local():
+                run.log_decision(
+                    "run started in FULL-LOCAL posture — all roles on "
+                    "non-first-party endpoints (§1 warning issued)"
+                )
+
+        if args.run_id_file:
+            Path(args.run_id_file).write_text(
+                run.meta.run_id + "\n", encoding="utf-8"
+            )
+    except EngineError as exc:
+        console.print("error: ", style="red", end="")
+        console.print(str(exc), markup=False, highlight=False)
+        return 1
+
+    backend = get_backend(settings)
+    ledger = Ledger(run)
+    try:
+        reason = _drive(backend, run, settings, ledger, console)
+        _print_summary(run, ledger, reason, console)
+        if args.json_summary:
+            _write_summary(
+                args.json_summary,
+                {
+                    "status": "finished",
+                    "run_id": run.meta.run_id,
+                    "run_dir": str(run.root),
+                    "question": run.meta.question,
+                    "profile": run.meta.profile,
+                    "finish_reason": reason,
+                    "cycles": run.last_cycle(),
+                    "spend_usd": round(ledger.spend_usd, 6),
+                    "wall_hours": round(run.wall_hours(), 4),
+                    "report": str(run.root / REPORT_FILE),
+                },
+            )
+        return 0
+    except EngineError as exc:
+        # No silent fallback: surface the error, leave state on disk for --resume.
+        console.print("error: ", style="red", end="")
+        console.print(str(exc), markup=False, highlight=False)
+        console.print(f"run state preserved at {run.root}; resume with --resume {run.meta.run_id}")
+        if args.json_summary:
+            _write_summary(
+                args.json_summary,
+                {
+                    "status": "error",
+                    "run_id": run.meta.run_id,
+                    "run_dir": str(run.root),
+                    "error": str(exc),
+                    "resume_with": run.meta.run_id,
+                },
+            )
+        return 1
+    finally:
+        run.release_lock()
+
+
+if __name__ == "__main__":
+    sys.exit(main())

@@ -1,0 +1,127 @@
+from __future__ import annotations
+
+from pathlib import Path
+
+import pytest
+import yaml
+
+
+def pytest_configure(config):
+    config.addinivalue_line(
+        "markers",
+        "real_preflight: run the real preflight_search (opt out of the autouse "
+        "DDG-network stub); for tests that exercise preflight tiering itself.",
+    )
+
+
+@pytest.fixture(autouse=True)
+def _stub_preflight_search(request, monkeypatch):
+    """driver.main() runs preflight_search before the loop. With no Serper key and
+    no SearXNG configured (the test default) it falls through to a REAL DuckDuckGo
+    network probe, which DDG rate-limits under the suite's many rapid runs — so the
+    probe intermittently returns "No results found" and fails otherwise-unrelated
+    driver tests (a long-standing flaky-suite source: a single bad test rotated each
+    run). The stub backends never search for real, so neutralize the probe to a
+    deterministic "ddg". Tests that exercise preflight_search itself opt out with
+    @pytest.mark.real_preflight."""
+    if request.node.get_closest_marker("real_preflight"):
+        return
+    import src.tools.search as search_mod
+
+    monkeypatch.setattr(search_mod, "preflight_search", lambda settings, **kw: "ddg")
+
+
+BASE_CONFIG: dict = {
+    "runs_dir": None,  # filled per test
+    "max_budget_usd": 10.0,
+    "max_wall_hours": 6.0,
+    "max_cycles": 40,
+    "stall_cycles": 2,
+    "max_final_evaluations": 4,
+    "profiles": ["general", "scientific", "visual"],
+    "default_profile": "general",
+    "endpoints": {
+        "anthropic": {"base_url": None, "auth_env": "ANTHROPIC_API_KEY"},
+        "local": {"base_url": "http://localhost:11434", "auth_env": "OLLAMA_AUTH"},
+    },
+    "roles": {
+        "initializer": {"endpoint": "anthropic", "model": "claude-opus-4-8", "max_turns": 16},
+        "worker": {"endpoint": "anthropic", "model": "claude-sonnet-4-6", "max_turns": 50},
+        "reader_subagent": {
+            "endpoint": "anthropic",
+            "model": "claude-haiku-4-5-20251001",
+            "max_turns": 12,
+        },
+        "evaluator": {"endpoint": "anthropic", "model": "claude-opus-4-8", "max_turns": 24},
+        "judge": {"endpoint": "anthropic", "model": "claude-opus-4-8", "max_turns": 8},
+        "verifier": {"endpoint": "anthropic", "model": "claude-opus-4-8", "max_turns": 8},
+        "synthesizer": {"endpoint": "anthropic", "model": "claude-opus-4-8", "max_turns": 40},
+    },
+    "session": {"backend": "stub", "max_budget_usd_per_session": 2.0,
+                "default_max_wall_seconds": 1800},
+    "reader": {
+        "max_page_chars": 24000,
+        "max_failures_per_session": 6,
+        "fetch_timeout_seconds": 30,
+        "require_reads": True,
+    },
+    "search": {"searxng_base_url": None, "max_results": 8},
+    "retry": {"attempts": 3, "base_delay_seconds": 0.01, "max_delay_seconds": 0.05},
+    "worker_pipeline": {
+        "enabled": False,  # agentic default in tests; pipeline tested explicitly
+        "queries_per_question": 4,
+        "urls_per_query": 4,
+        "max_reads": 12,
+        "per_domain_cap": 2,
+    },
+    "evaluator": {"per_cycle_findings_chars": 40000, "per_cycle_max_sources": 60},
+    "question_tree": {"max_depth": 4, "max_questions": 50, "seed_target": 6, "retire_blocked_after": 4},
+    "comprehensive": {
+        "max_cycles": 150,
+        "max_wall_hours": 8.0,
+        "max_budget_usd": 25.0,
+        "max_depth": 6,
+        "max_questions": 120,
+        "seed_target": 12,
+    },
+    "verification": {"enabled": False, "max_findings": 8, "min_confidence": 0.6},
+    "waves": {"enabled": False, "depth_findings": 6},
+    "stub": {
+        "seed_questions": 3,
+        "worker_no_delta": False,
+        "sleep_seconds": 0.0,
+        "cost_usd": 0.0,
+    },
+}
+
+
+@pytest.fixture
+def make_config(tmp_path: Path):
+    """Write a config.yaml under tmp_path with overrides; returns its path.
+    Overrides use dotted keys for nesting, e.g. {"stub.worker_no_delta": True}."""
+
+    def _make(**overrides) -> Path:
+        cfg = yaml.safe_load(yaml.safe_dump(BASE_CONFIG))  # deep copy
+        cfg["runs_dir"] = str(tmp_path / "runs")
+        for dotted, value in overrides.items():
+            node = cfg
+            *parents, leaf = dotted.split(".")
+            for key in parents:
+                node = node[key]
+            node[leaf] = value
+        path = tmp_path / "config.yaml"
+        path.write_text(yaml.safe_dump(cfg), encoding="utf-8")
+        return path
+
+    return _make
+
+
+@pytest.fixture
+def runs_dir(tmp_path: Path) -> Path:
+    return tmp_path / "runs"
+
+
+def only_run_dir(runs_dir: Path) -> Path:
+    children = [p for p in runs_dir.iterdir() if p.is_dir()]
+    assert len(children) == 1, f"expected exactly one run dir, found {children}"
+    return children[0]

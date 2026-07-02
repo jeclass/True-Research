@@ -1,0 +1,386 @@
+# LOCAL-HYBRID EXAMPLE (the 16GB-VRAM battle-tested posture, 2026-06):
+# volume tiers (worker query-gen/compose, readers, per-cycle evaluator) on a
+# local Ollama gpt-oss-20b-32k at $0; judgment (initializer, final gate,
+# synthesizer, verifier) on cloud Opus. Requires: Ollama >= 0.14 with the
+# model pulled, and search.searxng_base_url or SERPER_API_KEY.
+# Use:  python driver.py "question" --config docs/examples/config.local-hybrid.yaml
+
+# Marathon Research Engine — all tunable knobs live here (CLAUDE.md §1).
+# No magic numbers in code; the driver accepts explicit CLI overrides for the
+# breaker values below.
+
+runs_dir: runs
+
+# --- Global circuit breakers (CLAUDE.md §3.4) -------------------------------
+max_budget_usd: 2.0       # HARD net (operator bar: $1-2 per multi-hour run);
+                          # checked before every session — cannot be exceeded
+max_wall_hours: 6.0       # accumulated *active* driver hours (survives resume)
+max_cycles: 40            # worker+evaluator cycles before forced halt
+emit_pdf: true            # also write REPORT.pdf (pure-Python markdown->PDF, no
+                          # system libs); a render/dep failure degrades gracefully
+max_final_evaluations: 2  # Opus final-gate firings/run — the biggest REAL cost
+                          # ($1.18/Opus call; was 4 firings = $4.71 on the hair run,
+                          # 51% of the bill). After this many, accept the per-cycle
+                          # evaluator's pass rather than re-summon Opus.
+
+# --- Stall detection (CLAUDE.md §3.5) ---------------------------------------
+stall_cycles: 2           # consecutive cycles with no state delta => halt
+max_read_outage_cycles: 3 # consecutive cycles where EVERY read failed to fetch
+                          # => clean "read_outage" finish (volume endpoint down,
+                          # e.g. DeepSeek; a soft-block's state delta hides this
+                          # from stall detection, so it churned budget — audit #20)
+
+# --- Question-tree bounds (item 2 — deeper trees) ---------------------------
+# --- Per-cycle evaluator context bounds (root-cause fix 2026-06-15) ----------
+# The cheap per-cycle gate runs on the local 32k model; without these it
+# overflowed at ~13 findings / 136 sources (~30.7k tok) and 5xx-ed, halting
+# deep runs. Findings are excerpted to a total budget (distributed per
+# finding); the source list is capped to the most-credible N. The Opus final
+# gate is exempt and still sees full text.
+evaluator:
+  per_cycle_findings_chars: 40000
+  per_cycle_max_sources: 60
+  # The Opus final gate reads more than the per-cycle gate (it's the terminal
+  # check) but is no longer unbounded — on an exhaustive run a 100-finding digest
+  # would cost ~$1+/Opus call in input alone. These GENEROUS caps (~37k tok / 120
+  # sources) only bite very large runs; normal runs sit well under them.
+  final_findings_chars: 150000
+  final_max_sources: 120
+
+# PERMISSIVE defaults: bound runaway recursion/breadth without changing
+# certified-run behavior (~12 questions, depth <=2). --comprehensive promotes
+# the deeper bundle below.
+question_tree:
+  max_depth: 4            # fragmentation refused past this depth (leaf instead)
+  max_questions: 50       # total questions a run may create
+  seed_target: 6          # questions the initializer aims for (was hardcoded 3-6)
+  retire_blocked_after: 4 # retire a question after this many blocked worker attempts
+                          # (no reachable sources) so the worker can't loop on it
+
+# --- Comprehensive mode (--comprehensive: one switch for "go deep") ---------
+# Promoted over the breakers + question_tree at load time. Explicit CLI flags
+# still win. This is the 8-hour-research posture; default runs are unaffected.
+comprehensive:
+  max_cycles: 150
+  max_wall_hours: 8.0
+  max_budget_usd: 25.0
+  max_depth: 6
+  max_questions: 120
+  seed_target: 12
+
+# --- Exhaustive mode (--exhaustive: comprehensive + a MUCH higher read budget) ---
+# The deepest posture, for genuinely vast topics where breadth itself is the goal
+# (a full-field systematic review, "everything known about X"). Reads 1000+ pages
+# by lifting the per-cycle read budget far above the default 12 — the search
+# already surfaces ~90 candidates/cycle, this reads many more of them. Pricier
+# (~$4-8) and longer; a FOCUSED question concludes before this matters, so don't
+# reach for it by default. Explicit CLI flags (--max-budget-usd, etc.) still win.
+exhaustive:
+  max_cycles: 200
+  max_wall_hours: 6.0
+  max_budget_usd: 15.0
+  max_depth: 8
+  max_questions: 200
+  seed_target: 20
+  max_reads: 45            # vs 12 default — read ~45 of the ~90 candidates/cycle
+  per_domain_cap: 5        # vs 3 — more primary papers per authoritative domain
+
+# --- Verification wave (COMPREHENSIVE_RESEARCH_SPEC §3) -----------------------
+# Opt-in (--verify, or implied by --comprehensive). After the loop resolves the
+# question tree, an independent verifier tries to REFUTE each load-bearing
+# finding; refuted findings are demoted in the report (verified > unverified >
+# refuted). Off by default — normal runs are unchanged.
+verification:
+  enabled: false
+  max_findings: 8        # verify the top-N findings (cost bound)
+  min_confidence: 0.6    # only verify load-bearing (confident) findings
+  risk_first: true       # spend the verifier budget on the RISKIEST claims first
+                         # (fewest sources, then highest confidence) — a single-
+                         # source load-bearing claim is the real risk, not a
+                         # multi-source-corroborated one. Same spend, better aim.
+  skip_corroborated_min_sources: 0  # >0: skip verifying findings already backed by
+                         # >= N sources (opt-in spend cut; 0 = verify all eligible)
+
+# --- Wave orchestration (COMPREHENSIVE_RESEARCH_SPEC item 4) ------------------
+# Opt-in (implied by --comprehensive). When BREADTH concludes (the seed tree is
+# resolved), the driver seeds DEPTH questions from the top findings and keeps
+# looping to re-investigate them (primary-source insistence + cross-validation)
+# before VERIFY/SYNTHESIZE. Off by default — a normal run never consults the
+# wave field and behaves byte-identically.
+waves:
+  enabled: false
+  depth_findings: 6      # top-N findings deepened when breadth concludes
+  skip_corroborated_min_sources: 0  # >0: don't re-deepen a lead already backed by
+                         # >= N sources — spend DEPTH on under-corroborated leads
+                         # (per-question early-stopping; 0 = deepen top-N regardless)
+
+# --- Budget posture (--budget): keep a comprehensive run under ~$1 -----------
+# Swaps the Opus judgment roles to cheaper backends and caps verification. An
+# explicit cost/quality trade: synthesis + verification on Haiku (not Opus),
+# compose back on the local model. Initializer + the Opus final-gate stay (the
+# cheap, load-bearing judgment). Meta-config, consumed by --budget only.
+budget:
+  roles:
+    compose:     {endpoint: local,     model: gpt-oss-20b-32k,             max_turns: 4,  max_wall_seconds: 600}
+    synthesizer: {endpoint: anthropic, model: claude-haiku-4-5-20251001,   max_turns: 40, max_wall_seconds: 1800}
+    verifier:    {endpoint: anthropic, model: claude-haiku-4-5-20251001,   max_turns: 8,  max_wall_seconds: 900}
+  verification_max_findings: 3   # cap the verify wave to the top-3 claims
+
+# --- Cheap posture (--cheap): the efficient frontier (architect review 2026-06-16)
+# Volume on DeepSeek V4 Flash (Groq Dev tier externally gated 2026-06-16 + free
+# tier 429s @ 8k TPM; `--volume groq` restores the designed gpt-oss-120b tier when
+# it opens). init/verify/synth on DeepSeek V4 Pro (grounded stages; cache ~free).
+# ONLY the once-firing gate goes to a non-hallucinating auditor — Qwen 3.7 Max
+# (high-abstention, ~$0.06). Frontier touches exactly one cell. ~$0.3-0.6/run.
+cheap:
+  roles:
+    initializer:     {endpoint: deepseek, model: deepseek-v4-pro, max_turns: 16, max_wall_seconds: 600}
+    # VOLUME on DeepSeek (Groq gated; see header). Extraction -> Flash; the
+    # multi-turn per-cycle gate -> Pro (Flash exhausts its turn budget — the same
+    # extraction-vs-judgment split as everywhere). Mirrors volume_options.deepseek.
+    worker:          {endpoint: deepseek_flash, model: deepseek-v4-flash, max_turns: 4,  max_wall_seconds: 300}
+    reader_subagent: {endpoint: deepseek_flash, model: deepseek-v4-flash, max_turns: 4,  max_wall_seconds: 300}
+    compose:         {endpoint: deepseek_flash, model: deepseek-v4-flash, max_turns: 4,  max_wall_seconds: 300}
+    evaluator:       {endpoint: deepseek,       model: deepseek-v4-pro,   max_turns: 12, max_wall_seconds: 600}
+    # Only the GATE goes to a non-hallucinating auditor — it's the ungrounded
+    # "is this conclusive?" call that fires ONCE (pennies). Verify stays DeepSeek:
+    # it's GROUNDED (reads sources to refute), the reports agree V4 Pro is adequate,
+    # and it's the expensive multi-call stage — don't pay frontier there. The
+    # accuracy lever for verify is MORE DeepSeek passes, not a pricier model.
+    verifier:        {endpoint: deepseek, model: deepseek-v4-pro, max_turns: 8,  max_wall_seconds: 900}
+    synthesizer:     {endpoint: deepseek, model: deepseek-v4-pro, max_turns: 40, max_wall_seconds: 1800}
+    final_evaluator: {endpoint: anthropic, model: claude-sonnet-4-6, max_turns: 24, max_wall_seconds: 1200}  # RELIABLE gate (Opus review #5): was qwen, but its LiteLLM proxy is often down -> the critical terminal gate must not sit on a flaky endpoint. --gate qwen/opus still override.
+  verification_max_findings: 6   # was 3 — the verify wave missed the wrong findings
+                                 # (Opus review): check more load-bearing claims, and
+                                 # the verifier prompt now scrutinizes absence/numeric
+                                 # claims hardest (DeepSeek-cheap, so coverage is affordable)
+  max_budget_usd: 2.0      # ~$0.7-1.0/run; $2 is runaway headroom
+
+# --- High-accuracy posture (--accurate): the efficient build + Opus gate -------
+# IDENTICAL to --cheap except two cells: the once-firing gate (Opus 4.8 vs Qwen)
+# and more verify passes (10 vs 3). Frontier earns its cost ONLY at the gate —
+# verify is grounded + V4 Pro-adequate + the expensive multi-call stage, so it
+# stays DeepSeek and the accuracy lever there is MORE passes, not a pricier model.
+# This is the Opus arm of the gate A/B (vs --cheap's Qwen arm). ~$1-1.5/run.
+accurate:
+  roles:
+    initializer:     {endpoint: deepseek,  model: deepseek-v4-pro, max_turns: 16, max_wall_seconds: 600}
+    # VOLUME on DeepSeek (Groq gated; `--volume groq` restores gpt-oss-120b).
+    worker:          {endpoint: deepseek_flash, model: deepseek-v4-flash, max_turns: 4,  max_wall_seconds: 300}
+    reader_subagent: {endpoint: deepseek_flash, model: deepseek-v4-flash, max_turns: 4,  max_wall_seconds: 300}
+    compose:         {endpoint: deepseek_flash, model: deepseek-v4-flash, max_turns: 4,  max_wall_seconds: 300}
+    evaluator:       {endpoint: deepseek,       model: deepseek-v4-pro,   max_turns: 12, max_wall_seconds: 600}
+    verifier:        {endpoint: deepseek,  model: deepseek-v4-pro, max_turns: 8,  max_wall_seconds: 900}
+    synthesizer:     {endpoint: deepseek,  model: deepseek-v4-pro, max_turns: 40, max_wall_seconds: 1800}
+    final_evaluator: {endpoint: anthropic, model: claude-opus-4-8, max_turns: 24, max_wall_seconds: 1200}
+  verification_max_findings: 10    # MORE DeepSeek verify passes = the accuracy lever (cheap, grounded)
+  max_budget_usd: 3.0
+
+# --- Gate options (--gate {qwen,sonnet,opus}): the once-firing terminal auditor -
+# Architect review 2026-06-16: gate-trust and verify-depth are ORTHOGONAL knobs,
+# so they get independent flags. --gate picks the terminal "is this conclusive?"
+# auditor; --verify-depth (an int -> verification.max_findings) picks how many
+# grounded DeepSeek refutation passes. The presets above are just named points in
+# that 2-D space (cheap = qwen + 3; accurate = opus + 10); either flag overrides
+# its preset cell, giving the full matrix (e.g. --cheap --gate opus = trusted
+# cheap run; --accurate --gate qwen = deep dig you'll sanity-check yourself).
+gate_options:
+  qwen:   {endpoint: qwen,      model: qwen-3.7-max,      max_turns: 24, max_wall_seconds: 1200}
+  sonnet: {endpoint: anthropic, model: claude-sonnet-4-6, max_turns: 24, max_wall_seconds: 1200}
+  opus:   {endpoint: anthropic, model: claude-opus-4-8,   max_turns: 24, max_wall_seconds: 1200}
+
+# --- Volume backend (--volume {groq,deepseek,local}): the 4 high-volume roles ---
+# Same independent-knob idea: provider choice for the volume tier (worker/reader/
+# compose/per-cycle gate) is its own axis. Groq is the design default, but its free
+# tier rate-caps gpt-oss-120b at 8k TPM (research sessions are ~33k) and Dev tier
+# can be externally gated — so this knob swaps the volume tier to a fallback WITHOUT
+# touching judgment/gate routing. deepseek = V4 Flash (cloud, no rate gate, thinking
+# off, ~same price — the stopgap that keeps cloud speed); local = Ollama
+# gpt-oss-20b-32k ($0, slower). Overrides the preset's volume cells when passed.
+volume_options:
+  groq:
+    worker:          {endpoint: groq,           model: gpt-oss-120b,     max_turns: 4, max_wall_seconds: 300}
+    reader_subagent: {endpoint: groq,           model: gpt-oss-120b,     max_turns: 4, max_wall_seconds: 300}
+    compose:         {endpoint: groq,           model: gpt-oss-120b,     max_turns: 4, max_wall_seconds: 300}
+    evaluator:       {endpoint: groq,           model: gpt-oss-120b,     max_turns: 8, max_wall_seconds: 300}
+  deepseek:
+    # Extraction (worker/reader/compose) on Flash — cheap + fast. BUT the per-cycle
+    # evaluator is multi-turn tool-using JUDGMENT; Flash burns its turn budget
+    # without converging (observed 2026-06-16: "Reached maximum number of turns").
+    # So the per-cycle gate goes to Pro — the same extraction-vs-judgment split the
+    # whole architecture rests on. One call/cycle, negligible cost, reliable.
+    worker:          {endpoint: deepseek_flash, model: deepseek-v4-flash, max_turns: 4,  max_wall_seconds: 300}
+    reader_subagent: {endpoint: deepseek_flash, model: deepseek-v4-flash, max_turns: 4,  max_wall_seconds: 300}
+    compose:         {endpoint: deepseek_flash, model: deepseek-v4-flash, max_turns: 4,  max_wall_seconds: 300}
+    evaluator:       {endpoint: deepseek,       model: deepseek-v4-pro,   max_turns: 12, max_wall_seconds: 600}
+  local:
+    worker:          {endpoint: local,          model: gpt-oss-20b-32k,  max_turns: 4, max_wall_seconds: 600}
+    reader_subagent: {endpoint: local,          model: gpt-oss-20b-32k,  max_turns: 4, max_wall_seconds: 600}
+    compose:         {endpoint: local,          model: gpt-oss-20b-32k,  max_turns: 4, max_wall_seconds: 600}
+    evaluator:       {endpoint: local,          model: gpt-oss-20b-32k,  max_turns: 8, max_wall_seconds: 600}
+
+# --- Research profiles (selected via --profile; implementations land Phase 4)
+profiles: [general, scientific, visual, legal]   # legal = v1 future-domain scaffold
+default_profile: general
+
+# --- Evidence lenses (orthogonal to profile; docs/COMMUNITY_LENS_SPEC.md) -----
+# Composable add-on tracks. Empty => factual-only (normal run). `community`
+# adds forum/Q&A search on a quarantined track + a separate report section.
+# Set per-run via --lens, or list defaults here.
+lenses: []
+
+# --- Model backends (CLAUDE.md §1) ------------------------------------------
+# base_url null => SDK/CLI default (api.anthropic.com), auth injected as
+# ANTHROPIC_API_KEY. Non-null base_url => injected as ANTHROPIC_BASE_URL with
+# the secret as ANTHROPIC_AUTH_TOKEN. auth_env names the variable in .env that
+# holds the secret. Injection is per spawned session, never process-global.
+endpoints:
+  anthropic:
+    base_url: null
+    auth_env: ANTHROPIC_API_KEY
+  local:
+    base_url: http://localhost:11434   # Ollama >= 0.14 serves /v1/messages
+    auth_env: OLLAMA_AUTH              # value "ollama" — required, ignored
+    # price_per_mtok: {input: 0.0, output: 0.0}   # set for PAID third-party
+    #   endpoints (e.g. DeepSeek/Groq) so the budget breaker sees real spend;
+    #   omitted => usd 0 (free local)
+  deepseek:                            # native Anthropic-compatible (cheap-tier A/B)
+    base_url: https://api.deepseek.com/anthropic
+    auth_env: DEEPSEEK_API_KEY
+    price_per_mtok: {input: 0.435, output: 0.87, cache_read: 0.003625}   # deepseek-v4-pro (cache hit <1% of miss, per api-docs.deepseek.com 2026-06)
+    fallback: {endpoint: anthropic, model: claude-sonnet-4-6}   # reliability net: if Pro degrades (observed 2026-06-25, blocked eval+synth), re-run the session on Sonnet so the run still finishes
+  deepseek_flash:                      # V4 Flash — cheap high-volume endpoint
+    base_url: https://api.deepseek.com/anthropic
+    auth_env: DEEPSEEK_API_KEY
+    price_per_mtok: {input: 0.14, output: 0.28, cache_read: 0.0028}    # flash; cache hit 2% of miss
+                                                   # (api-docs.deepseek.com 2026-06; budget breaker uses this)
+    disable_thinking: true             # volume stages extract, not reason — kills
+                                       # the 16k-token thinking outputs / cost spikes
+    fallback: {endpoint: anthropic, model: claude-haiku-4-5-20251001}   # driver-called worker/compose only (async readers bypass the wrapper)
+  groq:                                # VOLUME tier: gpt-oss-120b via LiteLLM proxy
+    base_url: http://localhost:4000    # LiteLLM (Anthropic /v1/messages -> Groq); deploy/litellm-config.yaml
+    auth_env: LITELLM_MASTER_KEY       # engine -> proxy auth; proxy holds GROQ_API_KEY
+    price_per_mtok: {input: 0.15, output: 0.60, cache_read: 0.075}    # Groq gpt-oss-120b (cache hit ~$0.075 in)
+    disable_thinking: true             # reasoning_effort=low set at the proxy; this is belt-and-braces
+  qwen:                                # cheap AUDITOR: Qwen 3.7 Max (high-abstention) via same proxy
+    base_url: http://localhost:4000    # LiteLLM routes by model name -> Alibaba DashScope (needs DASHSCOPE_API_KEY)
+    auth_env: LITELLM_MASTER_KEY
+    price_per_mtok: {input: 0.40, output: 1.20}    # Qwen 3.7 Max (verify vs live pricing)
+    # thinking LEFT ON — auditing benefits from reasoning (unlike the volume tier)
+    fallback: {endpoint: anthropic, model: claude-sonnet-4-6}   # the --cheap terminal gate runs here; if it fails, finish via Sonnet rather than stall
+
+# --- Role routing — BUDGET POSTURE (operator decision 2026-06-10) -----------
+# Cloud Opus ONLY where judgment ends the run: initializer, final_evaluator
+# (terminal conclusiveness gate), synthesizer. Everything else local on the
+# operator's -32k Modelfile variants. Visual profile is OUT of this posture
+# (needs a cloud agentic worker) — use a separate config for visual runs.
+roles:
+  initializer:     {endpoint: anthropic, model: claude-opus-4-8,    max_turns: 16, max_wall_seconds: 600}
+  # worker: LOCAL via pipeline mode (worker_pipeline.enabled below). The
+  # agentic-local path is empirically closed on 16GB (LOCAL_SETUP_REPORT);
+  # pipeline mode uses this role only for single-shot query-gen + compose
+  # sessions — the pattern locals execute flawlessly.
+  worker:          {endpoint: local,     model: gpt-oss-20b-32k,    max_turns: 4,  max_wall_seconds: 1200}
+  # pipeline compose (COMPREHENSIVE_RESEARCH_SPEC §1): the ONE one-shot
+  # synthesis call per resolved question — the cheapest quality lever past the
+  # local-9B ceiling. Query-gen + readers stay local. REMOVE this role to fall
+  # back to compose-on-worker (the certified full-local-volume posture).
+  compose:         {endpoint: anthropic, model: claude-haiku-4-5-20251001, max_turns: 4, max_wall_seconds: 600}
+  reader_subagent: {endpoint: local,     model: gpt-oss-20b-32k,    max_turns: 12, max_wall_seconds: 900}
+  # per-cycle evaluator: local (cheap gate; engine force-fails dishonest
+  # passes). The run can only END through final_evaluator below.
+  evaluator:       {endpoint: local,     model: gpt-oss-20b-32k,    max_turns: 24, max_wall_seconds: 1200}
+  # terminal conclusiveness gate — Opus, fires only when the per-cycle
+  # evaluator passes with zero open questions. Remove this role to fall back
+  # to single-tier evaluation.
+  final_evaluator: {endpoint: anthropic, model: claude-opus-4-8,    max_turns: 24, max_wall_seconds: 1200}
+  synthesizer:     {endpoint: anthropic, model: claude-opus-4-8,    max_turns: 40, max_wall_seconds: 1800}
+  # vision_reader must stay vision-capable; visual profile is outside the
+  # budget posture (kept Opus to honor only-Opus-cloud; rarely invoked).
+  vision_reader:   {endpoint: anthropic, model: claude-opus-4-8,    max_turns: 6,  max_wall_seconds: 600}
+  # judge scores eval-set reports (evals/run_evals.py); fresh context, Opus.
+  judge:           {endpoint: anthropic, model: claude-opus-4-8,    max_turns: 8,  max_wall_seconds: 900}
+  # adversarial verifier (COMPREHENSIVE_RESEARCH_SPEC §3): an independent,
+  # amnesiac session that tries to REFUTE a finding. The verdict is judgment
+  # work => Opus; its refutation query-gen + reads reuse the local pipeline.
+  verifier:        {endpoint: anthropic, model: claude-opus-4-8,    max_turns: 8,  max_wall_seconds: 900}
+
+# --- Per-session limits (enforced in sessions/base.py from Phase 2) ---------
+session:
+  backend: sdk                   # real Agent SDK sessions; "stub" = Phase 1 plumbing
+  max_budget_usd_per_session: 2.0
+  default_max_wall_seconds: 1800 # per-session hang ceiling (roles may override)
+
+# --- Stub session knobs (Phase 1 testing only) ------------------------------
+stub:
+  seed_questions: 3        # open questions the stub initializer creates
+  worker_no_delta: false   # true => worker changes nothing (forces stall path)
+  sleep_seconds: 0.0       # per stub session; lets smoke tests kill mid-cycle
+  cost_usd: 0.0            # fake per-session cost recorded in the ledger
+
+# --- Reader fan-out (Phase 3 cost lever) -------------------------------------
+# The engine fetches pages itself (httpx) and spawns one reader session per
+# source; the worker only ever sees compressed summaries. Point the
+# reader_subagent role at the `local` endpoint for zero-marginal-cost reads.
+reader:
+  max_page_chars: 60000          # ~15k tokens — fits a FULL journal paper (methods +
+                                 # results/comparator tables), not just abstract+intro.
+                                 # Was 24000 (~4k words): it cut mid-paper, so dosing
+                                 # blocks + comparator tables vanished -> false "absent"
+                                 # claims (Opus review 2026-06-29). Reads are DeepSeek
+                                 # Flash (~$0.002 each), so the extra context is cheap.
+                                 # Over-budget docs keep head+tail (reader.py).
+  max_failures_per_session: 6    # then the worker session fails loudly (§1)
+  fetch_timeout_seconds: 30
+  stealth_fallback: true         # one Scrapling browser-rendered retry per
+                                 # failed fetch (403 bot-walls, JS-only pages)
+  require_reads: true            # a source may be cited ONLY if read_source
+                                 # fetched+judged-it-useful this run (or it was
+                                 # read in a prior cycle). Set false ONLY in
+                                 # no-egress environments — logs a loud
+                                 # DECISION that findings rest on unread sources.
+
+# --- MCP search fallback (§1 local-mode constraint) ---------------------------
+# WebSearch is Anthropic-hosted; a worker routed to a non-first-party endpoint
+# loses it. Point this at a SearXNG instance to restore web search there.
+search:
+  searxng_base_url: http://localhost:8888   # SearXNG in docker (self-host option)
+  max_results: 20          # was 8 — more candidates per query so the reranker picks
+                           # a better top-N to read (free: same read count, broader pool)
+  # Serper (Google SERP API) = PORTABLE PRIMARY web provider. Set SERPER_API_KEY in
+  # .env (serper.dev, 2,500 free q/mo) and the general profile uses Google's broad
+  # index, deep-read by the engine's own reader; without the key it falls back to
+  # SearXNG -> DDG. This + OpenAlex (academic) is the depth+breadth stack that runs
+  # anywhere from a clone. Comment serper_api_key_env out to force the self-host path.
+  serper_api_key_env: SERPER_API_KEY
+  serper_endpoint: https://google.serper.dev/search
+  serper_gl: us            # Google country bias
+  serper_hl: en            # Google UI language
+
+# --- Transient-failure retries (Phase 5 hardening) ----------------------------
+retry:
+  attempts: 3                # total tries per session spawn / engine fetch
+  base_delay_seconds: 2.0    # exponential backoff: 2s, 4s, ... capped below
+  max_delay_seconds: 30.0
+
+# --- Pipeline-worker mode (docs/PIPELINE_WORKER_SPEC.md) ----------------------
+# Engine-orchestrated worker: one-shot query-gen (local) -> engine search
+# (SearXNG + profile providers) -> rule-based URL selection -> reader fan-out
+# -> engine-built sources -> one-shot compose (local). The model never types
+# a URL or invents a source id. enabled: false restores the agentic worker
+# (requires a cloud-capable worker model).
+worker_pipeline:
+  enabled: true
+  queries_per_question: 4
+  urls_per_query: 4
+  max_reads: 12
+  per_domain_cap: 3              # was 2 — let MORE primary papers through from a
+                                 # single authoritative domain (PubMed/PMC/journals)
+                                 # rather than capping at 2 and falling back to blogs
+  rerank: true                   # FlashRank (CPU) scores snippet-vs-question
+                                 # relevance; on-target pages outrank merely
+                                 # high-authority tangential ones
+  parallel_questions: 1          # >1: investigate N questions concurrently per
+                                 # cycle (wall-clock win, pipeline mode only). Keep
+                                 # small — N*max_reads bounds in-flight reads. 1 =
+                                 # the proven sequential path (default).

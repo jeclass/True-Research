@@ -1,0 +1,217 @@
+# Weekend handoff — START HERE (2026-06-11)
+
+> **UPDATE 2026-06-16 — Config A (all-DeepSeek `--cheap`) SHIPPED as the under-$1 marathon posture.**
+> Integrated DeepSeek V4 (native Anthropic endpoint `api.deepseek.com/anthropic`;
+> `deepseek-v4-flash` for init, `deepseek-v4-pro` for verify/synth/final gate;
+> compose + readers stay local). New `--cheap` preset routes all paid roles to
+> DeepSeek and pins a **structural $1 hard cap** (explicit `--max-budget-usd`
+> still wins). `--cheap`/`--budget` now also flags on `run_evals.py`.
+>
+> **Why DeepSeek holds the bookends — measured, not assumed:**
+> - DeepSeek V4 is **1M-context** (8× V3's 128K), same class as Opus — the
+>   final gate cannot overflow at marathon scale (150 findings = 25% of window).
+> - A 150-finding 6-8h Config-A run projects to **~$0.62 cloud** (volume work is
+>   local/$0); the same run on Opus-final ≈ $15-20. At marathon scale a *single*
+>   Opus terminal gate over ~170k findings tokens is ~$1.2-1.6 — it busts $1 by
+>   itself, so all-DeepSeek is the only posture that fits the 6-8h goal.
+> - **Gate A/B battery (5 finished runs, Opus vs DeepSeek on the terminal gate):**
+>   3/5 pass-call agreement, identical pass-rate (2/5 each), DeepSeek 32× cheaper
+>   ($0.07 vs $2.36). Disagreements cluster on the 2 *smallest* runs (borderline
+>   calls); they agree on the 3 developed runs — good for marathon scale. The one
+>   real gap: Opus catches ~33% more contradictions (12 vs 8), concentrated on
+>   the densest runs. ACCEPTED as the price of 32× cheaper; the gap is the trust
+>   dimension to revisit if it bites. Full data: `evals/results/gate-battery.md`.
+>
+> Run it: `driver.py "<q>" --comprehensive --cheap --verify` (under $1, unattended).
+> Next: roadmap item 4 (wave orchestration) — the last approved expansion item.
+
+
+
+> **UPDATE 2026-06-12 — roadmap item 1 (stronger compose model) SHIPPED + ACCEPTED.**
+> The pipeline's one-shot compose now routes to an optional `compose` role
+> (config.yaml ships it on Haiku 4.5; delete the role to restore the certified
+> full-local posture). Acceptance re-runs vs the certified baseline:
+>
+> | Question | Score (was) | Finish (was) | Spend (was) | Haiku share |
+> |---|---|---|---|---|
+> | sci-aspirin | **8.2** (7.8) | conclusive (time) | $1.13 ($0.35) | $0.26, 6 calls |
+> | gen-evbattery | **8.0** (6.6) | conclusive (max_cycles) | $0.95 ($0.77) | $0.26, 5 calls |
+>
+> Two-question mean **8.1 vs 7.2** (bar: ≥7.7) — and BOTH runs ended
+> `conclusive` through the final-evaluator gate, a first. The compose model
+> itself costs ~$0.26/question (bar: ≤ +$0.30); the rest of the spend growth
+> is Opus bookends doing MORE work because runs now converge instead of dying
+> at breakers. Scores: `evals/results/compose-haiku-{sci,gen}/scores.json`.
+> Ablation flags: `--compose-model/--compose-endpoint` on run_evals.py.
+> Next up: roadmap item 2 (deeper question trees).
+
+> **UPDATE 2026-06-15 — roadmap item 2 (deeper question trees) — machinery shipped + a real bug fixed.**
+> Built: question `depth` field, tree bounds (`question_tree.max_depth/max_questions`),
+> `--comprehensive` switch (promotes a deep cycles/wall/budget/seed bundle), richer
+> 12-facet seeding. THE bigger win came from running it for real: the local
+> evaluator was **re-emitting existing questions as "new" every cycle** (a
+> comprehensive run had 35 questions = 13 real facets + 22 near-verbatim
+> duplicates), which blocked convergence. Fixed with engine-side dedup
+> (`common.duplicate_question_id`, difflib ≥0.90). Re-validation: **17 distinct
+> questions, 0 duplicates** (was 13/35), 4 dup-drops logged. 155 tests.
+> CAVEAT: hierarchical *depth* stays flat — local workers don't fragment and the
+> local evaluator won't set `parent_id` even when instructed; guaranteed depth
+> needs the Opus initializer to seed a 2-level tree (open decision). Comprehensive
+> runs still need real wall-clock (hours) to reach `conclusive` — short test caps
+> finish on `time`. Commits: 76ff2d9, cf812e4, 833c165.
+
+> **UPDATE 2026-06-15 (pm) — roadmap item 3 (verification wave) SHIPPED + ACCEPTED.**
+> The trust differentiator vs one-pass deep research: before synthesis, an
+> INDEPENDENT verifier tries to REFUTE each load-bearing finding (local
+> refutation query-gen → reads sources the finding did NOT use → Opus verdict),
+> and the synthesizer demotes refuted claims + lists them in a "Verification"
+> section. Opt-in: `--verify` (auto-on with `--comprehensive`); off by default.
+> Acceptance (real run): seeded a FALSE claim (EV batteries lose 15%/yr) and a
+> TRUE one (~2%/yr) — verifier returned **refuted** vs **verified**, ~$0.02 each,
+> citing Geotab's 22,700-EV telemetry study. `verifier` role = Opus; config
+> `verification` block. 160 tests. Commit 36fc4a8. Only item 4 (wave
+> orchestration) remains.
+
+> **UPDATE 2026-06-15 (PM) — reliability fix: deep runs now complete unattended.**
+> The full-pipeline GEO run (comprehensive + verify + community, 213 pages read,
+> 136 sources, $2.27) halted at cycle 15 needing a manual resume. Root cause
+> (measured, not guessed): the per-cycle evaluator runs on the local 32k model
+> but got every finding in FULL text + the FULL 136-source registry — ~30,738
+> tokens, leaving no room to generate → Ollama 5xx → deterministic 3/3 retry
+> failure. Findings alone were 65% of the prompt and grow with the run, so any
+> deep run overflowed. Fix: the cheap per-cycle gate now gets context-bounded
+> digests (findings excerpted to a total budget, sources capped to most-credible
+> N — `evaluator.per_cycle_findings_chars/max_sources`); the Opus final gate
+> (1M ctx) keeps full text. Proven end-to-end: replaying the exact failing call
+> on the local model now succeeds (30,738 → 20,589 tok in, 2,862 out, valid
+> verdict). 164 tests. Commit 48ce68b. Example report:
+> `docs/examples/geo-comprehensive-verified.md`.
+
+Pick up in VSCode: `git pull` on branch `claude/tender-keller-gdae8u`, then read
+this file. Everything below is current as of the certification run that
+finished 2026-06-11 10:18.
+
+## TL;DR — the engine is CERTIFIED and viable
+
+A hybrid local research engine runs on this PC: local models do all the
+volume work ($0), cloud Opus touches only the bookends. **Certification:
+mean 7.2/10 across the quick subset, $1.11 for the batch** — within the
+handoff's 1.5-of-baseline bar. The scientific profile (the Clinical Index use
+case) is the strongest at **7.8 with source_quality 8**.
+
+Two finished reports to read right now (tracked in the repo):
+- `docs/examples/aspirin-scientific-7.8.md` — scientific profile, 106 reads,
+  55 sources, every claim cited. The judge called it "genuinely solid,
+  trustworthy... appropriately calibrated... avoids overreach."
+- `docs/examples/ev-battery-general-8.0.md` — general profile, the 8.0 run.
+
+## Certification results (run 2026-06-11)
+
+| Question | Profile | Score | Finish | Spend | Notes |
+|---|---|---|---|---|---|
+| sci-aspirin | scientific | **7.8** | time | $0.35 | source_quality 8 — scraper+PMC routing got primary sources |
+| gen-evbattery | general | 6.6 | max_cycles | $0.77 | blog-heavy topic; source_quality 5 is the open-web ceiling here |
+| vis-supplement-trust | visual | — | (boundary) | $0 | visual needs the AGENTIC worker (in-loop capture); see Known Boundaries |
+| **batch** | | **7.2** | | **$1.11** | CERTIFIED |
+
+Per-question reports live under `runs/<run-id>/REPORT.md` (gitignored — the two
+best are copied into `docs/examples/`). Raw scores:
+`evals/results/cert-final/scores.json`.
+
+## What's running right now
+
+**Nothing.** The certification finished. No background tests are active. The PC
+can sit idle or you can kick off runs from VSCode (commands below).
+
+## How to run the engine yourself (VSCode terminal)
+
+Prereqs that must be up (they survive reboot via auto-start / restart policy,
+but verify): Ollama serving (`ollama ps`), Docker + SearXNG
+(`docker --context desktop-linux ps` shows `searxng`). If SearXNG is down:
+`docker --context desktop-linux start searxng`.
+
+```powershell
+# activate + a single research run (scientific profile is the strongest)
+$env:PYTHONUTF8 = '1'
+.venv\Scripts\python.exe driver.py `
+  "your research question here" `
+  --profile scientific --max-wall-hours 2 --max-budget-usd 5 `
+  --json-summary runs\my-run.json
+# report lands at runs\<run-id>\REPORT.md
+```
+
+```powershell
+# the community lens (human-perspective section) — NEW this session
+.venv\Scripts\python.exe driver.py "your question" --profile general --lens community ...
+```
+
+```powershell
+# re-run the certification any time
+powershell -File runs\certify.ps1   # writes runs\certify-done.txt + per-question reports
+```
+
+Resume a killed run losslessly: `... driver.py --resume <run-id>`.
+
+## What was built this session (all committed, all reviewed-ready)
+
+Beyond the original handoff scope:
+- **Pipeline-worker mode** — local models do single-shot query-gen + compose;
+  the engine runs the loop. This is what made local workers viable (the
+  agentic-local path is dead on 16GB; see `docs/LOCAL_SETUP_REPORT.md`).
+- **Two-tier evaluation** — local evaluator every cycle ($0), Opus final gate
+  only to END a run, capped at `max_final_evaluations`. The cost lever.
+- **Scraper** (Scrapling stealth) — browser-rendered retry on 403/JS-only
+  pages. `reader.stealth_fallback`.
+- **Reranker** (FlashRank, CPU/ONNX — zero GPU contention) — reads the
+  most on-topic pages first. `worker_pipeline.rerank`.
+- **Community lens** — forum/Reddit perspective on a quarantined track + its
+  own report section. `--lens community`. (`docs/COMMUNITY_LENS_SPEC.md`)
+- **Legal** scaffolded as a future domain profile.
+- **Hard-block convergence** — unanswerable seed facets now close so runs
+  converge instead of stalling.
+- **Wall-timeouts + provisional ledger** — overnight runs can't hang or hide
+  spend.
+- Windows lock fix, `-32k` Modelfile variants, 143 tests green.
+
+## Known boundaries (not bugs — design facts)
+
+- **Visual profile needs the agentic (cloud) worker.** Page-capture requires
+  in-loop screenshot decisions the single-shot pipeline worker doesn't make.
+  Run visual with `worker_pipeline.enabled: false` and a cloud worker model —
+  a deliberately different (higher) cost tier. The pipeline/local posture is
+  for text research.
+- **General-profile quality is capped by open-web source quality.** Blog-heavy
+  topics (EV batteries) top out ~6.6 because the good sources are vendor blogs.
+  Scientific tops out higher (7.8) because PMC/journals are primary. This is
+  honest grading, not a defect.
+- **The 9B compose model is the synthesis-quality ceiling.** See the roadmap
+  for the cheapest lever to push past 8 (route just compose to a stronger
+  model).
+
+## Next steps — APPROVED roadmap (specs ready for the cloud session)
+
+You approved three directions for comprehensive ("8-hour+") research. Full
+spec: **`docs/COMPREHENSIVE_RESEARCH_SPEC.md`**. In build order:
+
+1. **Stronger compose model** (cheapest quality jump) — route only the
+   one-shot compose step to Haiku or a 27B; readers stay local/free. Targets
+   the 8→9 synthesis-calibration ceiling.
+2. **Deeper question trees** — richer initializer + multi-level decomposition;
+   raise `max_cycles`. Breadth.
+3. **Verification wave** — every load-bearing claim handed to an independent
+   worker that tries to REFUTE it. The real trust differentiator vs
+   Gemini/Claude research.
+4. **Wave orchestration** — breadth → depth → verify → synthesize, as
+   question-selection policies over the existing loop. Enables 8-hour runs
+   that buy depth, not spinning.
+
+Hardware lever (conditional on the pipeline proving useful — it now has):
+**second GPU** turns serial reads into 4–8-way fan-out — the biggest
+scale unlock. Not required to start; items 1–4 are software.
+
+## Where to resume
+
+- Branch: `claude/tender-keller-gdae8u` (everything pushed).
+- The cloud session's task: implement `docs/COMPREHENSIVE_RESEARCH_SPEC.md`,
+  review commits since `dc9508c`.
+- This session's full forensic record: `docs/LOCAL_SETUP_REPORT.md`.

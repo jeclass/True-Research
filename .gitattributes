@@ -1,0 +1,6 @@
+# Normalize all text files to LF in the repo (cross-platform public repo);
+# working-tree line endings are up to each contributor's git config.
+* text=auto eol=lf
+*.ps1 text eol=crlf
+*.png binary
+*.pdf binary

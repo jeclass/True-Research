@@ -1,0 +1,50 @@
+# LiteLLM proxy — Anthropic /v1/messages front-end that routes OpenAI-compatible
+# providers (Groq, Alibaba) into the engine, which speaks the Anthropic Messages
+# format (claude-agent-sdk). The engine's `groq` endpoint points ANTHROPIC_BASE_URL
+# at this proxy; the proxy holds the real provider keys.
+#
+# Run (Docker, alongside SearXNG):
+#   docker run -d --name litellm --restart=always -p 4000:4000 \
+#     -e GROQ_API_KEY -e DASHSCOPE_API_KEY -e LITELLM_MASTER_KEY \
+#     -v ${PWD}/deploy/litellm-config.yaml:/app/config.yaml \
+#     ghcr.io/berriai/litellm:main-latest --config /app/config.yaml --port 4000
+# Verify model strings against `litellm`/Groq docs on first boot; finalize during the key test.
+
+model_list:
+  # --- Volume tier: gpt-oss-120b on Groq (concise, JSON-reliable, cache-friendly) ---
+  - model_name: gpt-oss-120b               # the name the engine config references
+    litellm_params:
+      model: groq/openai/gpt-oss-120b      # Groq-hosted gpt-oss-120b (verify exact id)
+      api_key: os.environ/GROQ_API_KEY
+      reasoning_effort: low                # report finding: force non-reasoning on volume
+    model_info:
+      input_cost_per_token: 0.00000015     # $0.15/M  (Groq gpt-oss-120b)
+      output_cost_per_token: 0.00000060    # $0.60/M
+      cache_read_input_token_cost: 0.000000075   # $0.075/M cached (the #1 cost lever)
+
+  # --- Volume failover: gpt-oss-120b on Cerebras/Fireworks (TPM headroom) ---
+  - model_name: gpt-oss-120b-failover
+    litellm_params:
+      model: cerebras/gpt-oss-120b         # verify exact id; failover only
+      api_key: os.environ/CEREBRAS_API_KEY
+
+  # --- Final-gate A/B alternative: Qwen 3.7 Max (high-abstention auditor) ---
+  - model_name: qwen-3.7-max
+    litellm_params:
+      model: dashscope/qwen3.7-max         # Alibaba DashScope (verify exact id)
+      api_key: os.environ/DASHSCOPE_API_KEY
+
+litellm_settings:
+  drop_params: true            # silently drop provider-unsupported params (e.g. thinking)
+  num_retries: 3
+  # LiteLLM response-cache (`cache: true`) is intentionally OFF: it requires a
+  # redis host/url (crashes startup without one) and only caches byte-identical
+  # requests — low value for varied research prompts. The cost lever that matters
+  # is PROVIDER-side prompt caching (Groq/DeepSeek auto-cache repeated system-
+  # prompt prefixes); that needs no LiteLLM setting and is priced via each model's
+  # cache_read_input_token_cost. To enable response caching later, point it at the
+  # running valkey/redis:  cache: true
+  #   cache_params: {type: redis, host: host.docker.internal, port: 6379}
+
+general_settings:
+  master_key: os.environ/LITELLM_MASTER_KEY   # the engine authenticates to the proxy with this

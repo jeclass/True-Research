@@ -1,0 +1,150 @@
+# Gate A/B question set (architect review 2026-06-16): the ONE measurement left.
+# Run Opus 4.8 vs Qwen 3.7 Max on the terminal gate across these, score the
+# false-"conclusive" rate (how often each ENDS a run that should've stayed open).
+#
+# Selection principle: every question here is one where conclusiveness is a
+# genuine judgment call — broad, multi-faceted, or contested, so partial findings
+# can *look* complete. That is precisely where a hallucination-prone gate
+# rubber-stamps a premature "done". Easy questions don't discriminate the gates.
+#
+# Per item:
+#   id                 stable slug (also the run-dir label)
+#   domain             which profile/use-case it exercises
+#   question           the actual prompt handed to driver.py
+#   why_hard           what makes "is this conclusive?" a real judgment call
+#   should_stay_open_if the gap signal — if a finished run still has THIS hole,
+#                      a PASS verdict is a false-conclusive (the thing we score)
+
+questions:
+  - id: zerodte-gamma
+    domain: finance/markets
+    question: >
+      How would you set up a Friday-expiration (0DTE) stock-option strategy that
+      buys options priced below $0.02 that can catch intraday swings — a
+      high-risk gamma play? Quantify the realistic edge after commissions,
+      slippage, and assignment risk, and state the regimes/tickers where it does
+      and does not work.
+    why_hard: >
+      "Plausible strategy narrative" reads as complete, but viability lives in
+      transaction-cost math and regime-specific liquidity that's easy to skip.
+    should_stay_open_if: >
+      No concrete edge is quantified NET of commissions + slippage, or no
+      ticker/regime where it fails is identified.
+
+  - id: creatine-cognition
+    domain: clinical/evidence
+    question: >
+      Does creatine supplementation improve cognitive performance in healthy
+      (non-deficient) adults? Grade the evidence by study design and report the
+      effect size and where it does NOT hold.
+    why_hard: >
+      Many low-quality + industry-funded studies; a "yes, studies show" summary
+      passes unless the gate demands RCT-grade evidence and effect sizes.
+    should_stay_open_if: >
+      Claims rest on observational/non-primary sources without design grading,
+      or no effect size / heterogeneity discussion is present.
+
+  - id: niche-saas-tam
+    domain: market/competitive
+    question: >
+      What is the realistic serviceable obtainable market (SOM) and the durable
+      moat for a vertical-SaaS scheduling tool aimed at independent physical-
+      therapy clinics in the US? Triangulate the number from at least two
+      independent methods.
+    why_hard: >
+      A single analyst TAM figure looks authoritative; real conclusiveness needs
+      a bottoms-up cross-check and a moat that survives scrutiny.
+    should_stay_open_if: >
+      Only one sizing method is present, or the moat is asserted without evidence
+      of switching costs / defensibility.
+
+  - id: geo-ai-citations
+    domain: GEO/visual
+    question: >
+      How should a brand structure its web content to maximize the chance of
+      being cited in AI answer engines (ChatGPT, Perplexity, Google AI Overviews)
+      in 2026? Separate evidence-backed tactics from folklore.
+    why_hard: >
+      Fast-moving topic dense with confident speculation; the gate must
+      distinguish measured drivers of citation from SEO-blog folklore.
+    should_stay_open_if: >
+      Tactics are listed without evidence they actually drive AI citations, or no
+      distinction is drawn between the engines' differing behaviors.
+
+  - id: psilocybin-depression-law
+    domain: legal/regulatory
+    question: >
+      Where in the United States can a licensed clinic legally administer
+      psilocybin for treatment-resistant depression as of mid-2026, and under
+      what conditions? Cover the jurisdictions exhaustively.
+    why_hard: >
+      Jurisdiction-by-jurisdiction; a gate can declare victory after two or three
+      states and miss the long tail / federal-state conflict.
+    should_stay_open_if: >
+      Coverage is partial (states or federal-vs-state conflict missing) or
+      conditions/eligibility are not specified per jurisdiction.
+
+  - id: seed-oils-inflammation
+    domain: scientific/contested
+    question: >
+      Do dietary seed oils (high-linoleic-acid vegetable oils) causally increase
+      systemic inflammation in humans at normal dietary intakes? Adjudicate the
+      conflicting literature.
+    why_hard: >
+      Genuinely contested with strong priors on both sides; conclusiveness
+      requires adjudicating conflicting primary sources, not picking a camp.
+    should_stay_open_if: >
+      The contradiction between opposing studies is not surfaced and adjudicated,
+      or mechanism vs. outcome evidence is conflated.
+
+  - id: rto-productivity-causal
+    domain: causal inference
+    question: >
+      Did return-to-office mandates at large US tech firms in 2023-2025 cause
+      measurable changes in productivity, or only in attrition? Separate
+      correlation from causation.
+    why_hard: >
+      Confounded everywhere; a gate can pass on associational findings dressed up
+      as causal without an identification strategy.
+    should_stay_open_if: >
+      Causal claims lack an identification strategy (natural experiment, diff-in-
+      diff, etc.) or attrition and productivity effects are conflated.
+
+  - id: fed-cut-sept-2026
+    domain: forecasting
+    question: >
+      What is the probability the US Federal Reserve cuts the federal funds rate
+      at its September 2026 meeting? Build the estimate from base rates plus
+      current signals and state the key uncertainties.
+    why_hard: >
+      A confident point estimate looks complete; real conclusiveness needs the
+      base-rate + current-signal decomposition and the conditions that flip it.
+    should_stay_open_if: >
+      A probability is given without decomposing base rate vs current signal, or
+      the scenario(s) that would change it are not stated.
+
+  - id: vectordb-at-scale
+    domain: technical comparison
+    question: >
+      For a 1-billion-vector semantic-search workload with <50ms p99 latency,
+      which approach is best in 2026: pgvector, a dedicated vector DB (e.g.
+      Qdrant/Weaviate), or a managed service? Decide on benchmarked tradeoffs.
+    why_hard: >
+      "Popularity" masquerades as an answer; the right call depends on workload
+      specifics and benchmarks the gate must insist on.
+    should_stay_open_if: >
+      A winner is named without benchmark evidence at the stated scale/latency,
+      or the cost/operational tradeoffs are not covered.
+
+  - id: transformer-attribution
+    domain: historical/attribution
+    question: >
+      Who actually originated the core ideas behind the modern self-attention
+      mechanism, and how did the lineage flow into the 2017 "Attention Is All You
+      Need" architecture? Trace it to primary sources.
+    why_hard: >
+      Provenance is contested and Wikipedia-level claims are tempting; the gate
+      must insist on primary-source attribution, not received narrative.
+    should_stay_open_if: >
+      Attribution rests on secondary sources, or contributing prior work
+      (pre-2017) is not traced to primary papers.
