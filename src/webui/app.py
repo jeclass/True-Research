@@ -82,7 +82,7 @@ def create_app(runs_dir: Path, env_path: Path = Path(".env")) -> FastAPI:
             detail = [
                 {"loc": list(e["loc"]), "msg": e["msg"]} for e in exc.errors()
             ]
-            raise HTTPException(status_code=422, detail=detail)
+            raise HTTPException(status_code=422, detail=detail) from exc
         return keys_api.set_key(req, env_path)
 
     @app.post("/api/distill", dependencies=[Depends(_require_local_origin)])
@@ -98,7 +98,7 @@ def create_app(runs_dir: Path, env_path: Path = Path(".env")) -> FastAPI:
             detail = [
                 {"loc": list(e["loc"]), "msg": e["msg"]} for e in exc.errors()
             ]
-            raise HTTPException(status_code=422, detail=detail)
+            raise HTTPException(status_code=422, detail=detail) from exc
         return await distill_api.distill(req, env_path)
 
     @app.get("/api/runs/{run_id}")

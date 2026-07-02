@@ -158,6 +158,10 @@
         c.setAttribute("aria-checked", c === card ? "true" : "false");
       }
     });
+    // Editing the original text invalidates a distilled question composed
+    // from an older version of it — hide the panel so a stale hybrid can
+    // never be launched.
+    qs("#q").addEventListener("input", hideDistillPanel);
     qs("#btn-launch").addEventListener("click", onLaunchClick);
     qs("#btn-launch-distilled").addEventListener("click", () => {
       const original = qs("#q").value;
@@ -173,13 +177,14 @@
 
   function hideDistillPanel() {
     qs("#distill-panel").hidden = true;
+    qs("#btn-launch").hidden = false;
   }
 
   async function onLaunchClick() {
     clearFieldErrors();
     const raw = qs("#q").value;
     if (!needsDistill(raw.trim())) {
-      submitLaunch(raw);
+      await submitLaunch(raw);
       return;
     }
     const btn = qs("#btn-launch");
@@ -196,16 +201,22 @@
         qs("#distill-context").textContent =
           body.context_summary ? "Context: " + body.context_summary : "";
         qs("#distill-panel").hidden = false;
+        // One launch surface at a time: the panel's buttons take over, so
+        // hide the top button (it would silently re-distill). hideDistillPanel
+        // restores it.
+        btn.hidden = true;
         qs("#distill-panel").scrollIntoView({
           behavior: reducedMotion() ? "auto" : "smooth", block: "center" });
       } else {
-        // Distill must never block a launch (spec): fall back to the raw paste.
+        // Distill must never block a launch (spec): fall back to the raw
+        // paste. Await so `finally` cannot re-enable the button while the
+        // launch POST is still in flight (double-submit = duplicate run).
         toast("Distill unavailable — launching with your text as-is", true);
-        submitLaunch(raw);
+        await submitLaunch(raw);
       }
     } catch (err) {
       toast("Distill unavailable — launching with your text as-is", true);
-      submitLaunch(raw);
+      await submitLaunch(raw);
     } finally {
       btn.disabled = false;
       btn.textContent = "Begin research";
@@ -228,9 +239,13 @@
     box.hidden = false;
   }
 
+  // Every launch surface (top button + both distill-panel buttons) is
+  // disabled for the whole POST so neither a double click nor a click on
+  // the sibling panel button mid-flight can commission two paid runs.
   async function submitLaunch(questionText) {
     clearFieldErrors();
     const btn = qs("#btn-launch");
+    const allBtns = [btn, qs("#btn-launch-distilled"), qs("#btn-skip-distill")];
     const payload = {
       question: questionText,
       preset: selectedPreset(),
@@ -240,7 +255,7 @@
     if (budget !== "") payload.max_budget_usd = Number(budget);
     if (wall !== "") payload.max_wall_hours = Number(wall);
 
-    btn.disabled = true;
+    for (const b of allBtns) b.disabled = true;
     try {
       const { ok, status, body } = await fetchJSON("/api/runs", {
         method: "POST",
@@ -270,7 +285,7 @@
     } catch (err) {
       showFieldError("general", "Network error: " + err.message);
     } finally {
-      btn.disabled = false;
+      for (const b of allBtns) b.disabled = false;
     }
   }
 
