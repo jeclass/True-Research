@@ -60,6 +60,36 @@ def test_merge_sources_rejects_id_collision_with_different_url(run):
         )
 
 
+def test_merge_sources_url_normalized_variant_is_noop_not_collision(run):
+    # Final review: the collision check compared RAW urls, so two parallel
+    # questions reading normalized-equal variants ('…/page' vs '…/page/')
+    # raised a spurious "source id collision" WorkerError that discarded the
+    # losing question's whole cycle. Normalized-equal = same source = no-op.
+    registry = run.load_sources()
+    registry.root["src-a"] = SourceRecord(
+        url="https://x.org/page", title="src-a", kind="web", credibility=80,
+        retrieved_at=utcnow(),
+    )
+    run.save_sources(registry)
+
+    merged = common.merge_sources(
+        run,
+        [{"id": "src-a", "url": "https://x.org/page/", "title": "t",
+          "kind": "web", "credibility": 50, "notes": ""}],
+        WorkerError,
+    )
+    assert merged.root["src-a"].url == "https://x.org/page"  # original kept
+
+    # a GENUINELY different url still collides
+    with pytest.raises(WorkerError, match="collision"):
+        common.merge_sources(
+            run,
+            [{"id": "src-a", "url": "https://x.org/other-page", "title": "t",
+              "kind": "web", "credibility": 50, "notes": ""}],
+            WorkerError,
+        )
+
+
 def test_merge_sources_rejects_bad_id_and_credibility(run):
     with pytest.raises(WorkerError, match="does not match"):
         common.merge_sources(

@@ -150,7 +150,11 @@ def merge_sources(
             excerpts=item.get("excerpts") or [],
         )
         existing = registry.root.get(source_id)
-        if existing is not None and existing.url != record.url:
+        # Normalized comparison (final review): two parallel questions reading
+        # normalized-equal URL variants ('…/page' vs '…/page/') must be the
+        # same-source no-op, not a spurious collision that discards the losing
+        # question's whole cycle as a WorkerError.
+        if existing is not None and normalize_url(existing.url) != normalize_url(record.url):
             raise error_cls(
                 f"source id collision: {source_id} already registered for "
                 f"{existing.url}, proposal points at {record.url}"

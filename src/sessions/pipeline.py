@@ -494,9 +494,14 @@ def run_pipeline(
     target: OpenQuestion,
     profile: Profile,
 ) -> SessionResult:
-    return asyncio.run(
+    result, outage = asyncio.run(
         _run_pipeline_async(run, settings, cycle, ledger, target, profile)
     )
+    # Sequential mode: one question IS the cycle, so its observation is the
+    # cycle's observation (identical semantics to the pre-aggregation code).
+    if outage is not None:
+        run.note_read_outage(outage)
+    return result
 
 
 def run_pipeline_batch(
@@ -515,9 +520,16 @@ def run_pipeline_batch(
     block, so two questions' applies never interleave mid-write and no lock is
     needed. return_exceptions keeps one bad question from killing the batch; the
     caller leaves a failed question for the next cycle (the orphan picker re-claims
-    its in_progress status)."""
+    its in_progress status).
 
-    async def _gather() -> list[SessionResult | BaseException]:
+    Read-outage aggregation (final review): the streak breaker counts
+    consecutive CYCLES, so the batch notes the outage ONCE per cycle — a cycle
+    is an outage only if at least one question selected reads AND every such
+    question had ALL its reads fail. Per-question noting incremented the streak
+    K times per genuinely-bad cycle (killing a K=3 run after ONE cycle) and made
+    the final value depend on completion order."""
+
+    async def _gather() -> list[tuple[SessionResult, bool | None] | BaseException]:
         return await asyncio.gather(
             *(
                 _run_pipeline_async(run, settings, cycle, ledger, t, profile)
@@ -526,7 +538,20 @@ def run_pipeline_batch(
             return_exceptions=True,
         )
 
-    return asyncio.run(_gather())
+    raw = asyncio.run(_gather())
+    results: list[SessionResult | BaseException] = []
+    observations: list[bool] = []
+    for item in raw:
+        if isinstance(item, BaseException):
+            results.append(item)  # errored questions are outage-neutral
+            continue
+        result, outage = item
+        results.append(result)
+        if outage is not None:  # questions with zero selected reads are neutral
+            observations.append(outage)
+    if observations:
+        run.note_read_outage(all(observations))
+    return results
 
 
 async def _run_pipeline_async(
@@ -536,7 +561,12 @@ async def _run_pipeline_async(
     ledger: Ledger,
     target: OpenQuestion,
     profile: Profile,
-) -> SessionResult:
+) -> tuple[SessionResult, bool | None]:
+    """Investigate ONE question. Returns (result, outage_observation) where the
+    observation is True if every selected read failed to fetch, False if any
+    fetched, None if no reads were selected — the ORCHESTRATOR (run_pipeline /
+    run_pipeline_batch) aggregates observations and notes the per-CYCLE outage
+    streak exactly once, so parallel fan-out can't multiply it (final review)."""
     cfg = _pipeline_cfg(settings, profile)
     # Community-track questions search forums via their lens; factual questions
     # use the profile's providers (docs/COMMUNITY_LENS_SPEC.md). Default runs
@@ -618,13 +648,13 @@ async def _run_pipeline_async(
 
     await asyncio.gather(*(read_one(item) for item in selected))
 
-    if selected:
-        # Circuit-breaker signal (audit #20): if EVERY selected URL failed to fetch
-        # (not "fetched but judged unhelpful"), the volume/reader endpoint is likely
-        # down, not the web. Track consecutive all-failed cycles so the driver can
-        # stop a run cleanly instead of churning budget at zero findings through
-        # soft-blocks (observed: a full DeepSeek outage stalling a run at 0 reads).
-        run.note_read_outage(failures == len(selected))
+    # Circuit-breaker signal (audit #20): if EVERY selected URL failed to fetch
+    # (not "fetched but judged unhelpful"), the volume/reader endpoint is likely
+    # down, not the web. RETURNED to the orchestrator (not noted here) so the
+    # consecutive-cycle streak is updated once per CYCLE, never once per
+    # question (final review: K parallel questions tripped the K>=3 breaker
+    # after a single bad cycle, nondeterministically with completion order).
+    outage_observation: bool | None = (failures == len(selected)) if selected else None
 
     summary_prefix = (
         f"pipeline: {len(queries)} queries, {total_results} results, "
@@ -653,7 +683,10 @@ async def _run_pipeline_async(
         )
         summary = _apply_blocked(run, target, fake, hard_block=hard_block)
         run.log(f"worker (cycle {cycle}, pipeline): {summary_prefix}")
-        return _session_result(role_cfg, query_spawn, None, summary, summary_prefix)
+        return (
+            _session_result(role_cfg, query_spawn, None, summary, summary_prefix),
+            outage_observation,
+        )
 
     # --- step 5: ENGINE builds sources -------------------------------------------
     engine_sources = build_engine_sources(reads, run.load_sources())
@@ -741,7 +774,10 @@ async def _run_pipeline_async(
     run.log(
         f"worker (cycle {cycle}, pipeline): {output.progress_note} [{summary_prefix}]"
     )
-    return _session_result(role_cfg, query_spawn, compose_spawn, summary, summary_prefix)
+    return (
+        _session_result(role_cfg, query_spawn, compose_spawn, summary, summary_prefix),
+        outage_observation,
+    )
 
 
 def _session_result(role_cfg, query_spawn, compose_spawn, summary, prefix) -> SessionResult:
