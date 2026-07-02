@@ -1,6 +1,10 @@
 # Changelog
 
-## v1.1 — unreleased (web UI usability)
+## v1.1 — 2026-07-02 (web UI usability · **public release**)
+
+**Repo flipped public 2026-07-02** after the full gate passed: 153-commit
+gitleaks history scan (zero leaks), GitHub Secret Scanning + Push Protection
+enabled at flip time, UI redaction guarantees test-covered.
 
 **Certified via a fresh-clone smoke (2026-07-02):** GitHub clone → `pip
 install -e ".[dev]"` → 312/312 tests → `true-research ui` with NO `.env` →
@@ -82,8 +86,7 @@ fabricated.
 ### Still open (not yet done)
 - Head-to-head comparison vs hosted deep-research services (two showcase runs in
   flight; needs competitor outputs for a blind scoring).
-- Public release itself is **gated**: the repo stays private until an explicit
-  go + GitHub push-protection/secret-scanning enabled at flip time.
-- Open decision: the zero-config default caps at $2 on the (pricier) all-Anthropic
-  posture and returns a partial report; `--cheap` (DeepSeek volume) is the
-  cost-optimized path to a full report at ~$2–5.
+- ~~Public release gate~~ — done 2026-07-02 (see v1.1).
+- ~~Zero-config default vs `--cheap` decision~~ — resolved in v1.1: the UI's two
+  presets default to the cheap backend when a DeepSeek key is present and fall
+  back to all-Anthropic (with an honest cost hint) when it isn't.
