@@ -418,6 +418,179 @@ def test_synthesizer_excerpt_rendering_neutralizes_newlines_and_image_markdown(
     assert "- bullet" in line                         # payload stayed INSIDE the quote line
 
 
+# --- synthesizer output-contract self-heal (observed run 20260702-150058-119b:
+# --cheap synthesizer on DeepSeek V4 Pro crashed the run twice at the finish
+# line — once on schema drift (extra_forbidden), once on a zero-citation
+# report). Contract: reroll same endpoint up to 2 more times with the failure
+# reason appended, then ONE final attempt on the role's fallback endpoint,
+# every extra attempt a logged DECISION; if everything fails, the loud typed
+# crash stays and invariant 3 never weakens. ------------------------------------
+
+
+def _mk_spawn(body: str):
+    class _Spawn:
+        structured = type("O", (), {"report_markdown": body})()
+        input_tokens = output_tokens = cached_tokens = 1
+        usd = 0.0
+        wall_seconds = 0.1
+        num_turns = 1
+
+    return _Spawn()
+
+
+def _seed_cited_finding(run: Runspace) -> None:
+    _register_source(run, "src-a")
+    run.write_finding(
+        "q-001-c01",
+        FindingMeta(question_id="q-001", source_ids=["src-a"], confidence=0.8),
+        "A claim [src-a].",
+    )
+    run.mark_finishing("conclusive")
+
+
+@pytest.fixture
+def fb_settings(tmp_path: Path) -> Settings:
+    """SDK-backend settings whose synthesizer endpoint has a configured fallback
+    (mirrors config.yaml's deepseek -> anthropic reliability net)."""
+    raw = yaml.safe_load(yaml.safe_dump(BASE_CONFIG))
+    raw["runs_dir"] = str(tmp_path / "runs")
+    raw["session"]["backend"] = "sdk"
+    raw["endpoints"]["anthropic"]["fallback"] = {"endpoint": "local", "model": "fb-model"}
+    return Settings.model_validate(raw)
+
+
+def test_synthesizer_schema_drift_rerolls_same_endpoint_with_reason(
+    run, settings, monkeypatch
+):
+    """Failure mode (a), run 20260702-150058-119b: structured output rejected
+    with pydantic extra_forbidden. One reroll on the SAME endpoint, the concrete
+    rejection appended to the retry prompt, success emits a normal report, and
+    the reroll is a logged DECISION (invariant 8)."""
+    _seed_cited_finding(run)
+    calls = []
+
+    def fake(**kw):
+        calls.append(kw)
+        if len(calls) == 1:
+            raise SynthesisError(
+                "synthesizer structured output failed validation:\n"
+                "1 validation error for SynthesizerOutput\nreport\n"
+                "  Extra inputs are not permitted [type=extra_forbidden]"
+            )
+        return _mk_spawn("# Report\n\nA claim [src-a].")
+
+    monkeypatch.setattr(synthesizer, "run_role_session", fake)
+    synthesizer.run(run, settings, cycle=1, ledger=Ledger(run))
+
+    assert len(calls) == 2
+    # same endpoint: the reroll did NOT touch the role's routing
+    assert calls[1]["settings"].roles["synthesizer"].endpoint == "anthropic"
+    # concrete failure reason appended to the retry's user prompt
+    assert "rejected" in calls[1]["user_prompt"]
+    assert "extra_forbidden" in calls[1]["user_prompt"]
+    assert "[src-" in calls[1]["user_prompt"]
+    report = (run.root / "REPORT.md").read_text(encoding="utf-8")
+    assert "A claim [src-a]." in report
+    assert any("reroll" in d for d in run.decisions())
+
+
+def test_synthesizer_citation_drop_rerolls_same_endpoint_with_reason(
+    run, settings, monkeypatch
+):
+    """Failure mode (b), same run: the report parsed fine but carried ZERO
+    [src-...] citations. Same reroll contract; invariant 3 is enforced by
+    rerolling, never by accepting the uncited report."""
+    _seed_cited_finding(run)
+    calls = []
+
+    def fake(**kw):
+        calls.append(kw)
+        if len(calls) == 1:
+            return _mk_spawn("# Report\n\nA confident but entirely uncited claim.")
+        return _mk_spawn("# Report\n\nA claim [src-a].")
+
+    monkeypatch.setattr(synthesizer, "run_role_session", fake)
+    synthesizer.run(run, settings, cycle=1, ledger=Ledger(run))
+
+    assert len(calls) == 2
+    assert "rejected" in calls[1]["user_prompt"]
+    assert "citation" in calls[1]["user_prompt"].lower()
+    report = (run.root / "REPORT.md").read_text(encoding="utf-8")
+    assert "A claim [src-a]." in report
+    assert "entirely uncited" not in report  # the uncited draft never emitted
+    assert any("reroll" in d for d in run.decisions())
+
+
+def test_synthesizer_rerolls_exhausted_escalates_once_to_fallback_endpoint(
+    run, fb_settings, monkeypatch
+):
+    """Rerolls exhausted (initial + 2) -> exactly ONE final attempt on the
+    role's configured fallback endpoint (API-enforced output_format there
+    structurally eliminates schema drift), logged as a DECISION."""
+    _seed_cited_finding(run)
+    calls = []
+
+    def fake(**kw):
+        calls.append(kw)
+        if len(calls) <= 3:
+            raise SynthesisError("synthesizer structured output failed validation: drift")
+        return _mk_spawn("# Report\n\nA claim [src-a].")
+
+    monkeypatch.setattr(synthesizer, "run_role_session", fake)
+    synthesizer.run(run, fb_settings, cycle=1, ledger=Ledger(run))
+
+    assert len(calls) == 4
+    for kw in calls[:3]:  # initial + 2 rerolls stay on the primary endpoint
+        assert kw["settings"].roles["synthesizer"].endpoint == "anthropic"
+    fb_role = calls[3]["settings"].roles["synthesizer"]
+    assert fb_role.endpoint == "local" and fb_role.model == "fb-model"
+    report = (run.root / "REPORT.md").read_text(encoding="utf-8")
+    assert "A claim [src-a]." in report
+    assert any("fallback" in d for d in run.decisions())
+
+
+def test_synthesizer_all_output_attempts_fail_stays_a_loud_typed_error(
+    run, fb_settings, monkeypatch
+):
+    """Everything fails (3 primary + 1 fallback) -> the loud SynthesisError
+    crash-with-state-preserved behavior remains (§0: no silent failures);
+    no REPORT.md is emitted."""
+    _seed_cited_finding(run)
+    calls = []
+
+    def fake(**kw):
+        calls.append(kw)
+        return _mk_spawn("# Report\n\nStill no citations at all.")
+
+    monkeypatch.setattr(synthesizer, "run_role_session", fake)
+    with pytest.raises(SynthesisError, match="invariant 3"):
+        synthesizer.run(run, fb_settings, cycle=1, ledger=Ledger(run))
+
+    assert len(calls) == 4
+    assert not (run.root / "REPORT.md").exists()
+
+
+def test_synthesizer_transport_class_error_propagates_without_rerolls(
+    run, fb_settings, monkeypatch
+):
+    """A TRANSPORT-class SynthesisError (fallback_eligible) already went through
+    the session layer's own endpoint fallback — the synthesizer must NOT stack
+    output-class rerolls on top of it."""
+    _seed_cited_finding(run)
+    calls = []
+
+    def fake(**kw):
+        calls.append(kw)
+        exc = SynthesisError("synthesizer session failed after 3 attempts (transient)")
+        exc.fallback_eligible = True
+        raise exc
+
+    monkeypatch.setattr(synthesizer, "run_role_session", fake)
+    with pytest.raises(SynthesisError, match="transient"):
+        synthesizer.run(run, fb_settings, cycle=1, ledger=Ledger(run))
+    assert len(calls) == 1
+
+
 def test_orphaned_in_progress_question_is_picked_first():
     questions = QuestionList(
         [

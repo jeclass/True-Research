@@ -159,10 +159,17 @@ def _transport_error(error_cls: type[SessionError], message: str) -> SessionErro
     configured FALLBACK endpoint can genuinely help, so
     run_role_session_with_fallback_async honors `fallback_eligible`.
     OUTPUT-class failures (session completed but structured output missing/
-    invalid/unparseable) stay UNMARKED: a different endpoint doesn't fix a
-    parse defect — the fix is a same-endpoint reroll (pipeline.
+    invalid/unparseable) stay UNMARKED: for most roles a different endpoint
+    doesn't fix a parse defect — the fix is a same-endpoint reroll (pipeline.
     _single_shot_with_retry) — and unmarked-defaults-to-not-eligible means an
-    unclassified error can never silently buy paid cloud time (final review)."""
+    unclassified error can never silently buy paid cloud time (final review).
+    Exception, handled at the CALLER not here: the SYNTHESIZER escalates its
+    own output-class failures to the fallback endpoint after same-endpoint
+    rerolls exhaust (synthesizer._spawn_report) — there a first-party fallback
+    gets API-enforced output_format, which structurally eliminates schema
+    drift, so 'a different endpoint doesn't fix a parse defect' is empirically
+    false for that role (observed run 20260702-150058-119b). The marker
+    semantics in THIS layer stay transport-only for every role."""
     err = error_cls(message)
     err.fallback_eligible = True
     return err
@@ -527,9 +534,11 @@ async def run_role_session_with_fallback_async(**kwargs: Any) -> Spawn:
             # OUTPUT-class (structured output missing/invalid/unparseable) or
             # unclassified: the session REACHED the endpoint — a different one
             # doesn't fix a parse defect. Re-raise so the caller's reroll logic
-            # (pipeline._single_shot_with_retry) resamples the PRIMARY instead
-            # of every flaky-JSON roll silently buying the paid cloud fallback
-            # (final review). Unmarked defaults to NOT eligible by design.
+            # (pipeline._single_shot_with_retry; synthesizer._spawn_report,
+            # which ALSO escalates to the fallback itself after its rerolls
+            # exhaust) resamples the PRIMARY instead of every flaky-JSON roll
+            # silently buying the paid cloud fallback (final review). Unmarked
+            # defaults to NOT eligible by design.
             raise
         fallback = settings.endpoints[role_cfg.endpoint].fallback
         if fallback is None:

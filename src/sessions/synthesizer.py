@@ -135,6 +135,107 @@ def _verification_section(factual: dict) -> str:
     return "\n".join(out) + "\n"
 
 
+# Same-endpoint resamples after the FIRST output-contract failure (schema
+# drift / zero-citation report), before the one fallback-endpoint escalation.
+_OUTPUT_REROLLS = 2
+
+
+def _spawn_report(
+    run: Runspace, settings: Settings, ledger: Ledger, cycle: int, user_prompt: str
+) -> tuple[str, object]:
+    """One synthesizer sample that SELF-HEALS output-contract failures instead of
+    crashing the run at the finish line (observed twice, run 20260702-150058-119b,
+    --cheap posture on DeepSeek V4 Pro at end-of-run scale):
+      (a) schema drift — the prompted-JSON structured output fails parse/pydantic
+          validation (extra_forbidden: report content under an unexpected field);
+      (b) citation drop — the report parses but carries ZERO [src-...] citations,
+          which invariant 3 forbids emitting.
+    Recovery ladder: reroll the SAME endpoint up to _OUTPUT_REROLLS more times
+    with the concrete rejection appended to the retry prompt (a fresh sample
+    usually fixes schema drift), then ONE final attempt on the role's configured
+    fallback endpoint — a first-party fallback gets API-enforced output_format,
+    which structurally eliminates (a). Every extra attempt is a logged DECISION
+    (invariant 8) and ledgered by the session layer like any session. If the
+    ladder exhausts, the loud typed SynthesisError stands (§0) — an uncited
+    report is still never emitted (invariant 3 never weakens).
+    TRANSPORT-class errors (fallback_eligible) propagate untouched: the session
+    layer already ran its own endpoint fallback for those."""
+    role_cfg = settings.roles[_ROLE]
+    plan: list[tuple[str, Settings]] = [("primary", settings)] * (1 + _OUTPUT_REROLLS)
+    fallback = settings.endpoints[role_cfg.endpoint].fallback
+    if fallback is not None:
+        fb_role = role_cfg.model_copy(
+            update={"endpoint": fallback.endpoint, "model": fallback.model}
+        )
+        fb_settings = settings.model_copy(
+            update={"roles": {**settings.roles, _ROLE: fb_role}}
+        )
+        plan.append(("fallback", fb_settings))
+    total = len(plan)
+    reason = ""
+    last_exc: SynthesisError | None = None
+    for i, (kind, attempt_settings) in enumerate(plan, start=1):
+        prompt = user_prompt
+        if reason:
+            prompt += (
+                f"\n\nCORRECTION: your previous attempt was rejected: {reason}. "
+                "Respond ONLY with the JSON schema fields; every claim must cite "
+                "[src-...] ids from the source digest."
+            )
+        if kind == "fallback":
+            run.log_decision(
+                f"synthesizer: output-contract failures exhausted {i - 1} attempts "
+                f"on '{role_cfg.endpoint}'; ONE final attempt on fallback "
+                f"'{fallback.endpoint}'/{fallback.model} (API-enforced output_format "
+                "there structurally eliminates schema drift)"
+            )
+        try:
+            spawn = run_role_session(
+                run=run,
+                settings=attempt_settings,
+                ledger=ledger,
+                cycle=cycle,
+                session_type="synthesizer",
+                role=_ROLE,
+                system_prompt=_SYSTEM_PROMPT,
+                user_prompt=prompt,
+                tools=_TOOLS,
+                output_model=SynthesizerOutput,
+            )
+        except SynthesisError as exc:
+            if getattr(exc, "fallback_eligible", False):
+                raise  # transport-class: the session layer already fell back
+            last_exc = exc
+            reason = str(exc)[:400] or type(exc).__name__
+            if i < total:
+                run.log_decision(
+                    f"synthesizer attempt {i}/{total}: structured output rejected "
+                    f"({reason.splitlines()[0][:160]}); rerolling with the failure "
+                    "reason appended to the prompt"
+                )
+            continue
+        body = spawn.structured.report_markdown.strip()
+        if not common.CITATION_RE.findall(body):
+            last_exc = SynthesisError(
+                "report contains no [src-...] citations despite findings existing; "
+                "refusing to emit (invariant 3)"
+            )
+            reason = (
+                "the report contained ZERO [src-...] citations despite findings "
+                "existing (invariant 3 forbids emitting an uncited report)"
+            )
+            if i < total:
+                run.log_decision(
+                    f"synthesizer attempt {i}/{total}: report parsed but carried "
+                    "zero [src-...] citations (invariant 3); rerolling with the "
+                    "failure reason appended to the prompt"
+                )
+            continue
+        return body, spawn
+    assert last_exc is not None
+    raise last_exc
+
+
 def _synthesize_factual(
     run: Runspace, settings: Settings, ledger: Ledger, cycle: int, sources
 ) -> tuple[str, SessionResult]:
@@ -143,26 +244,18 @@ def _synthesize_factual(
     `src-<qid>-finding` ids) retry with explicit feedback listing the valid ids,
     then DEGRADE by replacing any still-unresolvable citation with an explicit
     [citation-unresolved] marker. The final step must never crash a completed run,
-    and invariant 3 still holds — no fabricated source id survives into the report."""
+    and invariant 3 still holds — no fabricated source id survives into the report.
+    Each spawn goes through _spawn_report, which separately self-heals
+    output-contract failures (schema drift / zero-citation reports)."""
     attempts = max(1, min(settings.retry.attempts, 3))
     valid_ids = sorted(sources.root)
     feedback = ""
     spawn = None
     body = ""
     for attempt in range(1, attempts + 1):
-        spawn = run_role_session(
-            run=run,
-            settings=settings,
-            ledger=ledger,
-            cycle=cycle,
-            session_type="synthesizer",
-            role=_ROLE,
-            system_prompt=_SYSTEM_PROMPT,
-            user_prompt=_build_user_prompt(run) + feedback,
-            tools=_TOOLS,
-            output_model=SynthesizerOutput,
+        body, spawn = _spawn_report(
+            run, settings, ledger, cycle, _build_user_prompt(run) + feedback
         )
-        body = spawn.structured.report_markdown.strip()
         unknown = sorted({c for c in common.CITATION_RE.findall(body) if c not in sources.root})
         if not unknown:
             return body, spawn
