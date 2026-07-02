@@ -68,3 +68,48 @@ def test_set_key_value_is_stripped(tmp_path):
     env = tmp_path / ".env"
     keys_api.set_key(keys_api.SetKeyRequest(name="ANTHROPIC_API_KEY", value="  sk-x  "), env)
     assert "ANTHROPIC_API_KEY=sk-x\n" == env.read_text(encoding="utf-8")
+
+
+# ---------- routes ----------
+
+def _client(tmp_path, env_lines=""):
+    from starlette.testclient import TestClient
+    from src.webui.app import create_app
+    env = tmp_path / ".env"
+    if env_lines:
+        env.write_text(env_lines, encoding="utf-8")
+    return TestClient(create_app(runs_dir=tmp_path / "runs", env_path=env)), env
+
+
+def test_api_keys_get_status_only(tmp_path, monkeypatch):
+    for name in keys_api.KEY_ALLOWLIST:
+        monkeypatch.delenv(name, raising=False)
+    c, _ = _client(tmp_path, "ANTHROPIC_API_KEY=sk-ant-secret-value\n")
+    r = c.get("/api/keys")
+    assert r.status_code == 200
+    by_name = {row["name"]: row for row in r.json()}
+    assert by_name["ANTHROPIC_API_KEY"]["set"] is True
+    assert by_name["DEEPSEEK_API_KEY"]["set"] is False
+    assert "sk-ant-secret-value" not in r.text  # value never leaves the server
+
+
+def test_api_keys_post_roundtrip_never_echoes_value(tmp_path, monkeypatch):
+    for name in keys_api.KEY_ALLOWLIST:
+        monkeypatch.delenv(name, raising=False)
+    c, env = _client(tmp_path)
+    r = c.post("/api/keys", json={"name": "DEEPSEEK_API_KEY", "value": "sk-deep-xyz"})
+    assert r.status_code == 200
+    assert r.json() == {"name": "DEEPSEEK_API_KEY", "set": True}
+    assert "sk-deep-xyz" not in r.text
+    assert "DEEPSEEK_API_KEY=sk-deep-xyz" in env.read_text(encoding="utf-8")
+    assert "sk-deep-xyz" not in c.get("/api/keys").text
+
+
+def test_api_keys_post_rejects_bad_name_and_value(tmp_path):
+    c, _ = _client(tmp_path)
+    assert c.post("/api/keys", json={"name": "PATH", "value": "x"}).status_code == 422
+    assert c.post("/api/keys",
+                  json={"name": "ANTHROPIC_API_KEY", "value": "a\nb"}).status_code == 422
+    # 422 error body must not echo the submitted value
+    r = c.post("/api/keys", json={"name": "ANTHROPIC_API_KEY", "value": "sk-oops\nx"})
+    assert "sk-oops" not in r.text

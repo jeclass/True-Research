@@ -126,10 +126,12 @@ def test_run_id_validation_rejects_trailing_newline():
     assert runs_api.is_valid_run_id("20260102-000000-bbbb\n") is False
 
 
-def _client(runs_dir):
+def _client(runs_dir, env_path=None):
     from starlette.testclient import TestClient
     from src.webui.app import create_app
-    return TestClient(create_app(runs_dir=runs_dir))
+    if env_path is None:
+        env_path = runs_dir.parent / ".env"  # empty tmp .env — never the real one
+    return TestClient(create_app(runs_dir=runs_dir, env_path=env_path))
 
 
 def test_api_runs_list_route(tmp_path):
@@ -178,6 +180,10 @@ def test_no_route_leaks_secrets(tmp_path):
         low = b.lower()
         for needle in ["api_key", "api-key", "secret", "auth_token", "sk-ant", "authorization", "os.environ"]:
             assert needle not in low, f"possible secret surface: {needle!r}"
+
+    keys_body = c.get("/api/keys").text.lower()
+    for needle in ["sk-ant", "authorization", "os.environ", "value"]:
+        assert needle not in keys_body, f"possible secret surface: {needle!r}"
 
 
 def test_launch_validates_and_spawns(tmp_path, monkeypatch):

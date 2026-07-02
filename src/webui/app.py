@@ -11,23 +11,26 @@ before spawning. See launch_api.py for the full security contract.
 
 Intended deployment: bind 127.0.0.1 only, no auth by design — this is a
 localhost single-operator tool, not a multi-tenant or internet-facing service.
+The /api/keys routes return names + set-booleans only; values are write-only
+(see src/webui/keys_api.py).
 """
 
 from __future__ import annotations
 
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException
+from fastapi import Body, FastAPI, HTTPException
 from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
+from pydantic import ValidationError
 
-from src.webui import launch_api, runs_api
+from src.webui import keys_api, launch_api, runs_api
 
 _STATIC_DIR = Path(__file__).parent / "static"
 _FALLBACK_INDEX_HTML = "<!doctype html><meta charset=utf-8><title>True Research</title>"
 
 
-def create_app(runs_dir: Path) -> FastAPI:
+def create_app(runs_dir: Path, env_path: Path = Path(".env")) -> FastAPI:
     app = FastAPI(title="True Research Web UI")
 
     _STATIC_DIR.mkdir(exist_ok=True)
@@ -40,6 +43,22 @@ def create_app(runs_dir: Path) -> FastAPI:
     @app.post("/api/runs")
     def api_launch_run(req: launch_api.LaunchRequest):
         return launch_api.launch(req, runs_dir)
+
+    @app.get("/api/keys")
+    def api_keys_status():
+        return keys_api.key_status(env_path)
+
+    @app.post("/api/keys")
+    def api_keys_set(payload: dict = Body(...)):
+        try:
+            req = keys_api.SetKeyRequest.model_validate(payload)
+        except ValidationError as exc:
+            # Redacted 422: field + message only, never the submitted input.
+            detail = [
+                {"loc": list(e["loc"]), "msg": e["msg"]} for e in exc.errors()
+            ]
+            raise HTTPException(status_code=422, detail=detail)
+        return keys_api.set_key(req, env_path)
 
     @app.get("/api/runs/{run_id}")
     def api_run_detail(run_id: str):
