@@ -310,9 +310,12 @@ def test_search_preflight_prefers_serper_then_searxng_then_ddg_then_aborts(monke
     )
 
     class _SearXNGFail:
-        """Mock httpx.get response for a failed SearXNG probe."""
+        """Mock httpx.get response for a failed SearXNG probe. Raises the real
+        transport-error type (httpx.HTTPError subclass): the probe's except is
+        deliberately narrow now, so a bare Exception would — correctly — escape
+        as a coding error instead of reading as "backend unreachable"."""
         def raise_for_status(self):
-            raise Exception("Connection refused")
+            raise search_mod.httpx.ConnectError("Connection refused")
 
     async def _ddg_ok(query, max_results, timeout=10.0):
         return [{"title": "t", "url": "u", "snippet": "s"}]

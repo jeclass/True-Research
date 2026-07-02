@@ -197,12 +197,17 @@ def preflight_search(settings: Settings, *, timeout: float = 6.0) -> str:
                 timeout=timeout,
             )
             response.raise_for_status()
-            response.json()
-            return "serper"
-        except Exception as exc:  # noqa: BLE001 — HTTPError + an undecodable body
-            # (UnicodeDecodeError/LookupError from a bogus charset) both just mean
-            # "this backend isn't usable"; record it and fall through to the next.
+        except httpx.HTTPError as exc:
             serper_err = str(exc)
+        else:
+            try:
+                response.json()
+            except Exception as exc:  # noqa: BLE001 — an undecodable body
+                # (UnicodeDecodeError/LookupError from a bogus charset) just means
+                # "this backend isn't usable"; record it and fall to the next.
+                serper_err = str(exc)
+            else:
+                return "serper"
 
     base_url = settings.search.searxng_base_url
     searxng_err: str | None = None
@@ -214,10 +219,15 @@ def preflight_search(settings: Settings, *, timeout: float = 6.0) -> str:
                 timeout=timeout,
             )
             response.raise_for_status()
-            response.json()  # JSON output must be enabled — the engine parses it
-            return "searxng"
-        except Exception as exc:  # noqa: BLE001 — see serper probe above
+        except httpx.HTTPError as exc:
             searxng_err = str(exc)
+        else:
+            try:
+                response.json()  # JSON output must be enabled — the engine parses it
+            except Exception as exc:  # noqa: BLE001 — see serper probe above
+                searxng_err = str(exc)
+            else:
+                return "searxng"
 
     # Serper/SearXNG down or unconfigured — verify the Docker-free DDG fallback.
     try:

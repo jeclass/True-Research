@@ -25,11 +25,13 @@ max_read_outage_cycles: 3 # consecutive cycles where EVERY read failed to fetch
 
 # --- Question-tree bounds (item 2 — deeper trees) ---------------------------
 # --- Per-cycle evaluator context bounds (root-cause fix 2026-06-15) ----------
-# The cheap per-cycle gate runs on the local 32k model; without these it
-# overflowed at ~13 findings / 136 sources (~30.7k tok) and 5xx-ed, halting
-# deep runs. Findings are excerpted to a total budget (distributed per
-# finding); the source list is capped to the most-credible N. The Opus final
-# gate is exempt and still sees full text.
+# A cost/latency cap on the per-cycle gate, whatever its routing. (History:
+# added when the gate ran on a local 32k model that overflowed at ~13 findings
+# / 136 sources (~30.7k tok) and 5xx-ed, halting deep runs; kept because
+# bounding the per-cycle gate's context is correct at ANY routing.) Findings
+# are excerpted to a total budget (distributed per finding); the source list
+# is capped to the most-credible N. The Opus final gate is exempt and still
+# sees full text.
 evaluator:
   per_cycle_findings_chars: 40000
   per_cycle_max_sources: 60
@@ -270,9 +272,10 @@ roles:
   initializer:     {endpoint: anthropic, model: claude-opus-4-8,    max_turns: 16, max_wall_seconds: 600}
   worker:          {endpoint: anthropic, model: claude-sonnet-4-6,  max_turns: 4,  max_wall_seconds: 1200}
   # pipeline compose (COMPREHENSIVE_RESEARCH_SPEC §1): the ONE one-shot
-  # synthesis call per resolved question — the cheapest quality lever past the
-  # local-9B ceiling. Query-gen + readers stay local. REMOVE this role to fall
-  # back to compose-on-worker (the certified full-local-volume posture).
+  # synthesis call per resolved question. Under this default posture ALL roles
+  # (compose included) run on Anthropic; the local-volume posture lives in
+  # --volume local / docs/examples/config.local-hybrid.yaml. REMOVE this role
+  # to fall back to compose-on-worker.
   compose:         {endpoint: anthropic, model: claude-haiku-4-5-20251001, max_turns: 4, max_wall_seconds: 600}
   reader_subagent: {endpoint: anthropic, model: claude-haiku-4-5-20251001, max_turns: 12, max_wall_seconds: 900}
   # per-cycle evaluator: Sonnet (cheap-ish gate; engine force-fails dishonest
