@@ -253,7 +253,14 @@ def run(run: Runspace, settings: Settings, cycle: int, ledger: Ledger) -> Sessio
             # Span-level citation anchors (roadmap): the exact wording behind this
             # source's contribution, so a reader can verify a claim without
             # re-fetching the source. Capped at 3 — an enrichment, not a transcript.
-            appendix += [f'  > "{q.strip()}"' for q in rec.excerpts[:3]]
+            # Render-site hardening (final review, defense in depth — registries
+            # written before the reader normalized quotes may hold raw ones):
+            # collapse ALL whitespace so an embedded newline can't escape the
+            # blockquote, then escape "![" so an excerpt can't smuggle image
+            # markdown (a zero-click exfil channel) into the report.
+            for q in rec.excerpts[:3]:
+                flat = " ".join(q.split()).replace("![", "!\\[")
+                appendix.append(f'  > "{flat}"')
     else:
         appendix += ["- no sources cited"]
 

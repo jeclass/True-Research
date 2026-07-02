@@ -248,6 +248,14 @@ def findings_digest(
             parts.append(head)
             continue
         text = body.strip()
+        if per_finding is not None and per_finding <= 0:
+            # Degenerate budget (findings outnumber max_total_chars): the
+            # head/tail split below would compute tail_n == 0, and text[-0:]
+            # returns the ENTIRE body — silently defeating the cap (final
+            # review). Degrade to headers-only; the headers carry the
+            # evaluator's core job (resolution + traceability).
+            parts.append(f"{head}\n…[body elided to fit evaluator context]…")
+            continue
         if per_finding is not None and len(text) > per_finding:
             # HEAD + TAIL, not head-only (mirrors reader.py's 2026-06-29 fix,
             # audit #4). Plain text[:per_finding] dropped the back of every long

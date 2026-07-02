@@ -562,22 +562,50 @@ def test_finalize_text_keeps_head_and_tail_not_just_head(tmp_path):
 
 def test_verify_quotes_keeps_only_genuine_substrings():
     # roadmap (span-level citation anchors): a key_quote is only trustworthy as a
-    # citation anchor if it's GENUINELY verbatim — this is the property that makes
-    # it better than summary_markdown (which can paraphrase). Whitespace noise from
-    # HTML extraction must not falsely reject a real quote.
+    # citation anchor if it's GENUINELY verbatim. Final review tightened the
+    # contract to per-LINE matching: extract_text joins DOM nodes with \n, so a
+    # quote verifies only if its normalized form sits within ONE line of the
+    # page text — a quote spanning a \n boundary (even one logical sentence
+    # split across nodes) is dropped. A false reject only costs an excerpt; a
+    # false accept mints a fake citation. Verified quotes come back NORMALIZED.
     from src.sessions import reader as reader_mod
 
     page = "The trial enrolled\n  120   participants and found a 0.7kg difference."
     quotes = [
-        "The trial enrolled 120 participants",   # genuine, just whitespace-normalized
-        "found a 0.7kg difference",               # genuine
+        "The trial enrolled 120 participants",   # spans the \n boundary — dropped
+        "found a  0.7kg   difference",            # same line; whitespace noise OK
         "the drug cures everything instantly",    # fabricated — not in the page
     ]
     verified = reader_mod._verify_quotes(quotes, page)
-    assert verified == [
-        "The trial enrolled 120 participants",
-        "found a 0.7kg difference",
-    ]
+    assert verified == ["found a 0.7kg difference"]   # returned single-spaced
+
+
+def test_verify_quotes_rejects_cross_node_stitch_but_keeps_same_row():
+    # Final review executed case: whole-page normalization collapsed the \n node
+    # boundaries, so '12% Drug B' — a splice of two table ROWS — verified as a
+    # verbatim quote of text the page never said, exactly where key numbers
+    # live. Per-line matching rejects the splice; 'Drug A 12%' is genuinely one
+    # row (one line) and still verifies.
+    from src.sessions import reader as reader_mod
+
+    page = "Drug A\t12%\nDrug B\t34%"
+    verified = reader_mod._verify_quotes(["12% Drug B", "Drug A 12%"], page)
+    assert verified == ["Drug A 12%"]
+
+
+def test_verify_quotes_output_is_blockquote_safe_and_cross_line_newlines_reject():
+    from src.sessions import reader as reader_mod
+
+    page = "First  line here.\nSecond line there."
+    # a quote whose embedded newline joins DIFFERENT page lines is rejected
+    assert reader_mod._verify_quotes(["line here.\nSecond line"], page) == []
+    # a quote whose noise-whitespace form sits within ONE page line is accepted
+    # and STORED normalized: no '\n', no double spaces — embedded newlines must
+    # never reach the report's blockquote rendering.
+    verified = reader_mod._verify_quotes(["First \n line  here."], page)
+    assert verified == ["First line here."]
+    for q in verified:
+        assert "\n" not in q and "  " not in q
 
 
 def test_read_source_drops_unverified_key_quotes(tmp_path, monkeypatch):

@@ -72,6 +72,20 @@ def test_findings_digest_preserves_tail_not_just_head(tmp_path):
     run.release_lock()
 
 
+def test_findings_digest_zero_per_finding_budget_stays_bounded(tmp_path):
+    # Final review: when findings outnumber max_total_chars, per_finding
+    # becomes 0 — the head/tail split then computed tail_n == 0 and text[-0:]
+    # returned the ENTIRE body, silently defeating the cap. Degenerate budgets
+    # must degrade to headers-only, never to unbounded output.
+    run = _run_with_findings(tmp_path, n=5, body_chars=500)
+    digest = common.findings_digest(run, full_bodies=True, max_total_chars=3)
+    assert len(digest) < 1000                        # bounded — not 5 full bodies
+    assert "lorem ipsum dolor sit amet" not in digest  # no body text leaked
+    for i in range(5):
+        assert f"q-{i+1:03d}" in digest              # every finding still indexed
+    run.release_lock()
+
+
 def test_findings_digest_none_budget_is_full(tmp_path):
     run = _run_with_findings(tmp_path, n=3, body_chars=2000)
     full = common.findings_digest(run, full_bodies=True)

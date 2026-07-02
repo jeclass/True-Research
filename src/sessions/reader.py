@@ -42,10 +42,12 @@ Produce:
   faithful. Quote key figures exactly. No filler, no outside knowledge.
 - key_quotes: 0-3 short sentences COPIED CHARACTER-FOR-CHARACTER from the page
   text — the exact wording backing the most load-bearing fact in your summary
-  (a key number, a conclusion, a caveat). These become the report's checkable
-  citation anchor, so they MUST be a verbatim substring of the page text, not a
-  paraphrase. The engine discards any quote that isn't an exact match — leave
-  key_quotes empty rather than approximate one."""
+  (a key number, a conclusion, a caveat). Each quote must come from ONE
+  continuous passage of the page — never assembled from separate rows,
+  cells, or sections. These become the report's checkable citation anchor,
+  so they MUST be a verbatim substring of the page text, not a paraphrase.
+  The engine discards any quote that isn't an exact match — leave key_quotes
+  empty rather than approximate one."""
 
 # The page text is UNTRUSTED web content — append the injection-defense clause so
 # the reader treats it as data, never instructions (roadmap hardening 2026-06-30).
@@ -214,18 +216,21 @@ def _normalize_for_match(text: str) -> str:
 
 
 def _verify_quotes(quotes: list[str], page_text: str) -> list[str]:
-    """Keep only key_quotes that are an exact (whitespace-normalized) substring of
-    the page text. This is the trust property that makes a quote a real citation
-    anchor rather than more potentially-hallucinated text: a non-empty result here
-    is GENUINELY verbatim, never a model paraphrase. Silently filtered, not raised
-    — this is best-effort enrichment, not an invariant on the read itself (the
-    summary_markdown / credibility / traceability checks already gate the read)."""
-    haystack = _normalize_for_match(page_text)
+    """Keep only quotes whose normalized form appears within a SINGLE line of
+    the page text. Per-line matching (not whole-page) because extract_text
+    joins DOM nodes with \\n — collapsing those boundaries let a "quote"
+    stitch adjacent table cells/headlines into a verbatim-looking splice
+    (final review: '12% Drug B' verified against a 2-row table). A false
+    REJECT only costs an excerpt (best-effort enrichment); a false ACCEPT
+    mints a checkable-looking citation for text the page never said. The
+    normalized form is what's stored: embedded newlines must never reach the
+    report's blockquote rendering."""
+    lines = [_normalize_for_match(ln) for ln in page_text.splitlines()]
     verified = []
     for q in quotes:
         norm = _normalize_for_match(q)
-        if norm and norm in haystack:
-            verified.append(q.strip())
+        if norm and any(norm in ln for ln in lines):
+            verified.append(norm)
     return verified
 
 

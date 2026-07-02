@@ -330,6 +330,49 @@ def test_synthesizer_report_shows_excerpts_as_inline_citations(run, settings, tm
     assert ">" not in between
 
 
+def test_synthesizer_excerpt_rendering_neutralizes_newlines_and_image_markdown(
+    run, settings, tmp_path, monkeypatch
+):
+    # Final review, defense in depth at the RENDER site (registries written
+    # before the reader normalized quotes may still hold raw excerpts): an
+    # excerpt with an embedded newline could escape the blockquote and inject
+    # markdown — "![](...)" being a zero-click image-exfil channel. The render
+    # must collapse whitespace to one line, then escape "![".
+    registry = run.load_sources()
+    registry.root["src-evil"] = SourceRecord(
+        url="https://x.org/e", title="Evil", kind="web", credibility=10,
+        retrieved_at=utcnow(),
+        excerpts=["line one\n- bullet ![](https://evil.example/x)"],
+    )
+    run.save_sources(registry)
+    run.write_finding(
+        "q-001-c01",
+        FindingMeta(question_id="q-001", source_ids=["src-evil"], confidence=0.8),
+        "A claim [src-evil].",
+    )
+    run.mark_finishing("conclusive")
+
+    class _Spawn:
+        structured = type("O", (), {
+            "report_markdown": "# Report\n\nA claim [src-evil]."
+        })()
+        input_tokens = output_tokens = cached_tokens = 1
+        usd = 0.0
+        wall_seconds = 0.1
+        num_turns = 1
+
+    monkeypatch.setattr(synthesizer, "run_role_session", lambda **kw: _Spawn())
+    synthesizer.run(run, settings, cycle=1, ledger=Ledger(run))
+
+    report = (run.root / "REPORT.md").read_text(encoding="utf-8")
+    quote_lines = [ln for ln in report.splitlines() if ln.lstrip().startswith(">") and "line one" in ln]
+    assert len(quote_lines) == 1                      # ONE blockquote line — newline collapsed
+    line = quote_lines[0]
+    assert "!\\[" in line                             # image-exfil channel escaped
+    assert "![](https://evil.example/x)" not in report  # raw image markdown gone
+    assert "- bullet" in line                         # payload stayed INSIDE the quote line
+
+
 def test_orphaned_in_progress_question_is_picked_first():
     questions = QuestionList(
         [
