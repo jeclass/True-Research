@@ -1,5 +1,19 @@
 # Changelog
 
+## v1.1 — unreleased (web UI usability)
+
+- **Two presets.** The launch view offers Quick (~$1, `--cheap --gate opus`) and
+  Comprehensive (~$3–5, adds `--comprehensive --verify` — the showcase-run
+  config). No DeepSeek key? The server transparently runs the same depth on the
+  all-Anthropic backend and the UI says what that costs.
+- **Keys panel.** Paste Anthropic/DeepSeek/Serper keys in the dashboard; they're
+  written to `.env` and are never displayed or readable back. State-changing
+  endpoints now reject cross-origin requests.
+- **Report downloads.** `.md` + PDF from the report view and the runs list.
+- **Long-paste distill.** Pasting a page of text triggers a one-shot Haiku
+  preview — "here's the research question I'll pursue" — editable before any
+  run spend; skippable; the full paste still reaches the initializer.
+
 ## v1.0 — 2026-07-02 (public-release preparation)
 
 The push from "works on one machine, private repo" to a polished, portable,

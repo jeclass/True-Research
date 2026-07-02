@@ -45,6 +45,10 @@ One line per non-obvious choice: what, why, alternative rejected.
 - 2026-06-10 — Pipeline pre-emption: zero useful reads => engine marks blocked without paying for compose; rejected: asking a model to compose from nothing.
 - 2026-06-10 — Visual profile refuses pipeline mode loudly (needs in-loop capture decisions; run agentic with a cloud worker outside the budget posture); rejected: a degraded capture-all-candidates pipeline v1 nobody validated.
 - 2026-06-10 — max_final_evaluations breaker (default 4, persisted/resume-safe): the Opus final gate is the budget posture's ONLY variable cost; past the cap the run accepts the local evaluator's pass as conclusive with a logged decision; max_budget_usd dropped to $2.00 as the hard net beneath; rejected: unbounded gate firings (couples spend to local-evaluator quality).
+- 2026-07-02 — UI presets collapsed to Quick/Comprehensive, both on the --cheap backend with `--gate opus`; server falls back to all-Anthropic flags when DEEPSEEK_API_KEY is absent (honest cost hint in the UI); rejected: exposing the full gate/verify/volume matrix as cards (config axes, not user intents).
+- 2026-07-02 — Dashboard writes API keys to .env via a fixed-allowlist POST (set/not-set is the ONLY readable state; validation 422s are redacted); rejected: OS keychain (new dep, platform variance) and status-only display (doesn't fix onboarding).
+- 2026-07-02 — POST routes reject non-localhost Origin headers (CSRF defense for the unauthenticated localhost server); absent Origin allowed (curl/tests; a hostile website cannot suppress Origin).
+- 2026-07-02 — Long pastes get a pre-launch Haiku distill (webui-only, unledgered, code-defaulted model) with an editable question + skip link; the full paste ships to the initializer under "## Original brief"; rejected: initializer schema change (engine freeze) and trust-as-is (misread = whole run wasted).
 
 ## v1.0 gate certification — 2026-07-02
 
