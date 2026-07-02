@@ -23,6 +23,7 @@
       <a href="#/launch" data-view="launch">New Run</a>
       <a href="#/runs"   data-view="runs">Runs</a>
       <a href="#/report" data-view="report">Report</a>
+      <a href="#/keys" data-view="keys">Keys</a>
     </nav>
   </header>
 
@@ -42,38 +43,21 @@
 
         <label class="field-label">Preset</label>
         <div class="preset-grid" id="preset-grid" role="radiogroup" aria-label="Preset">
-          <button type="button" class="preset-card selected" data-preset="standard" role="radio" aria-checked="true">
-            <span class="preset-name">Standard</span>
-            <span class="preset-desc">Quick pass</span>
-            <span class="preset-cost">$2&ndash;8</span>
+          <button type="button" class="preset-card selected" data-preset="quick" role="radio" aria-checked="true">
+            <span class="preset-name">Quick</span>
+            <span class="preset-desc">Focused pass &middot; DeepSeek build, Opus gate</span>
+            <span class="preset-cost">~$1</span>
           </button>
           <button type="button" class="preset-card" data-preset="comprehensive" role="radio" aria-checked="false">
             <span class="preset-name">Comprehensive</span>
-            <span class="preset-desc">Deep tree + verify</span>
-            <span class="preset-cost">$5&ndash;15</span>
-          </button>
-          <button type="button" class="preset-card" data-preset="exhaustive" role="radio" aria-checked="false">
-            <span class="preset-name">Exhaustive</span>
-            <span class="preset-desc">Max reads</span>
-            <span class="preset-cost">$10&ndash;25</span>
-          </button>
-          <button type="button" class="preset-card" data-preset="cheap" role="radio" aria-checked="false">
-            <span class="preset-name">Cheap</span>
-            <span class="preset-desc">DeepSeek build + Opus gate</span>
-            <span class="preset-cost">$2&ndash;7</span>
+            <span class="preset-desc">Deep tree + adversarial verify</span>
+            <span class="preset-cost">$3&ndash;5</span>
           </button>
         </div>
         <div class="field-err" id="err-preset" hidden></div>
+        <div class="backend-hint" id="backend-hint" hidden></div>
 
         <div class="launch-options">
-          <label class="switch-row">
-            <span class="switch">
-              <input type="checkbox" id="verify" autocomplete="off">
-              <span class="knob" aria-hidden="true"></span>
-            </span>
-            <span class="switch-label">Verify<small>adversarial verification pass on findings</small></span>
-          </label>
-
           <div class="num-field">
             <label class="field-label" for="budget">Budget&nbsp;USD</label>
             <input type="number" id="budget" min="0" step="0.5" placeholder="engine default" autocomplete="off">
@@ -89,6 +73,17 @@
 
         <div class="field-err" id="err-general" hidden></div>
         <button type="button" class="btn-primary" id="btn-launch">Begin research</button>
+
+        <div id="distill-panel" hidden>
+          <label class="field-label" for="distilled-q">Distilled research question &mdash; edit freely</label>
+          <textarea id="distilled-q" rows="3" spellcheck="true" autocomplete="off"></textarea>
+          <p class="distill-note" id="distill-context"></p>
+          <p class="distill-note">Your full paste is preserved and sent to the engine as background.</p>
+          <div class="distill-actions">
+            <button type="button" class="btn-primary" id="btn-launch-distilled">Begin research</button>
+            <button type="button" class="btn-ghost" id="btn-skip-distill">Skip &mdash; research my text as-is</button>
+          </div>
+        </div>
       </div>
     </section>
 
@@ -114,6 +109,17 @@
           <span class="empty-glyph" aria-hidden="true">&#9671;</span>
           No report selected &mdash; pick a finished run.
         </div>
+      </div>
+    </section>
+
+    <!-- ============ KEYS ============ -->
+    <section id="view-keys" hidden>
+      <div class="launch-col">
+        <h1 class="view-title">API keys</h1>
+        <p class="view-sub">Keys are written to this project's <code>.env</code> and used only when
+           spawning research sessions. Once saved they are never displayed again &mdash; the server
+           reports set / not set only.</p>
+        <div id="keys-list"><div class="empty-state">Loading&hellip;</div></div>
       </div>
     </section>
 

@@ -744,3 +744,54 @@ main > section { padding-top: 34px; }
   .dot.running, .q-glyph.in_progress, .toast, .reading li.flash { animation: none; }
   .conf-bar i, .btn-primary, .preset-card, .switch .knob, .switch .knob::after { transition: none; }
 }
+
+/* ---------- v1.1: keys view, distill panel, hints, list downloads ---------- */
+.backend-hint {
+  margin: 10px 0 0;
+  padding: 10px 14px;
+  border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
+  border-radius: 8px;
+  font-size: 0.85rem;
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+}
+#distill-panel {
+  margin-top: 18px;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+}
+.distill-note { font-size: 0.8rem; opacity: 0.7; margin: 8px 0 0; }
+.distill-actions { display: flex; gap: 12px; margin-top: 14px; align-items: center; }
+.btn-ghost {
+  background: none;
+  border: none;
+  color: var(--accent);
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.85rem;
+  text-decoration: underline;
+  padding: 8px 4px;
+}
+.keys-row {
+  padding: 16px 0;
+  border-bottom: 1px solid var(--line);
+}
+.keys-head { display: flex; align-items: center; gap: 10px; }
+.keys-name { font-family: var(--mono-stack); font-size: 0.9rem; }
+.keys-desc { font-size: 0.8rem; opacity: 0.7; margin: 6px 0 10px; }
+.keys-input { display: flex; gap: 10px; }
+.keys-input input { flex: 1; }
+.btn-small { padding: 6px 16px; }
+.run-row-wrap { position: relative; }
+.run-row-wrap .run-row { width: 100%; }
+.run-dl {
+  position: absolute;
+  right: 10px;
+  bottom: 8px;
+  display: flex;
+  gap: 8px;
+  font-size: 0.7rem;
+}
+.run-dl a { color: var(--accent); text-decoration: none; opacity: 0.75; }
+.run-dl a:hover { opacity: 1; text-decoration: underline; }

@@ -1,5 +1,5 @@
 /* True Research web UI — single-file, zero-build, no framework.
- * Hash routes: #/launch  #/runs  #/runs/<id>  #/report/<id>
+ * Hash routes: #/launch  #/runs  #/runs/<id>  #/report/<id>  #/keys
  *
  * SECURITY: no innerHTML anywhere. All dynamic content is inserted via
  * textContent / createElement. The report markdown is pre-escaped
@@ -108,6 +108,7 @@
       .replace(/^#\/?/, "").split("/").filter(Boolean);
     if (parts[0] === "runs") return { view: "runs", id: parts[1] || null };
     if (parts[0] === "report") return { view: "report", id: parts[1] || null };
+    if (parts[0] === "keys") return { view: "keys", id: null };
     return { view: "launch", id: null };
   }
 
@@ -132,14 +133,21 @@
       const id = r.id || state.reportRunId;
       if (r.id) state.reportRunId = r.id;
       renderReport(id);
+    } else if (r.view === "keys") {
+      renderKeys();
     }
+    if (r.view === "launch") updateBackendHint();
   }
 
   // ---------- launch view ----------
   const selectedPreset = () => {
     const card = qs(".preset-card.selected");
-    return card ? card.dataset.preset : "standard";
+    return card ? card.dataset.preset : "quick";
   };
+
+  // Long-paste threshold (spec): distill when > 400 chars OR > 3 lines.
+  const needsDistill = (text) =>
+    text.length > 400 || text.split("\n").length > 3;
 
   function wireLaunch() {
     qs("#preset-grid").addEventListener("click", (e) => {
@@ -149,10 +157,59 @@
         c.classList.toggle("selected", c === card);
         c.setAttribute("aria-checked", c === card ? "true" : "false");
       }
-      // comprehensive implies --verify server-side; mirror that in the UI
-      if (card.dataset.preset === "comprehensive") qs("#verify").checked = true;
     });
-    qs("#btn-launch").addEventListener("click", submitLaunch);
+    qs("#btn-launch").addEventListener("click", onLaunchClick);
+    qs("#btn-launch-distilled").addEventListener("click", () => {
+      const original = qs("#q").value;
+      const edited = qs("#distilled-q").value.trim();
+      if (!edited) { showFieldError("question", "distilled question is empty"); return; }
+      submitLaunch(edited + "\n\n## Original brief\n\n" + original);
+    });
+    qs("#btn-skip-distill").addEventListener("click", () => {
+      hideDistillPanel();
+      submitLaunch(qs("#q").value);
+    });
+  }
+
+  function hideDistillPanel() {
+    qs("#distill-panel").hidden = true;
+  }
+
+  async function onLaunchClick() {
+    clearFieldErrors();
+    const raw = qs("#q").value;
+    if (!needsDistill(raw.trim())) {
+      submitLaunch(raw);
+      return;
+    }
+    const btn = qs("#btn-launch");
+    btn.disabled = true;
+    btn.textContent = "Distilling…";
+    try {
+      const { ok, body } = await fetchJSON("/api/distill", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: raw }),
+      });
+      if (ok && body && body.research_question) {
+        qs("#distilled-q").value = body.research_question;
+        qs("#distill-context").textContent =
+          body.context_summary ? "Context: " + body.context_summary : "";
+        qs("#distill-panel").hidden = false;
+        qs("#distill-panel").scrollIntoView({
+          behavior: reducedMotion() ? "auto" : "smooth", block: "center" });
+      } else {
+        // Distill must never block a launch (spec): fall back to the raw paste.
+        toast("Distill unavailable — launching with your text as-is", true);
+        submitLaunch(raw);
+      }
+    } catch (err) {
+      toast("Distill unavailable — launching with your text as-is", true);
+      submitLaunch(raw);
+    } finally {
+      btn.disabled = false;
+      btn.textContent = "Begin research";
+    }
   }
 
   function clearFieldErrors() {
@@ -171,13 +228,12 @@
     box.hidden = false;
   }
 
-  async function submitLaunch() {
+  async function submitLaunch(questionText) {
     clearFieldErrors();
     const btn = qs("#btn-launch");
     const payload = {
-      question: qs("#q").value,
+      question: questionText,
       preset: selectedPreset(),
-      verify: qs("#verify").checked,
     };
     const budget = qs("#budget").value.trim();
     const wall = qs("#wall").value.trim();
@@ -192,8 +248,12 @@
         body: JSON.stringify(payload),
       });
       if (ok && body && body.launched) {
-        toast("Run launched (pid " + body.pid + ") — it will appear in the list within ~30s");
+        const backendNote = body.backend === "anthropic"
+          ? " · all-Anthropic backend" : "";
+        toast("Run launched (pid " + body.pid + ")" + backendNote +
+              " — it will appear in the list within ~30s");
         qs("#q").value = "";
+        hideDistillPanel();
         location.hash = "#/runs";
       } else if (status === 422 && body && body.detail) {
         if (Array.isArray(body.detail)) {
@@ -212,6 +272,65 @@
     } finally {
       btn.disabled = false;
     }
+  }
+
+  async function updateBackendHint() {
+    const hint = qs("#backend-hint");
+    const { ok, body } = await fetchJSON("/api/keys");
+    if (!ok || !Array.isArray(body)) { hint.hidden = true; return; }
+    const deepseek = body.find((k) => k.name === "DEEPSEEK_API_KEY");
+    if (deepseek && deepseek.set) { hint.hidden = true; return; }
+    hint.textContent =
+      "No DeepSeek key set — runs use the all-Anthropic backend. " +
+      "Comprehensive will likely stop at the budget cap with a partial " +
+      "report. Add a DeepSeek key in the Keys tab for the advertised costs.";
+    hint.hidden = false;
+  }
+
+  // ---------- keys view ----------
+  async function renderKeys() {
+    const host = qs("#keys-list");
+    const { ok, body } = await fetchJSON("/api/keys");
+    if (!ok || !Array.isArray(body)) {
+      swap(host, emptyState("Could not load key status.", "⚠"));
+      return;
+    }
+    swap(host, body.map((k) => {
+      const input = el("input", {
+        type: "password", placeholder: k.set ? "replace key…" : "paste key…",
+        autocomplete: "off", "aria-label": k.name,
+      });
+      const save = el("button", { type: "button", class: "btn-primary btn-small", text: "Save" });
+      const row = el("div", { class: "keys-row" },
+        el("div", { class: "keys-head" },
+          el("span", { class: "keys-name", text: k.name }),
+          el("span", { class: "badge " + (k.set ? "verified" : "unverified"),
+                       text: k.set ? "set" : "not set" })),
+        el("p", { class: "keys-desc", text: k.used_for }),
+        el("div", { class: "keys-input" }, input, save));
+      save.addEventListener("click", async () => {
+        const value = input.value.trim();
+        if (!value) return;
+        save.disabled = true;
+        try {
+          const res = await fetchJSON("/api/keys", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ name: k.name, value }),
+          });
+          if (res.ok) {
+            toast(k.name + " saved");
+            input.value = "";
+            renderKeys();
+          } else {
+            toast("Could not save " + k.name + " (HTTP " + res.status + ")", true);
+          }
+        } finally {
+          save.disabled = false;
+        }
+      });
+      return row;
+    }));
   }
 
   // ---------- runs list ----------
@@ -234,8 +353,8 @@
       swap(host, emptyState("No runs yet — commission one from the New Run tab."));
       return;
     }
-    swap(host, state.runs.map((r) =>
-      el("button", {
+    swap(host, state.runs.map((r) => {
+      const row = el("button", {
         type: "button",
         class: "run-row" + (r.run_id === state.selectedRunId ? " selected" : ""),
         "data-id": r.run_id,
@@ -247,7 +366,14 @@
           el("span", { class: "run-meta" },
             el("span", { class: "spend", text: fmtUsd(r.spend_usd) }),
             el("span", { text: "c" + (r.last_cycle == null ? "?" : r.last_cycle) }),
-            el("span", { class: "rid", text: r.run_id }))))));
+            el("span", { class: "rid", text: r.run_id }))));
+      if (!r.has_report) return row;
+      const base = "/api/runs/" + encodeURIComponent(r.run_id) + "/report";
+      return el("div", { class: "run-row-wrap" }, row,
+        el("span", { class: "run-dl" },
+          el("a", { href: base + ".md", download: "", title: "Download markdown", text: "md" }),
+          el("a", { href: base + ".pdf", download: "", title: "Download PDF", text: "pdf" })));
+    }));
   }
 
   // ---------- run detail ----------
@@ -484,6 +610,8 @@
       el("div", { class: "report-toolbar" },
         el("a", { class: "back", href: "#/runs/" + id, text: "← Back to run" }),
         el("span", { class: "rid", text: id }),
+        el("a", { class: "btn-pdf", href: "/api/runs/" + encodeURIComponent(id) + "/report.md",
+                  download: "", text: "Download .md" }),
         el("a", { class: "btn-pdf", href: "/api/runs/" + encodeURIComponent(id) + "/report.pdf",
                   download: "", text: "Download PDF" })),
       article);

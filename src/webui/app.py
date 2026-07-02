@@ -86,7 +86,19 @@ def create_app(runs_dir: Path, env_path: Path = Path(".env")) -> FastAPI:
         return keys_api.set_key(req, env_path)
 
     @app.post("/api/distill", dependencies=[Depends(_require_local_origin)])
-    async def api_distill(req: distill_api.DistillRequest):
+    async def api_distill(payload: Any = Body(...)):
+        # Manual validation (same pattern as /api/keys): FastAPI's default
+        # 422 echoes the submitted input back, which for distill can be a
+        # 300k-char paste. Redact to field + message only.
+        if not isinstance(payload, dict):
+            raise HTTPException(status_code=422, detail="body must be a JSON object")
+        try:
+            req = distill_api.DistillRequest.model_validate(payload)
+        except ValidationError as exc:
+            detail = [
+                {"loc": list(e["loc"]), "msg": e["msg"]} for e in exc.errors()
+            ]
+            raise HTTPException(status_code=422, detail=detail)
         return await distill_api.distill(req, env_path)
 
     @app.get("/api/runs/{run_id}")

@@ -315,6 +315,13 @@ def test_frontend_assets_served_and_wired(tmp_path):
     html = c.get("/").text
     assert 'id="app"' in html
     assert "/static/app.js" in html and "/static/style.css" in html
+    # v1.1 launch surface: exactly the two presets, no verify switch
+    assert 'data-preset="quick"' in html and 'data-preset="comprehensive"' in html
+    for gone in ['data-preset="standard"', 'data-preset="exhaustive"',
+                 'data-preset="cheap"', 'id="verify"']:
+        assert gone not in html
+    assert 'data-view="keys"' in html and 'id="view-keys"' in html
+    assert 'id="distill-panel"' in html and 'id="backend-hint"' in html
     assert c.get("/static/app.js").status_code == 200
     assert c.get("/static/style.css").status_code == 200
     assert c.get("/static/vendor/marked.min.js").status_code == 200

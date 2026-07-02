@@ -47,6 +47,7 @@ state. You have NO tools. Respond ONLY via the enforced JSON schema."""
 
 
 class DistillRequest(BaseModel):
+    model_config = ConfigDict(hide_input_in_errors=True)
     text: str
 
     @field_validator("text")

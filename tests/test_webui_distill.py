@@ -53,4 +53,16 @@ def test_distill_502_on_session_failure_no_text_echo(tmp_path, monkeypatch):
 def test_distill_rejects_blank_and_oversize(tmp_path):
     c = _client(tmp_path, "ANTHROPIC_API_KEY=sk-ant-x\n")
     assert c.post("/api/distill", json={"text": "   "}).status_code == 422
-    assert c.post("/api/distill", json={"text": "x" * 300_000}).status_code == 422
+    r = c.post("/api/distill", json={"text": "y" * 300_000})
+    assert r.status_code == 422
+    assert "y" * 1000 not in r.text  # oversize paste not echoed back
+
+
+def test_distill_env_file_wins_over_environ(tmp_path, monkeypatch):
+    async def fake_query(text, api_key):
+        assert api_key == "sk-from-envfile"
+        return distill_api.DistillOutput(research_question="q", context_summary="c")
+    monkeypatch.setattr(distill_api, "_query_structured", fake_query)
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-from-environ")
+    c = _client(tmp_path, "ANTHROPIC_API_KEY=sk-from-envfile\n")
+    assert c.post("/api/distill", json={"text": "brief"}).status_code == 200
