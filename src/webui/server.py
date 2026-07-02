@@ -1,9 +1,10 @@
 """`true-research ui` — serve the local web UI (localhost single-operator tool).
 
 No auth by design: the app is a read-only window over runs/ plus a launch
-endpoint and a key-write endpoint (both origin-checked against localhost),
-intended strictly for 127.0.0.1. Binding to a non-loopback host prints a
-loud warning (the UI would be open to the network with no auth).
+endpoint, a key-write endpoint, and a distill endpoint (all three
+origin-checked against localhost), intended strictly for 127.0.0.1. Binding
+to a non-loopback host prints a loud warning (the UI would be open to the
+network with no auth).
 """
 
 from __future__ import annotations

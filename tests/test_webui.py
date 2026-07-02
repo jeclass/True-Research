@@ -278,6 +278,18 @@ def test_launch_rejects_unknown_preset(tmp_path):
         assert c.post("/api/runs", json={"question": "ok", "preset": old}).status_code == 422
 
 
+def test_launch_422_never_echoes_input(tmp_path):
+    c = _client(tmp_path / "runs")
+    r = c.post("/api/runs", json="sk-pasted-into-wrong-box")
+    assert r.status_code == 422
+    assert "sk-pasted-into-wrong-box" not in r.text
+    r = c.post("/api/runs", json={"question": "q", "preset": "sk-bogus-preset-secret"})
+    assert r.status_code == 422
+    assert "sk-bogus-preset-secret" not in r.text
+    # field errors still carry loc+msg so the UI can map them
+    assert any("preset" in str(item.get("loc", [])) for item in r.json()["detail"])
+
+
 def test_post_routes_reject_cross_origin(tmp_path, monkeypatch):
     """Drive-by CSRF defense: a browser on evil.com POSTing to the local
     server sends Origin: https://evil.com — must be 403, never a spawn or a
@@ -290,6 +302,7 @@ def test_post_routes_reject_cross_origin(tmp_path, monkeypatch):
     assert c.post("/api/runs", json={"question": "q"}, headers=evil).status_code == 403
     assert c.post("/api/keys", json={"name": "SERPER_API_KEY", "value": "x"},
                   headers=evil).status_code == 403
+    assert c.post("/api/distill", json={"text": "hi"}, headers=evil).status_code == 403
     for ok_origin in ["http://127.0.0.1:8787", "http://localhost:8787", "http://[::1]:8787"]:
         r = c.post("/api/runs", json={"question": "q"},
                    headers={"Origin": ok_origin})

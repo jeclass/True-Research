@@ -1,7 +1,8 @@
 """FastAPI app exposing the read-only run-state layer (src/webui/runs_api.py)
 plus the state-changing routes: POST /api/runs launches a research run
-(src/webui/launch_api.py) and POST /api/keys writes a key to .env
-(src/webui/keys_api.py). Both POSTs enforce a localhost-origin check
+(src/webui/launch_api.py), POST /api/keys writes a key to .env
+(src/webui/keys_api.py), and POST /api/distill rewrites a research brief
+(src/webui/distill_api.py). All three POSTs enforce a localhost-origin check
 (_require_local_origin) as drive-by CSRF defense.
 
 SECURITY: the GET routes are a thin read-only view over runs/<id>/ state
@@ -64,7 +65,18 @@ def create_app(runs_dir: Path, env_path: Path = Path(".env")) -> FastAPI:
         return runs_api.list_runs(runs_dir)
 
     @app.post("/api/runs", dependencies=[Depends(_require_local_origin)])
-    def api_launch_run(req: launch_api.LaunchRequest):
+    def api_launch_run(payload: Any = Body(...)):
+        if not isinstance(payload, dict):
+            raise HTTPException(status_code=422, detail="body must be a JSON object")
+        try:
+            req = launch_api.LaunchRequest.model_validate(payload)
+        except ValidationError as exc:
+            # Redacted 422: field + message only, never the submitted input
+            # (a question paste or a key pasted into the wrong box).
+            detail = [
+                {"loc": list(e["loc"]), "msg": e["msg"]} for e in exc.errors()
+            ]
+            raise HTTPException(status_code=422, detail=detail) from exc
         return launch_api.launch(req, runs_dir, env_path=env_path)
 
     @app.get("/api/keys")
