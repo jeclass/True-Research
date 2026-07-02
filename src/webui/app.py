@@ -115,6 +115,22 @@ def create_app(runs_dir: Path, env_path: Path = Path(".env")) -> FastAPI:
             raise HTTPException(status_code=404, detail="report.pdf not available")
         return FileResponse(pdf_path, media_type="application/pdf")
 
+    @app.get("/api/runs/{run_id}/report.md")
+    def api_report_md(run_id: str):
+        if "/" in run_id or "\\" in run_id:
+            raise HTTPException(status_code=400, detail="invalid run_id")
+        try:
+            md_path = runs_api.report_md_path(runs_dir, run_id)
+        except KeyError:
+            raise HTTPException(status_code=404, detail="run not found")
+        if md_path is None:
+            raise HTTPException(status_code=404, detail="report not available")
+        return FileResponse(
+            md_path,
+            media_type="text/markdown",
+            filename=f"true-research-{run_id}.md",
+        )
+
     @app.get("/")
     def index():
         index_path = _STATIC_DIR / "index.html"

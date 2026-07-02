@@ -161,6 +161,25 @@ def test_api_report_routes(tmp_path):
     assert pdf.status_code == 200 and pdf.content[:5] == b"%PDF-"
 
 
+def test_report_md_download_route(tmp_path):
+    runs = tmp_path / "runs"
+    _make_run(runs, "20260102-000000-bbbb", status="finished", finished_files=True)
+    c = _client(runs)
+    r = c.get("/api/runs/20260102-000000-bbbb/report.md")
+    assert r.status_code == 200
+    assert "Source registry" in r.text
+    cd = r.headers["content-disposition"]
+    assert "attachment" in cd and "true-research-20260102-000000-bbbb.md" in cd
+
+
+def test_report_md_404_when_pending(tmp_path):
+    runs = tmp_path / "runs"
+    _make_run(runs, "20260101-000000-aaaa")  # no REPORT.md yet
+    c = _client(runs)
+    assert c.get("/api/runs/20260101-000000-aaaa/report.md").status_code == 404
+    assert c.get("/api/runs/does-not-exist/report.md").status_code == 404
+
+
 def test_index_html_served(tmp_path):
     c = _client(tmp_path / "runs")
     r = c.get("/")
@@ -275,6 +294,9 @@ def test_post_routes_reject_cross_origin(tmp_path, monkeypatch):
                    headers={"Origin": ok_origin})
         assert r.status_code == 200, ok_origin
     assert c.post("/api/keys", json={"name": "SERPER_API_KEY", "value": "x"}).status_code == 200
+    for bad in ["null", "http://localhost.evil.com", "http://127.0.0.1.evil.com"]:
+        assert c.post("/api/keys", json={"name": "SERPER_API_KEY", "value": "x"},
+                      headers={"Origin": bad}).status_code == 403, bad
 
 
 def test_api_keys_non_dict_body_not_echoed(tmp_path):

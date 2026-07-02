@@ -195,3 +195,9 @@ def report_pdf_path(runs_dir: Path, run_id: str) -> Path | None:
     run_dir = _resolve_run_dir(runs_dir, run_id)
     pdf_path = run_dir / _REPORT_PDF_FILE
     return pdf_path if pdf_path.exists() else None
+
+
+def report_md_path(runs_dir: Path, run_id: str) -> Path | None:
+    run_dir = _resolve_run_dir(runs_dir, run_id)
+    md_path = run_dir / _REPORT_FILE
+    return md_path if md_path.exists() else None
