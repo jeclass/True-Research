@@ -1,9 +1,13 @@
-"""FastAPI app exposing the read-only run-state layer (src/webui/runs_api.py).
+"""FastAPI app exposing the read-only run-state layer (src/webui/runs_api.py)
+plus the one mutating route: POST /api/runs (src/webui/launch_api.py).
 
-SECURITY: this app is a thin read-only view over runs/<id>/ state files. It
-must NEVER serialize Settings, .env, os.environ, or any SecretStr — see
-tests/test_webui.py::test_no_route_leaks_secrets. Routes expose run-state
-files ONLY. Do NOT import driver or Settings here.
+SECURITY: the GET routes are a thin read-only view over runs/<id>/ state
+files and must NEVER serialize Settings, .env, os.environ, or any SecretStr
+— see tests/test_webui.py::test_no_route_leaks_secrets. They do NOT import
+driver or Settings. The POST /api/runs route is the injection surface: it
+delegates entirely to src.webui.launch_api, which writes the question to a
+file (never argv) and validates the assembled args via driver.parse_args
+before spawning. See launch_api.py for the full security contract.
 
 Intended deployment: bind 127.0.0.1 only, no auth by design — this is a
 localhost single-operator tool, not a multi-tenant or internet-facing service.
@@ -17,7 +21,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 
-from src.webui import runs_api
+from src.webui import launch_api, runs_api
 
 _STATIC_DIR = Path(__file__).parent / "static"
 _FALLBACK_INDEX_HTML = "<!doctype html><meta charset=utf-8><title>True Research</title>"
@@ -32,6 +36,10 @@ def create_app(runs_dir: Path) -> FastAPI:
     @app.get("/api/runs")
     def api_list_runs():
         return runs_api.list_runs(runs_dir)
+
+    @app.post("/api/runs")
+    def api_launch_run(req: launch_api.LaunchRequest):
+        return launch_api.launch(req, runs_dir)
 
     @app.get("/api/runs/{run_id}")
     def api_run_detail(run_id: str):

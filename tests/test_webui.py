@@ -172,3 +172,32 @@ def test_no_route_leaks_secrets(tmp_path):
         low = b.lower()
         for needle in ["api_key", "api-key", "secret", "auth_token", "sk-ant", "authorization", "os.environ"]:
             assert needle not in low, f"possible secret surface: {needle!r}"
+
+
+def test_launch_validates_and_spawns(tmp_path, monkeypatch):
+    import src.webui.launch_api as la
+    spawned = {}
+    monkeypatch.setattr(la, "_spawn_detached",
+                        lambda argv, log_path: spawned.update(argv=argv, log=str(log_path)) or 4321)
+    c = _client(tmp_path / "runs")
+    r = c.post("/api/runs", json={"question": "Is the sky blue?",
+                                  "preset": "comprehensive", "verify": True,
+                                  "max_budget_usd": 5, "max_wall_hours": 2})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["launched"] is True and body["pid"] == 4321
+    argv = spawned["argv"]
+    assert "--question-file" in argv and "--comprehensive" in argv and "--verify" in argv
+    assert "--max-budget-usd" in argv and "5.0" in argv
+    assert "Is the sky blue?" not in argv
+
+
+def test_launch_rejects_empty_question(tmp_path):
+    c = _client(tmp_path / "runs")
+    assert c.post("/api/runs", json={"question": "   "}).status_code == 422
+
+
+def test_launch_rejects_unknown_preset(tmp_path):
+    c = _client(tmp_path / "runs")
+    r = c.post("/api/runs", json={"question": "ok", "preset": "bogus"})
+    assert r.status_code == 422
