@@ -95,15 +95,17 @@ def test_select_urls_preferred_domains_rank_first_with_cap_override():
     }
     selected = pipeline.select_urls(results, set(), dict(CFG, max_reads=4), prefs)
     urls = [u["url"] for u in selected]
-    assert set(urls) == {
-        "https://random.com/1",
+    # Exact deterministic order the diversity design guarantees: PMC1 and
+    # random.com both land in round 0 (rank tie-break orders PMC1 first within
+    # the round), then PMC2/PMC3 fill rounds 1-2 under the cap override. This
+    # pins rank-within-round-0 AND cap-override fill across rounds together —
+    # the looser set+partial-order form also passed under the OLD greedy order.
+    assert urls == [
         "https://pmc.ncbi.nlm.nih.gov/articles/PMC1",
+        "https://random.com/1",
         "https://pmc.ncbi.nlm.nih.gov/articles/PMC2",
         "https://pmc.ncbi.nlm.nih.gov/articles/PMC3",
-    }
-    assert urls.index("https://pmc.ncbi.nlm.nih.gov/articles/PMC1") < urls.index(
-        "https://random.com/1"
-    )
+    ]
 
 
 def test_select_urls_per_query_cap():

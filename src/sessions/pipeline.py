@@ -453,6 +453,10 @@ def select_urls(
     # is considered before any domain's 2nd. Stable sort keeps the sort_key
     # ordering (relevance/authority/heuristics) WITHIN each round, so this is
     # breadth scheduling, not a ranking change. Caps below still apply unchanged.
+    # Rounds are assigned pre-filter: a registry-seen/duplicate candidate burns
+    # its domain's early round, deferring that domain's next page behind
+    # untouched domains (intentional: breadth-consistent — do not move round
+    # assignment after filtering).
     occurrence: dict[str, int] = {}
     rounds: list[int] = []
     for _qi, item in ordered:
