@@ -42,30 +42,59 @@ class CompletedRead:
 
 class _Claim:
     """Result of claim(): either you're the owner (do the real work, then
-    resolve()/fail()), or you wait() on the owner's future."""
+    resolve()/fail()), or you wait() on the owner's future.
 
-    def __init__(self, owner: bool, future: asyncio.Future, cache: "RunReadCache", key: str):
+    OWNER CONTRACT: the owner must settle in ALL paths including
+    cancellation — wrap the work in
+    ``try: ... except BaseException as exc: claim.fail(exc); raise``.
+    wait() shields waiters from each other's cancellation, so nothing else
+    releases them: an owner that is cancelled without settling leaves every
+    waiter hanging until loop teardown.
+    """
+
+    def __init__(
+        self,
+        owner: bool,
+        future: asyncio.Future[Any],
+        cache: "RunReadCache",
+        key: str,
+    ):
         self.owner = owner
         self._future = future
         self._cache = cache
         self._key = key
 
-    async def wait(self):
-        return await self._future
+    async def wait(self) -> Any:
+        # Shield: all coalesced waiters share ONE future, so one waiter's
+        # cancellation (e.g. a per-question timeout) must not cancel the
+        # future out from under its innocent siblings — only the cancelled
+        # waiter itself sees CancelledError.
+        return await asyncio.shield(self._future)
 
     def resolve(self, value: Any) -> None:
         if not self._future.done():
             self._future.set_result(value)
-        self._cache._inflight.pop(self._key, None)
+        self._drop_inflight()
 
     def fail(self, exc: BaseException) -> None:
         if not self._future.done():
-            self._future.set_exception(exc)
-        # Retrieve to mark the exception as consumed when nobody awaits it
-        # (avoids "exception was never retrieved" warnings for solo callers).
-        if self._future.done() and not self._future.cancelled():
-            self._future.exception()
-        self._cache._inflight.pop(self._key, None)
+            if isinstance(exc, asyncio.CancelledError):
+                # Owner was cancelled: cancel the future so waiters see a
+                # clean CancelledError rather than a foreign exception object.
+                self._future.cancel()
+            else:
+                self._future.set_exception(exc)
+                # Retrieve to mark the exception as consumed when nobody
+                # awaits it (avoids "exception was never retrieved" warnings
+                # for solo callers).
+                self._future.exception()
+        self._drop_inflight()
+
+    def _drop_inflight(self) -> None:
+        # Evict only our OWN future: a stale claim settling late must never
+        # evict a newer future registered under the same key.
+        if self._cache._inflight.get(self._key) is self._future:
+            self._cache._inflight.pop(self._key, None)
 
 
 _WS_RE = re.compile(r"\s+")
@@ -74,20 +103,20 @@ _WS_RE = re.compile(r"\s+")
 class RunReadCache:
     def __init__(self) -> None:
         self._done: dict[str, CompletedRead] = {}
-        self._inflight: dict[str, asyncio.Future] = {}
-        self._loop_id: int | None = None
+        self._inflight: dict[str, asyncio.Future[Any]] = {}
+        self._loop: asyncio.AbstractEventLoop | None = None
         self._content_hashes: dict[str, str] = {}  # sha256 -> first URL (normalized)
 
     # -- loop hygiene ---------------------------------------------------------
     def _sync_loop(self) -> None:
         try:
-            loop_id = id(asyncio.get_running_loop())
-        except RuntimeError:  # not in a loop (sync test helper paths)
-            loop_id = None
-        if loop_id != self._loop_id:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            loop = None
+        if loop is not self._loop:
             # Futures from a previous loop are unawaitable here — drop them.
             self._inflight = {}
-            self._loop_id = loop_id
+            self._loop = loop
 
     # -- completed cache ------------------------------------------------------
     def get_completed(self, url: str) -> CompletedRead | None:
@@ -104,7 +133,7 @@ class RunReadCache:
         existing = self._inflight.get(key)
         if existing is not None and not existing.done():
             return _Claim(owner=False, future=existing, cache=self, key=key)
-        future: asyncio.Future = asyncio.get_running_loop().create_future()
+        future: asyncio.Future[Any] = asyncio.get_running_loop().create_future()
         self._inflight[key] = future
         return _Claim(owner=True, future=future, cache=self, key=key)
 
@@ -113,7 +142,13 @@ class RunReadCache:
         """Record this URL's content hash. Returns the FIRST url that carried
         identical (whitespace-normalized) content when this one is a duplicate
         of a different URL; None otherwise."""
-        digest = hashlib.sha256(_WS_RE.sub(" ", text).strip().encode("utf-8")).hexdigest()
+        normalized_text = _WS_RE.sub(" ", text).strip()
+        if not normalized_text:
+            # Empty/whitespace-only fetches carry no dedup signal — recording
+            # one would make its URL the canonical "first sighting" that every
+            # later empty fetch gets reported as duplicating.
+            return None
+        digest = hashlib.sha256(normalized_text.encode("utf-8")).hexdigest()
         norm = common.normalize_url(url)
         first = self._content_hashes.get(digest)
         if first is None:

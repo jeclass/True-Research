@@ -36,13 +36,16 @@ def test_inflight_coalescing_single_fetch_for_concurrent_callers():
         return f"RESULT-{calls['n']}"
 
     async def caller():
+        # Canonical consumer pattern: the OWNER must settle in ALL paths,
+        # including cancellation — hence BaseException, fail, re-raise.
         claim = cache.claim("https://x.org/a")
         if claim.owner:
             try:
                 result = await expensive_read()
-                claim.resolve(result)
-            except Exception as exc:  # pragma: no cover - defensive
+            except BaseException as exc:  # pragma: no cover - defensive
                 claim.fail(exc)
+                raise
+            claim.resolve(result)
             return result
         return await claim.wait()
 
@@ -73,6 +76,104 @@ def test_failed_inflight_is_not_cached_and_next_caller_retries():
     assert cache.get_completed("https://x.org/a") is None
 
 
+def test_waiter_receives_owner_exception_on_fail():
+    cache = _cache()
+
+    async def scenario():
+        claim = cache.claim("https://x.org/a")
+        assert claim.owner
+
+        async def waiter():
+            c = cache.claim("https://x.org/a")
+            assert not c.owner
+            return await c.wait()
+
+        waiter_task = asyncio.create_task(waiter())
+        await asyncio.sleep(0)  # let the waiter attach to the shared future
+        claim.fail(RuntimeError("fetch died"))
+        with pytest.raises(RuntimeError, match="fetch died"):
+            await waiter_task
+        # and the next claimer re-owns (no stale entry)
+        claim2 = cache.claim("https://x.org/a")
+        assert claim2.owner
+        claim2.resolve("OK")
+
+    asyncio.run(scenario())
+
+
+def test_waiter_cancellation_does_not_poison_sibling_waiters():
+    cache = _cache()
+
+    async def scenario():
+        release = asyncio.Event()
+        claim = cache.claim("https://x.org/a")
+        assert claim.owner
+
+        async def owner():
+            await release.wait()
+            claim.resolve("WINNER")
+
+        async def waiter():
+            c = cache.claim("https://x.org/a")
+            assert not c.owner
+            return await c.wait()
+
+        owner_task = asyncio.create_task(owner())
+        waiter_a = asyncio.create_task(waiter())
+        waiter_b = asyncio.create_task(waiter())
+        await asyncio.sleep(0)  # both waiters attach to the ONE shared future
+        waiter_a.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await waiter_a
+        release.set()
+        # A's cancellation (e.g. a per-question timeout) must not cancel the
+        # shared future out from under innocent sibling B.
+        assert await waiter_b == "WINNER"
+        await owner_task
+
+    asyncio.run(scenario())
+
+
+def test_owner_cancellation_releases_waiters_and_next_claim_reowns():
+    cache = _cache()
+
+    async def scenario():
+        owner_started = asyncio.Event()
+
+        async def owner():
+            claim = cache.claim("https://x.org/a")
+            assert claim.owner
+            owner_started.set()
+            try:
+                await asyncio.Event().wait()  # a fetch that never finishes
+            except BaseException as exc:  # owner contract: settle in ALL paths
+                claim.fail(exc)
+                raise
+
+        owner_task = asyncio.create_task(owner())
+        await owner_started.wait()
+
+        async def waiter():
+            c = cache.claim("https://x.org/a")
+            assert not c.owner
+            return await c.wait()
+
+        waiter_task = asyncio.create_task(waiter())
+        await asyncio.sleep(0)  # waiter attaches
+        owner_task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await owner_task
+        # waiter is released promptly (no hang until loop teardown)…
+        with pytest.raises(asyncio.CancelledError):
+            await waiter_task
+        # …and the abandoned entry is gone: a fresh claim re-owns immediately
+        claim2 = cache.claim("https://x.org/a")
+        assert claim2.owner
+        claim2.resolve("OK")
+
+    asyncio.run(scenario())
+
+
 def test_inflight_table_resets_across_event_loops():
     cache = _cache()
 
@@ -99,6 +200,14 @@ def test_content_hash_first_url_wins_and_duplicate_is_reported():
     assert dup == "https://a.org/story"           # whitespace-normalized match
     # same URL re-noting its own content is NOT a duplicate
     assert cache.note_content("https://a.org/story", text) is None
+
+
+def test_note_content_ignores_empty_text():
+    cache = _cache()
+    # an empty page must not become the canonical "first URL"…
+    assert cache.note_content("https://a.org/empty", "   \n\t") is None
+    # …that every later empty fetch reports as its duplicate
+    assert cache.note_content("https://b.org/empty", "") is None
 
 
 def test_url_normalization_applies_to_cache_keys():
