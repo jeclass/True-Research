@@ -221,3 +221,106 @@ def test_for_run_returns_same_cache_for_same_root(tmp_path):
     b = read_cache.for_run(tmp_path / "run1")
     c = read_cache.for_run(tmp_path / "run2")
     assert a is b and a is not c
+
+
+# ---------- integration with reader.read_source ----------
+
+from src.sessions import reader as reader_mod
+from src.sessions.base import Spawn
+
+
+class _FakeRun:
+    def __init__(self, tmp_path):
+        self.root = tmp_path
+        self.progress_lines: list[str] = []
+        self.decisions: list[str] = []
+
+    def log(self, text):
+        self.progress_lines.append(text)
+
+    def log_decision(self, text):
+        self.decisions.append(text)
+
+
+def _fake_spawn(structured):
+    return Spawn(structured=structured, result_text="", input_tokens=1,
+                 output_tokens=1, cached_tokens=0, usd=0.0, wall_seconds=0.1,
+                 num_turns=1)
+
+
+def _reader_output(useful=True, notes="ok"):
+    return reader_mod.ReaderOutput(
+        title="T", kind="web", credibility=70, useful=useful,
+        notes=notes, summary_markdown="body", key_quotes=[],
+    )
+
+
+@pytest.fixture()
+def wired(tmp_path, monkeypatch):
+    run = _FakeRun(tmp_path / "runA")
+    fetches = {"n": 0}
+    sessions = {"n": 0}
+
+    async def fake_fetch(url, settings):
+        fetches["n"] += 1
+        return f"PAGE TEXT for {url}"
+
+    async def fake_session(**kwargs):
+        sessions["n"] += 1
+        return _fake_spawn(_reader_output())
+
+    monkeypatch.setattr(reader_mod, "fetch_page", fake_fetch)
+    monkeypatch.setattr(reader_mod, "run_role_session_async", fake_session)
+    read_cache._CACHES.clear()
+    return run, fetches, sessions
+
+
+def _read(run, url, question="q?"):
+    return asyncio.run(reader_mod.read_source(
+        run=run, settings=None, ledger=None, cycle=1,
+        url=url, question=question, why="",
+    ))
+
+
+def test_read_source_second_call_same_url_hits_cache(wired):
+    run, fetches, sessions = wired
+    out1, _ = _read(run, "https://x.org/a")
+    out2, spawn2 = _read(run, "https://x.org/a")
+    assert fetches["n"] == 1 and sessions["n"] == 1     # one fetch, one session
+    assert out2.summary_markdown == out1.summary_markdown
+    assert spawn2 is None                                # no new spend
+    assert any("cache" in ln.lower() for ln in run.progress_lines)
+
+
+def test_read_source_duplicate_content_different_url_soft_skips(wired, monkeypatch):
+    run, fetches, sessions = wired
+
+    async def same_text_fetch(url, settings):
+        fetches["n"] += 1
+        return "IDENTICAL SYNDICATED BODY"
+
+    monkeypatch.setattr(reader_mod, "fetch_page", same_text_fetch)
+    out1, _ = _read(run, "https://a.org/story")
+    out2, spawn2 = _read(run, "https://b.mirror.net/story")
+    assert sessions["n"] == 1                            # second never spawned a session
+    assert out2.useful is False                          # soft: flows as not-useful
+    assert "a.org" in out2.notes                         # names the first URL
+    assert spawn2 is None
+    assert any("duplicate content" in d.lower() for d in run.decisions)  # logged DECISION
+
+
+def test_read_source_fetch_failure_is_not_cached(wired, monkeypatch):
+    run, fetches, sessions = wired
+    attempts = {"n": 0}
+
+    async def flaky_fetch(url, settings):
+        attempts["n"] += 1
+        if attempts["n"] == 1:
+            raise reader_mod.ReaderError("boom")
+        return "PAGE TEXT"
+
+    monkeypatch.setattr(reader_mod, "fetch_page", flaky_fetch)
+    with pytest.raises(reader_mod.ReaderError):
+        _read(run, "https://x.org/a")
+    out, _ = _read(run, "https://x.org/a")               # retry succeeds
+    assert attempts["n"] == 2 and out.useful is True

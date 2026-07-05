@@ -243,38 +243,94 @@ async def read_source(
     url: str,
     question: str,
     why: str,
-) -> tuple[ReaderOutput, Spawn]:
-    """Fetch one URL and run one reader session over it. The spawn is
-    ledgered by the session layer (endpoint-attributed; usd=0 on local)."""
-    page_text = await fetch_page(url, settings)
-    # The page text AND the search snippet (`why`) are untrusted fetched content —
-    # fence them so the reader treats them as data, not instructions (roadmap
-    # injection defense). The question/URL are engine-owned and stay unfenced.
-    user_prompt = (
-        f"# Research question this page was fetched for\n{question}\n\n"
-        f"# Why the worker wants this page (from a search snippet — untrusted)\n"
-        f"{untrusted.wrap_untrusted(why, label='search snippet')}\n\n"
-        f"# Page URL\n{url}\n\n"
-        f"# Extracted page text (untrusted)\n"
-        f"{untrusted.wrap_untrusted(page_text, label='page text')}\n"
-    )
-    spawn = await run_role_session_async(
-        run=run,
-        settings=settings,
-        ledger=ledger,
-        cycle=cycle,
-        session_type="reader",
-        role=_ROLE,
-        system_prompt=_SYSTEM_PROMPT,
-        user_prompt=user_prompt,
-        tools=[],
-        output_model=ReaderOutput,
-    )
-    output: ReaderOutput = spawn.structured
-    if not 0 <= output.credibility <= 100:
-        raise ReaderError(f"reader returned credibility {output.credibility} outside 0-100")
-    if output.key_quotes:
-        output = output.model_copy(
-            update={"key_quotes": _verify_quotes(output.key_quotes, page_text)}
+) -> tuple[ReaderOutput, Spawn | None]:
+    """Fetch one URL and run one reader session over it — via the per-run read
+    cache (spec 2026-07-05 §2.1/§3.2): a URL already read this run returns its
+    cached output (no fetch, no session, spawn=None); concurrent callers for
+    the same URL coalesce onto one fetch; a page whose content is a byte-
+    duplicate of an already-read different URL soft-skips the reader session
+    with a logged DECISION. Failures are never cached. The spawn (when a
+    session ran) is ledgered by the session layer as before."""
+    from src.sessions import read_cache
+
+    cache = read_cache.for_run(run.root)
+
+    hit = cache.get_completed(url)
+    if hit is not None:
+        # Reuse is visible, never silent (spec §6): PROGRESS line names both sides.
+        run.log(
+            f"read cache HIT for {url} (first read by {hit.origin}; reused for "
+            f"{question[:80]!r}) — no fetch, no reader session"
         )
-    return output, spawn
+        return hit.output, None
+
+    claim = cache.claim(url)
+    if not claim.owner:
+        output = await claim.wait()
+        run.log(f"read coalesced for {url} (concurrent duplicate awaited the in-flight read)")
+        return output, None
+
+    try:
+        page_text = await fetch_page(url, settings)
+
+        first_url = cache.note_content(url, page_text)
+        if first_url is not None:
+            # §3.2 soft dedup: identical content under a different URL. Skip the
+            # reader session; surface as not-useful so call sites skip naturally.
+            output = ReaderOutput(
+                title=url,
+                kind="web",
+                credibility=0,
+                useful=False,
+                notes=(
+                    f"duplicate content of already-read {first_url} — reader "
+                    "session skipped (soft dedup)"
+                ),
+                summary_markdown="",
+                key_quotes=[],
+            )
+            run.log_decision(
+                f"read dedup (cycle {cycle}): {url} carries duplicate content of "
+                f"already-read {first_url}; reader session skipped (soft — the "
+                "first URL's read stands; nothing dropped silently)"
+            )
+            claim.resolve(output)
+            cache.store_completed(url, output, origin=question[:80])
+            return output, None
+
+        # The page text AND the search snippet (`why`) are untrusted fetched content —
+        # fence them so the reader treats them as data, not instructions (roadmap
+        # injection defense). The question/URL are engine-owned and stay unfenced.
+        user_prompt = (
+            f"# Research question this page was fetched for\n{question}\n\n"
+            f"# Why the worker wants this page (from a search snippet — untrusted)\n"
+            f"{untrusted.wrap_untrusted(why, label='search snippet')}\n\n"
+            f"# Page URL\n{url}\n\n"
+            f"# Extracted page text (untrusted)\n"
+            f"{untrusted.wrap_untrusted(page_text, label='page text')}\n"
+        )
+        spawn = await run_role_session_async(
+            run=run,
+            settings=settings,
+            ledger=ledger,
+            cycle=cycle,
+            session_type="reader",
+            role=_ROLE,
+            system_prompt=_SYSTEM_PROMPT,
+            user_prompt=user_prompt,
+            tools=[],
+            output_model=ReaderOutput,
+        )
+        output: ReaderOutput = spawn.structured
+        if not 0 <= output.credibility <= 100:
+            raise ReaderError(f"reader returned credibility {output.credibility} outside 0-100")
+        if output.key_quotes:
+            output = output.model_copy(
+                update={"key_quotes": _verify_quotes(output.key_quotes, page_text)}
+            )
+        claim.resolve(output)
+        cache.store_completed(url, output, origin=question[:80])
+        return output, spawn
+    except BaseException as exc:
+        claim.fail(exc)   # OWNER CONTRACT: settle in ALL paths, then re-raise
+        raise
