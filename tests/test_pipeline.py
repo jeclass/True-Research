@@ -756,6 +756,31 @@ def test_select_urls_without_reranker_is_authority_first():
     assert "stanford.edu" in out[0]["url"]
 
 
+def test_select_urls_demotes_listicle_and_tag_urls():
+    # No reranker, no preferred domains: previously insertion order won.
+    # The /tag/ and top-10 URLs must now sort AFTER the plain article.
+    results = [[
+        {"url": "https://a.org/tag/supplements", "title": "tag page", "snippet": ""},
+        {"url": "https://b.org/top-10-best-pills", "title": "top 10 best", "snippet": ""},
+        {"url": "https://c.org/clinical-trial-results", "title": "trial", "snippet": ""},
+    ]]
+    cfg = {"queries_per_question": 1, "urls_per_query": 9, "max_reads": 1, "per_domain_cap": 3}
+    selected = pipeline.select_urls(results, set(), cfg, {})
+    assert selected[0]["url"] == "https://c.org/clinical-trial-results"
+
+
+def test_select_urls_keyword_overlap_breaks_ties():
+    question = "creatine cognition older adults"
+    results = [[
+        {"url": "https://a.org/one", "title": "gardening tips", "snippet": "roses and soil"},
+        {"url": "https://b.org/two", "title": "creatine and cognition",
+         "snippet": "effects in older adults"},
+    ]]
+    cfg = {"queries_per_question": 1, "urls_per_query": 9, "max_reads": 1, "per_domain_cap": 3}
+    selected = pipeline.select_urls(results, set(), cfg, {}, question=question)
+    assert selected[0]["url"] == "https://b.org/two"
+
+
 def test_rerank_scores_empty_when_reranker_unavailable(monkeypatch):
     monkeypatch.setattr(pipeline, "_get_reranker", lambda: None)
     assert pipeline.rerank_scores("q", [{"url": "https://x.com", "title": "t", "snippet": "s"}]) == {}

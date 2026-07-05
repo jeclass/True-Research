@@ -267,6 +267,28 @@ _DEFAULT_BLOCKED_DOMAINS = (
 )
 
 
+# §2.2 heuristic pre-filter (spec 2026-07-05): zero-model-cost ordering signals.
+# Low-value URL shapes observed to waste reads: tag/category indexes and
+# listicle roundups. DEMOTED (sorted later), never excluded — a listicle can
+# still be read if the budget allows; this only stops it displacing primary pages.
+_LOW_VALUE_URL_RE = re.compile(
+    r"/(?:tag|tags|category|categories|topics?)/|/(?:top|best)[-_]?\d", re.IGNORECASE
+)
+
+_TERM_RE = re.compile(r"[a-z0-9]{3,}")
+
+
+def _question_terms(question: str | None) -> frozenset[str]:
+    return frozenset(_TERM_RE.findall(question.lower())) if question else frozenset()
+
+
+def _keyword_overlap(terms: frozenset[str], item: dict[str, Any]) -> float:
+    if not terms:
+        return 0.0
+    text = (str(item.get("title", "")) + " " + str(item.get("snippet", ""))).lower()
+    return len(terms & set(_TERM_RE.findall(text))) / len(terms)
+
+
 _UNSET = object()
 _RERANKER: Any = _UNSET
 
@@ -341,9 +363,14 @@ def select_urls(
 
     Order: when a reranker is supplied, by question-relevance FIRST (so the
     read budget goes to the most on-target pages), then preferred domains as
-    the tie-breaker; otherwise preferred domains first. Round-robin across
-    queries either way. Dedupe by normalized URL; skip already-registered
-    URLs; cap per domain (with profile overrides); cap total at max_reads.
+    the tie-breaker; otherwise preferred domains first. Two additional
+    zero-model-cost signals (spec §2.2) break further ties: low-value URL
+    shapes (tag/category indexes, listicle roundups) are demoted, and
+    query-term overlap with title+snippet is preferred — both computed from
+    `question` alone whenever it is supplied, independent of the reranker.
+    Round-robin across queries either way. Dedupe by normalized URL; skip
+    already-registered URLs; cap per domain (with profile overrides); cap
+    total at max_reads.
 
     When `stats` is passed (spec §2.3 truncation instrumentation), it is
     populated in place with the per-reason drop breakdown: total_results,
@@ -390,12 +417,23 @@ def select_urls(
                 ordered.append((qi, results[indexes[qi]]))
                 indexes[qi] += 1
                 progressed = True
-    # Relevance descending (primary), domain-authority ascending (tie-break).
-    # When relevance is empty (reranker off/unavailable), all scores are 0.0
-    # and this reduces exactly to the prior authority-first ordering.
+    q_terms = _question_terms(question)
+
+    # Relevance descending (primary), domain-authority ascending (tie-break),
+    # then two zero-model-cost §2.2 signals: low-value URL shapes demoted,
+    # query-term overlap descending. When relevance is empty (reranker off/
+    # unavailable) and question is None, all four components are equal for
+    # a given rank and this reduces exactly to the prior authority-first
+    # ordering (stable sort preserves insertion order among true ties).
     def sort_key(pair: tuple[int, dict[str, Any]]):
         norm = common.normalize_url((pair[1].get("url") or "").strip())
-        return (-relevance.get(norm, 0.0), rank(pair[1]))
+        low_value = 1 if _LOW_VALUE_URL_RE.search(pair[1].get("url") or "") else 0
+        return (
+            -relevance.get(norm, 0.0),          # reranker relevance (unchanged, primary)
+            rank(pair[1]),                       # preferred-domain authority (unchanged)
+            low_value,                           # §2.2a: demote tag/listicle URL shapes
+            -_keyword_overlap(q_terms, pair[1]), # §2.2b: query-term overlap tie-break
+        )
 
     ordered.sort(key=sort_key)
 
@@ -656,16 +694,31 @@ async def _run_pipeline_async(
         question=target.question, rerank_fn=rerank_fn, stats=sel_stats,
     )
     if total_results > len(selected):
-        run.log_decision(
+        # B1: "after-budget (unclassified)" — dropped_max_reads is everything
+        # never considered once the budget filled, including candidates that
+        # would have been junk anyway (blocked/dupe/invalid). The old
+        # "over-budget" label implied all of it was genuine truncation, which
+        # would bias the §8 truncation-ratio analysis upward. The stats dict
+        # KEY stays dropped_max_reads — this is a log-wording-only change.
+        breakdown = (
             f"pipeline (cycle {cycle}): read budget {cfg['max_reads']} truncated "
             f"{total_results} candidates -> {len(selected)} selected "
-            f"(dropped: {sel_stats.get('dropped_max_reads', 0)} over-budget, "
+            f"(dropped: {sel_stats.get('dropped_max_reads', 0)} after-budget (unclassified), "
             f"{sel_stats.get('dropped_domain_cap', 0)} domain-cap, "
             f"{sel_stats.get('dropped_per_query_cap', 0)} per-query-cap, "
             f"{sel_stats.get('dropped_blocked', 0)} blocked, "
             f"{sel_stats.get('dropped_already_seen', 0)} already-seen, "
             f"{sel_stats.get('dropped_invalid', 0)} invalid)"
         )
+        # B2: full breakdown to PROGRESS every cycle (§8 measurement channel);
+        # DECISION only when real budget truncation happened — junk-filtering
+        # cycles were making the "read budget N truncated M candidates"
+        # headline literally false and would flood DECISIONS, which ship
+        # verbatim into every report. Keep the greppable "read budget ...
+        # truncated" prefix on the DECISION line.
+        run.log(breakdown)
+        if sel_stats.get("dropped_max_reads", 0) > 0:
+            run.log_decision(breakdown)
 
     # --- step 4: reader fan-out (existing machinery) ----------------------------
     read_urls: set[str] = set()
