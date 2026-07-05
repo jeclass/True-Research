@@ -182,7 +182,7 @@ methodology for comparing against hosted deep-research services.
 - `src/webui/` — the local web app (FastAPI backend + zero-build frontend)
 - `src/{settings,state,runspace,ledger}.py` — config, schemas, atomic run state,
   cost accounting
-- `tests/` — 312-test pytest suite; CI runs it on Linux + Windows (3.11 & 3.13)
+- `tests/` — 317-test pytest suite; CI runs it on Linux + Windows (3.11 & 3.13)
 - `CLAUDE.md` — the full build specification and design invariants
 
 ## License
