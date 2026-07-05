@@ -13,6 +13,8 @@ to refute those same claims.
 
 from __future__ import annotations
 
+from urllib.parse import urlparse
+
 from src.errors import StateError
 from src.runspace import Runspace
 from src.settings import Settings
@@ -42,13 +44,38 @@ def seed_depth_questions(run: Runspace, settings: Settings) -> int:
     # cross-validated by >= N sources, so DEPTH hardens the under-corroborated leads
     # that need it. skip_n=0 (default) deepens the top-N regardless, as before.
     skip_n = settings.waves.skip_corroborated_min_sources
+    sources = run.load_sources() if skip_n else None
+
+    def _independently_corroborated(meta) -> bool:
+        """§3.4 (spec 2026-07-05): skip only when >= skip_n sources AND they
+        span >= 2 distinct domains — same-domain sources are not independent
+        corroboration. Missing registry entries count as 0 (conservative)."""
+        if not skip_n or len(meta.source_ids) < skip_n:
+            return False
+        domains = set()
+        for sid in meta.source_ids:
+            rec = sources.root.get(sid) if sources else None
+            if rec is not None:
+                host = (urlparse(rec.url).hostname or "").lower()
+                if host:
+                    domains.add(host)
+        return len(meta.source_ids) >= skip_n and len(domains) >= 2
+
+    factual_all = [
+        (slug, m)
+        for slug, (m, _body) in findings.items()
+        if m.track == "factual"
+    ]
+    skipped = [(slug, m) for slug, m in factual_all if _independently_corroborated(m)]
+    for slug, m in skipped:
+        run.log_decision(
+            f"DEPTH skip (corroboration): finding {slug} for {m.question_id} already "
+            f"backed by {len(m.source_ids)} sources across >=2 domains "
+            f"(threshold {skip_n}) — DEPTH budget redirected to under-corroborated "
+            "leads (spec 2026-07-05 §3.4)"
+        )
     factual = sorted(
-        (
-            (slug, m)
-            for slug, (m, _body) in findings.items()
-            if m.track == "factual"
-            and not (skip_n and len(m.source_ids) >= skip_n)
-        ),
+        (t for t in factual_all if t not in skipped),
         key=lambda t: t[1].confidence,
         reverse=True,
     )[: settings.waves.depth_findings]

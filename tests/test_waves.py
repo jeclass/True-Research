@@ -8,16 +8,31 @@ import yaml
 
 import driver
 from src.runspace import Runspace
+from src.sessions import common
 from src.settings import Settings
 from src.sessions.depth import seed_depth_questions
 from src.state import (
     FindingMeta,
     OpenQuestion,
     QuestionList,
+    SourceRecord,
+    SourceRegistry,
     parse_questions,
     parse_run_meta,
 )
 from tests.conftest import BASE_CONFIG, only_run_dir
+
+
+def _register_sources(run: Runspace, urls: dict[str, str]) -> None:
+    """Write sources.json entries for source ids -> URLs (domain-independence
+    fixture helper for the DEPTH corroboration-skip guard)."""
+    registry = run.load_sources()
+    for sid, url in urls.items():
+        registry.root[sid] = SourceRecord(
+            url=url, title=sid, kind="web", credibility=80,
+            retrieved_at=common.utcnow(), notes="",
+        )
+    run.save_sources(registry)
 
 
 def _settings(tmp_path, depth_findings: int) -> Settings:
@@ -108,11 +123,18 @@ def test_seed_depth_skips_well_corroborated_when_configured(tmp_path):
     # roadmap per-question early-stopping: with skip_corroborated_min_sources=2 a
     # lead already backed by >= 2 sources is NOT re-deepened — the DEPTH budget
     # goes to the under-corroborated lead instead. Default 0 deepens top-N as before.
+    # Domain-independence guard (spec 2026-07-05 §3.4): the 2 sources must span
+    # >= 2 distinct domains to count as corroboration, so this fixture registers
+    # them on different hosts.
     run = Runspace.create(tmp_path / "runs", "q", "general")
     run.save_questions(QuestionList([
         OpenQuestion(id="q-multi", question="well-sourced facet", priority=3, created_by="initializer"),
         OpenQuestion(id="q-single", question="thin facet", priority=3, created_by="initializer"),
     ]))
+    _register_sources(run, {
+        "src-a": "https://one.org/a",
+        "src-b": "https://two.org/b",
+    })
     run.write_finding("q-multi-c01",
         FindingMeta(question_id="q-multi", source_ids=["src-a", "src-b"], confidence=0.95),
         "well-corroborated [src-a][src-b]")
@@ -129,6 +151,69 @@ def test_seed_depth_skips_well_corroborated_when_configured(tmp_path):
     assert n == 1   # only the single-source lead deepened; the 2-source one skipped
     depth = [q for q in run.load_questions().root if q.created_by == "depth"]
     assert {q.parent_id for q in depth} == {"q-single"}
+    run.release_lock()
+
+
+def test_seed_depth_skip_requires_domain_diversity(tmp_path):
+    # §3.4 domain-independence guard: 3 sources that are ALL on the SAME domain
+    # are not independent corroboration — the finding must still be deepened
+    # even though it clears the raw source-count threshold.
+    run = Runspace.create(tmp_path / "runs", "q", "general")
+    run.save_questions(QuestionList([
+        OpenQuestion(id="q-samedomain", question="thin facet", priority=3, created_by="initializer"),
+    ]))
+    _register_sources(run, {
+        "src-a": "https://one.org/a",
+        "src-b": "https://one.org/b",
+        "src-c": "https://one.org/c",
+    })
+    run.write_finding("q-samedomain-c01",
+        FindingMeta(question_id="q-samedomain", source_ids=["src-a", "src-b", "src-c"], confidence=0.9),
+        "same-domain-sourced [src-a][src-b][src-c]")
+    raw = yaml.safe_load(yaml.safe_dump(BASE_CONFIG))
+    raw["runs_dir"] = str(tmp_path / "runs")
+    raw["secrets"] = {"ANTHROPIC_API_KEY": "sk-test", "OLLAMA_AUTH": "ollama"}
+    raw["waves"] = {"enabled": True, "depth_findings": 6, "skip_corroborated_min_sources": 3}
+    settings = Settings.model_validate(raw)
+
+    n = seed_depth_questions(run, settings)
+    assert n == 1   # NOT skipped: same-domain sources are not independent corroboration
+    depth = [q for q in run.load_questions().root if q.created_by == "depth"]
+    assert {q.parent_id for q in depth} == {"q-samedomain"}
+    run.release_lock()
+
+
+def test_seed_depth_corroboration_skip_is_logged_as_decision(tmp_path):
+    # §3.4: skip only when >= skip_n sources spanning >= 2 distinct domains, and
+    # every skip must be a logged DECISION (invariant 8) naming the finding.
+    run = Runspace.create(tmp_path / "runs", "q", "general")
+    run.save_questions(QuestionList([
+        OpenQuestion(id="q-diverse", question="well-sourced facet", priority=3, created_by="initializer"),
+    ]))
+    _register_sources(run, {
+        "src-a": "https://one.org/a",
+        "src-b": "https://two.org/b",
+        "src-c": "https://one.org/c",
+    })
+    run.write_finding("q-diverse-c01",
+        FindingMeta(question_id="q-diverse", source_ids=["src-a", "src-b", "src-c"], confidence=0.9),
+        "diverse-domain-sourced [src-a][src-b][src-c]")
+    raw = yaml.safe_load(yaml.safe_dump(BASE_CONFIG))
+    raw["runs_dir"] = str(tmp_path / "runs")
+    raw["secrets"] = {"ANTHROPIC_API_KEY": "sk-test", "OLLAMA_AUTH": "ollama"}
+    raw["waves"] = {"enabled": True, "depth_findings": 6, "skip_corroborated_min_sources": 3}
+    settings = Settings.model_validate(raw)
+
+    n = seed_depth_questions(run, settings)
+    assert n == 0   # skipped: >= 2 distinct domains among the 3 sources
+    depth = [q for q in run.load_questions().root if q.created_by == "depth"]
+    assert not depth
+
+    decisions = run.decisions()
+    assert any(
+        "DEPTH skip" in d and "q-diverse-c01" in d and "q-diverse" in d
+        for d in decisions
+    )
     run.release_lock()
 
 

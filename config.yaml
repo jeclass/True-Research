@@ -105,9 +105,13 @@ verification:
 waves:
   enabled: false
   depth_findings: 6      # top-N findings deepened when breadth concludes
-  skip_corroborated_min_sources: 0  # >0: don't re-deepen a lead already backed by
-                         # >= N sources — spend DEPTH on under-corroborated leads
-                         # (per-question early-stopping; 0 = deepen top-N regardless)
+  skip_corroborated_min_sources: 3  # skip re-deepening a lead already backed by
+                         # >= 3 sources SPANNING >= 2 distinct domains (engine-
+                         # enforced independence guard) — DEPTH spend goes to
+                         # under-corroborated leads. Every skip is a logged
+                         # DECISION. 0 = deepen top-N regardless (old behavior).
+                         # (spec 2026-07-05 §3.4: flag-flip only; depth_findings
+                         # bump deliberately deferred until skip-rate is measured)
 
 # --- Budget posture (--budget): keep a comprehensive run under ~$1 -----------
 # Swaps the Opus judgment roles to cheaper backends and caps verification. An
