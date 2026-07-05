@@ -161,6 +161,11 @@ async def _verify_async(
             out, _ = await reader.read_source(
                 run=run, settings=settings, ledger=ledger, cycle=cycle,
                 url=item["url"], question=question, why=item.get("snippet", "")[:200],
+                # Refutation independence: never consume (or overwrite) the
+                # breadth-phase completed cache — a breadth-framed digest can
+                # omit exactly the counter-evidence a challenge read exists to
+                # find, biasing the verdict toward a false "verified".
+                bypass_completed=True,
             )
         except SessionError:
             return

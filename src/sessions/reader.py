@@ -243,6 +243,7 @@ async def read_source(
     url: str,
     question: str,
     why: str,
+    bypass_completed: bool = False,
 ) -> tuple[ReaderOutput, Spawn | None]:
     """Fetch one URL and run one reader session over it — via the per-run read
     cache (spec 2026-07-05 §2.1/§3.2): a URL already read this run returns its
@@ -250,19 +251,35 @@ async def read_source(
     the same URL coalesce onto one fetch; a page whose content is a byte-
     duplicate of an already-read different URL soft-skips the reader session
     with a logged DECISION. Failures are never cached. The spawn (when a
-    session ran) is ledgered by the session layer as before."""
+    session ran) is ledgered by the session layer as before.
+
+    bypass_completed=True (the VERIFIER's mode — spec §6 cross-question-reuse
+    concern): the completed cache is neither READ nor WRITTEN. A cached digest
+    was compressed under the ORIGINAL breadth question's framing and can
+    legitimately omit exactly what a refutation-framed read would extract —
+    reusing it starves the verdict of counter-evidence and asymmetrically
+    biases toward a false "verified". Symmetrically, a challenge-framed digest
+    must never overwrite the breadth digest. In-flight coalescing and the
+    different-URL content dedup stay active in both modes (dropping a mirror
+    of a finding's own source is protective for verification too)."""
     from src.sessions import read_cache
 
     cache = read_cache.for_run(run.root)
 
     hit = cache.get_completed(url)
     if hit is not None:
-        # Reuse is visible, never silent (spec §6): PROGRESS line names both sides.
+        if not bypass_completed:
+            # Reuse is visible, never silent (spec §6): PROGRESS line names both sides.
+            run.log(
+                f"read cache HIT for {url} (first read by {hit.origin}; reused for "
+                f"{question[:80]!r}) — no fetch, no reader session"
+            )
+            return hit.output, None
+        # Visibility symmetry: the deliberate fresh re-read is logged too.
         run.log(
-            f"read cache HIT for {url} (first read by {hit.origin}; reused for "
-            f"{question[:80]!r}) — no fetch, no reader session"
+            f"read cache BYPASS for {url} (first read by {hit.origin}): verifier "
+            f"re-reads it fresh under refutation framing for {question[:80]!r}"
         )
-        return hit.output, None
 
     claim = cache.claim(url)
     if not claim.owner:
@@ -295,7 +312,8 @@ async def read_source(
                 "first URL's read stands; nothing dropped silently)"
             )
             claim.resolve(output)
-            cache.store_completed(url, output, origin=question[:80])
+            if not bypass_completed:  # verifier mode never writes the completed cache
+                cache.store_completed(url, output, origin=question[:80])
             return output, None
 
         # The page text AND the search snippet (`why`) are untrusted fetched content —
@@ -329,7 +347,10 @@ async def read_source(
                 update={"key_quotes": _verify_quotes(output.key_quotes, page_text)}
             )
         claim.resolve(output)
-        cache.store_completed(url, output, origin=question[:80])
+        if not bypass_completed:
+            # A challenge-framed digest must not overwrite the breadth digest
+            # (the mirror-image of the read-side bypass).
+            cache.store_completed(url, output, origin=question[:80])
         return output, spawn
     except BaseException as exc:
         claim.fail(exc)   # OWNER CONTRACT: settle in ALL paths, then re-raise

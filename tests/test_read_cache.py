@@ -324,3 +324,40 @@ def test_read_source_fetch_failure_is_not_cached(wired, monkeypatch):
         _read(run, "https://x.org/a")
     out, _ = _read(run, "https://x.org/a")               # retry succeeds
     assert attempts["n"] == 2 and out.useful is True
+
+
+def _read_bypass(run, url, question="challenge q"):
+    return asyncio.run(reader_mod.read_source(
+        run=run, settings=None, ledger=None, cycle=1,
+        url=url, question=question, why="", bypass_completed=True,
+    ))
+
+
+def test_read_source_bypass_skips_completed_cache(wired):
+    # Verifier independence: a bypass read must NOT consume the breadth-framed
+    # cached digest — fresh fetch, fresh session — and must NOT overwrite it.
+    run, fetches, sessions = wired
+    out1, _ = _read(run, "https://x.org/a", question="breadth q")   # primes the cache
+    out2, spawn2 = _read_bypass(run, "https://x.org/a")
+    assert fetches["n"] == 2 and sessions["n"] == 2      # second fetch + second session
+    assert spawn2 is not None                             # a real read happened
+    # the deliberate fresh re-read is visible in PROGRESS
+    assert any("bypass" in ln.lower() or "fresh" in ln.lower()
+               for ln in run.progress_lines)
+    # the completed cache still holds the ORIGINAL breadth-framed output
+    hit = read_cache.for_run(run.root).get_completed("https://x.org/a")
+    assert hit is not None
+    assert hit.output is out1                             # not overwritten
+    assert hit.origin == "breadth q"
+
+
+def test_read_source_bypass_does_not_store(wired):
+    run, fetches, sessions = wired
+    out1, spawn1 = _read_bypass(run, "https://y.org/new")  # bypass read of a NEW url
+    assert sessions["n"] == 1 and spawn1 is not None
+    # nothing was stored: the completed cache has no entry…
+    assert read_cache.for_run(run.root).get_completed("https://y.org/new") is None
+    # …so a subsequent NORMAL read fetches + reads again
+    out2, spawn2 = _read(run, "https://y.org/new")
+    assert fetches["n"] == 2 and sessions["n"] == 2
+    assert spawn2 is not None

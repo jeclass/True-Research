@@ -140,3 +140,56 @@ def test_verify_skip_corroborated_excludes_multi_source(tmp_path, monkeypatch):
     driver._verify_phase(run, s, Ledger(run), Console())
     assert verified == ["single"]   # 2-source finding skipped, only single-source verified
     run.release_lock()
+
+
+def test_verifier_challenge_reads_bypass_completed_cache(monkeypatch):
+    # Refutation independence: the verifier's challenge reads must NOT consume
+    # breadth-phase cached digests (a breadth-framed summary can legitimately
+    # omit exactly what a refutation-framed read would extract, starving the
+    # verdict of counter-evidence). verify_finding must pass
+    # bypass_completed=True to every read_source call.
+    from types import SimpleNamespace
+
+    import src.sessions.verifier as v
+    from src.sessions import reader as reader_mod
+
+    captured: list[dict] = []
+
+    async def fake_session(**kwargs):
+        if kwargs["output_model"] is v.RefutationQueries:
+            return SimpleNamespace(structured=v.RefutationQueries(queries=["q1"]))
+        return SimpleNamespace(structured=v.Verdict(status="uncertain", note="thin"))
+
+    async def fake_read_source(**kwargs):
+        captured.append(kwargs)
+        out = reader_mod.ReaderOutput(
+            useful=True, title="T", kind="web", credibility=70,
+            notes="", summary_markdown="body", key_quotes=[],
+        )
+        return out, None
+
+    async def fake_gather(providers, queries, run):
+        return [{"url": "https://challenge.org/x", "snippet": "sn"}]
+
+    monkeypatch.setattr(v, "run_role_session_async", fake_session)
+    monkeypatch.setattr(v, "_gather_results", fake_gather)
+    monkeypatch.setattr(v, "_pipeline_cfg",
+                        lambda s, p: {"max_reads": 2, "queries_per_question": 2,
+                                      "rerank": False})
+    monkeypatch.setattr(v, "select_urls",
+                        lambda *a, **k: [{"url": "https://challenge.org/x",
+                                          "snippet": "sn"}])
+    monkeypatch.setattr(reader_mod, "read_source", fake_read_source)
+
+    run = SimpleNamespace(log=lambda msg: None,
+                          load_sources=lambda: SimpleNamespace(root={}))
+    profile = SimpleNamespace(pipeline_search_providers=lambda s: [],
+                              url_preferences=lambda: [])
+    settings = SimpleNamespace(worker_pipeline=SimpleNamespace(rerank=False))
+    meta = FindingMeta(question_id="q-001", source_ids=["src-a"], confidence=0.9)
+
+    status, _note = v.verify_finding(run, settings, None, 1, profile, "f1",
+                                     meta, "claim body")
+    assert status == "unverified"                       # uncertain maps to unverified
+    assert captured, "verifier never reached read_source"
+    assert all(kw.get("bypass_completed") is True for kw in captured)
