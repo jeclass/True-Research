@@ -361,3 +361,31 @@ def test_read_source_bypass_does_not_store(wired):
     out2, spawn2 = _read(run, "https://y.org/new")
     assert fetches["n"] == 2 and sessions["n"] == 2
     assert spawn2 is not None
+
+
+def test_read_source_bypass_dedup_path_does_not_store(wired, monkeypatch):
+    # "Bypass never stores" must hold on the content-dedup path too: a bypass
+    # read whose page is a byte-duplicate of an already-read different URL
+    # produces a SYNTHETIC not-useful output — caching that would hand a later
+    # normal read of the same URL a fabricated record it never earned.
+    run, fetches, sessions = wired
+
+    async def same_text_fetch(url, settings):
+        fetches["n"] += 1
+        return "IDENTICAL SYNDICATED BODY"
+
+    monkeypatch.setattr(reader_mod, "fetch_page", same_text_fetch)
+    out1, _ = _read(run, "https://a.org/story")           # primes content hash + cache
+    out2, spawn2 = _read_bypass(run, "https://b.mirror.net/story")
+    assert fetches["n"] == 2                              # bypass really fetched
+    assert sessions["n"] == 1                             # dedup path: no session
+    assert out2.useful is False and spawn2 is None        # synthetic soft-skip output
+    # the synthetic output was NOT stored in the completed cache…
+    assert read_cache.for_run(run.root).get_completed("https://b.mirror.net/story") is None
+    # …so a subsequent NORMAL read of the same URL re-fetches (no stale hit).
+    # The content hash still maps to a.org/story, so it soft-dedups again —
+    # but via a fresh fetch, not a cached synthetic record.
+    out3, spawn3 = _read(run, "https://b.mirror.net/story")
+    assert fetches["n"] == 3                              # re-fetched, not cache-served
+    assert sessions["n"] == 1                             # dedup again: still no session
+    assert out3.useful is False and spawn3 is None

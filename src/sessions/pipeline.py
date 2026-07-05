@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import asyncio
 import re
+from collections import Counter
 from typing import Any, Literal
 from urllib.parse import urlparse
 
@@ -333,6 +334,8 @@ def select_urls(
     preferences: dict[str, Any],
     question: str | None = None,
     rerank_fn: Any = None,
+    *,
+    stats: dict | None = None,
 ) -> list[dict[str, Any]]:
     """Rule-based URL selection (pure; spec step 3).
 
@@ -340,7 +343,14 @@ def select_urls(
     read budget goes to the most on-target pages), then preferred domains as
     the tie-breaker; otherwise preferred domains first. Round-robin across
     queries either way. Dedupe by normalized URL; skip already-registered
-    URLs; cap per domain (with profile overrides); cap total at max_reads."""
+    URLs; cap per domain (with profile overrides); cap total at max_reads.
+
+    When `stats` is passed (spec §2.3 truncation instrumentation), it is
+    populated in place with the per-reason drop breakdown: total_results,
+    selected, dropped_{invalid,already_seen,per_query_cap,blocked,domain_cap,
+    max_reads}. dropped_max_reads counts candidates never CONSIDERED once the
+    read budget filled — the loop breaks there, so their would-be reasons are
+    unknown by design."""
     preferred = list(preferences.get("preferred_domains", []))
     cap_overrides = dict(preferences.get("domain_cap_overrides", {}))
     blocked = set(_DEFAULT_BLOCKED_DOMAINS) | set(
@@ -389,27 +399,52 @@ def select_urls(
 
     ordered.sort(key=sort_key)
 
-    for qi, item in ordered:
+    drops: Counter[str] = Counter()
+    budget_full_at: int | None = None
+
+    for position, (qi, item) in enumerate(ordered):
         url = (item.get("url") or "").strip()
         if not url or not url.startswith("http"):
+            drops["invalid"] += 1
             continue
         normalized = common.normalize_url(url)
         if normalized in seen:
+            drops["already_seen"] += 1
             continue
         if per_query_kept.get(qi, 0) >= cfg["urls_per_query"]:
+            drops["per_query_cap"] += 1
             continue
         domain = _domain(url)
         if is_blocked(domain):
+            drops["blocked"] += 1
             continue
         cap = int(cap_overrides.get(domain, cfg["per_domain_cap"]))
         if domain_counts.get(domain, 0) >= cap:
+            drops["domain_cap"] += 1
             continue
         seen.add(normalized)
         domain_counts[domain] = domain_counts.get(domain, 0) + 1
         per_query_kept[qi] = per_query_kept.get(qi, 0) + 1
         selected.append(item)
         if len(selected) >= cfg["max_reads"]:
+            budget_full_at = position
             break
+
+    if stats is not None:
+        stats.update(
+            total_results=sum(len(r) for r in results_per_query),
+            selected=len(selected),
+            dropped_invalid=drops["invalid"],
+            dropped_already_seen=drops["already_seen"],
+            dropped_per_query_cap=drops["per_query_cap"],
+            dropped_blocked=drops["blocked"],
+            dropped_domain_cap=drops["domain_cap"],
+            dropped_max_reads=(
+                len(ordered) - budget_full_at - 1
+                if budget_full_at is not None
+                else 0
+            ),
+        )
     return selected
 
 
@@ -615,14 +650,21 @@ async def _run_pipeline_async(
     total_results = sum(len(r) for r in results_per_query)
     registry_urls = {common.normalize_url(rec.url) for rec in registry.root.values()}
     rerank_fn = rerank_scores if settings.worker_pipeline.rerank else None
+    sel_stats: dict = {}
     selected = select_urls(
         results_per_query, registry_urls, cfg, profile.url_preferences(),
-        question=target.question, rerank_fn=rerank_fn,
+        question=target.question, rerank_fn=rerank_fn, stats=sel_stats,
     )
-    if total_results > 0 and len(selected) == cfg["max_reads"]:
+    if total_results > len(selected):
         run.log_decision(
             f"pipeline (cycle {cycle}): read budget {cfg['max_reads']} truncated "
-            f"{total_results} candidates"
+            f"{total_results} candidates -> {len(selected)} selected "
+            f"(dropped: {sel_stats.get('dropped_max_reads', 0)} over-budget, "
+            f"{sel_stats.get('dropped_domain_cap', 0)} domain-cap, "
+            f"{sel_stats.get('dropped_per_query_cap', 0)} per-query-cap, "
+            f"{sel_stats.get('dropped_blocked', 0)} blocked, "
+            f"{sel_stats.get('dropped_already_seen', 0)} already-seen, "
+            f"{sel_stats.get('dropped_invalid', 0)} invalid)"
         )
 
     # --- step 4: reader fan-out (existing machinery) ----------------------------

@@ -100,6 +100,48 @@ def test_select_urls_per_query_cap():
     assert len(selected) == 3
 
 
+def test_select_urls_reports_drop_stats():
+    # Spec §2.3: the drop breakdown is a first-class per-cycle metric, not one
+    # conditional log line. Scenario walked by hand against the selection loop.
+    results = [[
+        _r("https://a.org/1"),
+        _r("https://a.org/2"),
+        _r("https://a.org/3"),          # per_domain_cap=2 drops this
+        _r("https://reddit.com/x"),     # blocked
+        _r("https://b.org/1"),          # 3rd selection -> budget full, loop breaks
+        _r("https://c.org/1"),          # never reached: budget filled at b.org/1
+        _r("notaurl"),                  # never reached (would be invalid)
+        _r("https://seen.org/1"),       # never reached (would be already-seen)
+    ]]
+    cfg = {"queries_per_question": 1, "urls_per_query": 99, "max_reads": 3, "per_domain_cap": 2}
+    stats: dict = {}
+    selected = pipeline.select_urls(
+        results, {pipeline.common.normalize_url("https://seen.org/1")}, cfg, {},
+        stats=stats,
+    )
+    assert len(selected) == 3
+    assert stats["total_results"] == 8
+    assert stats["selected"] == 3
+    assert stats["dropped_blocked"] == 1
+    assert stats["dropped_domain_cap"] == 1
+    # The loop breaks the instant max_reads fills (after b.org/1), so nothing
+    # past that point is classified individually — it all lands in
+    # dropped_max_reads, including what would otherwise be invalid/already-seen.
+    assert stats["dropped_already_seen"] == 0
+    assert stats["dropped_invalid"] == 0
+    assert stats["dropped_max_reads"] == 3
+
+
+def test_select_urls_stats_param_is_optional():
+    selected = pipeline.select_urls(
+        [[_r("https://a.org/1")]],
+        set(),
+        {"queries_per_question": 1, "urls_per_query": 4, "max_reads": 12, "per_domain_cap": 3},
+        {},
+    )
+    assert len(selected) == 1
+
+
 # --- engine-built sources ------------------------------------------------------------
 
 

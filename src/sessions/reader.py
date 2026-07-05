@@ -287,6 +287,15 @@ async def read_source(
         run.log(f"read coalesced for {url} (concurrent duplicate awaited the in-flight read)")
         return output, None
 
+    def _settle(result: ReaderOutput) -> None:
+        """Single point for the success-path contract: release waiters, and
+        write the completed cache ONLY outside bypass mode — a challenge-framed
+        digest (or a bypass read's synthetic dedup output) must never become
+        the cached record another question reuses."""
+        claim.resolve(result)
+        if not bypass_completed:
+            cache.store_completed(url, result, origin=question[:80])
+
     try:
         page_text = await fetch_page(url, settings)
 
@@ -308,12 +317,11 @@ async def read_source(
             )
             run.log_decision(
                 f"read dedup (cycle {cycle}): {url} carries duplicate content of "
-                f"already-read {first_url}; reader session skipped (soft — the "
-                "first URL's read stands; nothing dropped silently)"
+                f"already-read {first_url}; reader session skipped (soft dedup — "
+                "the content was already read once this run; nothing dropped "
+                "silently)"
             )
-            claim.resolve(output)
-            if not bypass_completed:  # verifier mode never writes the completed cache
-                cache.store_completed(url, output, origin=question[:80])
+            _settle(output)
             return output, None
 
         # The page text AND the search snippet (`why`) are untrusted fetched content —
@@ -346,11 +354,7 @@ async def read_source(
             output = output.model_copy(
                 update={"key_quotes": _verify_quotes(output.key_quotes, page_text)}
             )
-        claim.resolve(output)
-        if not bypass_completed:
-            # A challenge-framed digest must not overwrite the breadth digest
-            # (the mirror-image of the read-side bypass).
-            cache.store_completed(url, output, origin=question[:80])
+        _settle(output)
         return output, spawn
     except BaseException as exc:
         claim.fail(exc)   # OWNER CONTRACT: settle in ALL paths, then re-raise
