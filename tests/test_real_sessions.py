@@ -544,6 +544,9 @@ def test_synthesizer_rerolls_exhausted_escalates_once_to_fallback_endpoint(
         assert kw["settings"].roles["synthesizer"].endpoint == "anthropic"
     fb_role = calls[3]["settings"].roles["synthesizer"]
     assert fb_role.endpoint == "local" and fb_role.model == "fb-model"
+    # the correction block is rebuilt from the base prompt each attempt — it
+    # must appear exactly ONCE in the 4th attempt's prompt, never accumulate
+    assert calls[3]["user_prompt"].count("CORRECTION:") == 1
     report = (run.root / "REPORT.md").read_text(encoding="utf-8")
     assert "A claim [src-a]." in report
     assert any("fallback" in d for d in run.decisions())
@@ -589,6 +592,94 @@ def test_synthesizer_transport_class_error_propagates_without_rerolls(
     with pytest.raises(SynthesisError, match="transient"):
         synthesizer.run(run, fb_settings, cycle=1, ledger=Ledger(run))
     assert len(calls) == 1
+
+
+def test_synthesizer_rerolls_exhausted_no_fallback_raises_after_three(
+    run, settings, monkeypatch
+):
+    """No fallback endpoint configured: the ladder is exactly initial + 2
+    rerolls (3 spawn calls), then the loud typed SynthesisError stands —
+    no fourth attempt, no REPORT.md."""
+    _seed_cited_finding(run)
+    calls = []
+
+    def fake(**kw):
+        calls.append(kw)
+        raise SynthesisError("synthesizer structured output failed validation: drift")
+
+    monkeypatch.setattr(synthesizer, "run_role_session", fake)
+    with pytest.raises(SynthesisError, match="drift"):
+        synthesizer.run(run, settings, cycle=1, ledger=Ledger(run))
+
+    assert len(calls) == 3
+    assert not (run.root / "REPORT.md").exists()
+
+
+# --- all-hallucinated-citation drafts (review 2026-07-02, Important #1): a
+# draft whose citations are ALL invalid survives the _spawn_report ladder
+# (it HAS citations), exhausts the feedback loop, then neutralization strips
+# every [src-x] -> the body would reach run()'s invariant-3 zero-citation
+# check and crash a finished run. Contract: one extra full ladder pass with an
+# all-ids-invalid correction, then the honest "nothing citable" report —
+# never a crash, and no uncited claim ever ships as fact. ---------------------
+
+
+def test_synthesizer_all_hallucinated_citations_emit_honest_report(
+    run, settings, monkeypatch
+):
+    """Every attempt (feedback loop AND the extra ladder pass) cites only
+    invalid ids -> the honest nothing-citable report emits instead of a
+    SynthesisError crash; both the extra pass and the fallback emission are
+    logged DECISIONS (invariant 8)."""
+    _seed_cited_finding(run)
+    calls = []
+
+    def fake(**kw):
+        calls.append(kw)
+        return _mk_spawn("# Report\n\nA confident claim [src-ghost].")
+
+    monkeypatch.setattr(synthesizer, "run_role_session", fake)
+    synthesizer.run(run, settings, cycle=1, ledger=Ledger(run))  # must NOT raise
+
+    # 3 feedback-loop attempts + 1 extra ladder pass
+    assert len(calls) == 4
+    # the extra pass prompt explains ALL ids were invalid and lists valid ones
+    assert "CORRECTION" in calls[3]["user_prompt"]
+    assert "src-ghost" in calls[3]["user_prompt"]
+    assert "src-a" in calls[3]["user_prompt"]
+    report = (run.root / "REPORT.md").read_text(encoding="utf-8")
+    # honest posture: no hallucinated id, no neutralized-citation residue
+    # presented as fact, an explicit could-not-attribute statement
+    assert "[src-ghost]" not in report
+    assert "could not be attributed" in report.lower()
+    assert "confident claim" not in report  # the hallucinated draft never ships
+    decisions = run.decisions()
+    assert any("extra" in d and "ladder" in d for d in decisions)
+    assert any("honest" in d.lower() for d in decisions)
+
+
+def test_synthesizer_all_hallucinated_recovers_on_extra_ladder_pass(
+    run, settings, monkeypatch
+):
+    """The extra ladder pass produces a validly-cited draft -> normal report,
+    no honest fallback."""
+    _seed_cited_finding(run)
+    calls = []
+
+    def fake(**kw):
+        calls.append(kw)
+        if len(calls) <= 3:
+            return _mk_spawn("# Report\n\nA confident claim [src-ghost].")
+        return _mk_spawn("# Report\n\nA claim [src-a].")
+
+    monkeypatch.setattr(synthesizer, "run_role_session", fake)
+    synthesizer.run(run, settings, cycle=1, ledger=Ledger(run))
+
+    assert len(calls) == 4
+    report = (run.root / "REPORT.md").read_text(encoding="utf-8")
+    assert "A claim [src-a]." in report
+    assert "[src-ghost]" not in report
+    assert "could not be attributed" not in report.lower()
 
 
 def test_orphaned_in_progress_question_is_picked_first():

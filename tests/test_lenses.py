@@ -233,12 +233,13 @@ def test_synthesizer_pdf_failure_is_logged_decision_not_a_crash(run, tmp_path, m
 
 def test_synthesizer_refuses_report_citing_unregistered_source(run, tmp_path, monkeypatch):
     # invariant 3 (CLAUDE.md §3): "a claim with no source is a bug, surfaced
-    # loudly." The traceability HAPPY path is well covered, but the FAILURE path —
-    # the model fabricating a citation to a source id that isn't in sources.json —
-    # had no test (audit completeness gap). The synthesizer must REFUSE to emit,
-    # not silently ship the fabricated citation.
-    from src.sessions.base import SynthesisError
-
+    # loudly." The FAILURE path — the model fabricating a citation to a source id
+    # that isn't in sources.json on EVERY attempt (the all-hallucinated mode).
+    # Review 2026-07-02 (Important #1): this no longer crashes a finished run —
+    # after the feedback loop and one extra ladder pass, the honest
+    # nothing-citable report emits. Invariant 3 still holds in the way that
+    # matters: the fabricated citation NEVER ships, and no factual claim ships
+    # uncited (the honest report ships no factual claims at all).
     settings = _settings(tmp_path)
     run.mark_finishing("conclusive")
     _seed_sources(run)   # registers src-fact / src-comm
@@ -255,5 +256,10 @@ def test_synthesizer_refuses_report_citing_unregistered_source(run, tmp_path, mo
         num_turns = 1
 
     monkeypatch.setattr(synthesizer, "run_role_session", lambda **kw: _Spawn())
-    with pytest.raises(SynthesisError, match="invariant 3"):
-        synthesizer.run(run, settings, cycle=1, ledger=Ledger(run))
+    synthesizer.run(run, settings, cycle=1, ledger=Ledger(run))  # must NOT raise
+
+    report = (run.root / "REPORT.md").read_text(encoding="utf-8")
+    assert "[src-bogus]" not in report                 # fabricated id never ships
+    assert "A claim" not in report                     # the uncited claim never ships
+    assert "could not be attributed" in report.lower()  # honest posture
+    assert any("honest" in d.lower() for d in run.decisions())

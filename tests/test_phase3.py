@@ -508,10 +508,11 @@ def test_synthesizer_degrades_hallucinated_citations_instead_of_crashing(tmp_pat
         synthesizer, "run_role_session",
         lambda **kw: _Spawn("Claim one [src-real]. Claim two [src-q-003-finding]."),
     )
-    body, _ = _synthesize_factual(run, settings, Ledger(run), 1, sources)
+    body, _, uncitable = _synthesize_factual(run, settings, Ledger(run), 1, sources)
     assert "[citation-unresolved]" in body         # hallucinated id neutralized
     assert "[src-q-003-finding]" not in body        # the bad id is gone
     assert "[src-real]" in body                     # the valid one survives
+    assert uncitable is False                       # valid citations remain -> not the honest fallback
     assert any("unresolvable" in d for d in run.decisions())
     run.release_lock()
 

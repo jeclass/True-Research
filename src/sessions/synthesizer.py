@@ -232,13 +232,14 @@ def _spawn_report(
                 )
             continue
         return body, spawn
-    assert last_exc is not None
+    if last_exc is None:  # explicit (not assert): must survive `python -O`
+        raise RuntimeError("ladder exhausted with no recorded failure")
     raise last_exc
 
 
 def _synthesize_factual(
     run: Runspace, settings: Settings, ledger: Ledger, cycle: int, sources
-) -> tuple[str, SessionResult]:
+) -> tuple[str, SessionResult, bool]:
     """Spawn the synthesizer; on a citation-pass failure (the model citing source
     ids absent from sources.json — observed 2026-06-24: DeepSeek Pro hallucinated
     `src-<qid>-finding` ids) retry with explicit feedback listing the valid ids,
@@ -246,9 +247,19 @@ def _synthesize_factual(
     [citation-unresolved] marker. The final step must never crash a completed run,
     and invariant 3 still holds — no fabricated source id survives into the report.
     Each spawn goes through _spawn_report, which separately self-heals
-    output-contract failures (schema drift / zero-citation reports)."""
+    output-contract failures (schema drift / zero-citation reports).
+
+    Returns (body, spawn, uncitable): uncitable=True marks the honest
+    nothing-citable fallback body — a report that ships NO factual claims —
+    which run() must exempt from its zero-citation invariant-3 check (there is
+    no uncited CLAIM in it to forbid). That fallback covers the all-hallucinated
+    mode (review 2026-07-02): a draft whose citations are ALL invalid survives
+    _spawn_report's ladder (it HAS citations), exhausts this feedback loop, and
+    neutralization then strips every citation — previously crashing a finished
+    run at run()'s zero-citation check."""
     attempts = max(1, min(settings.retry.attempts, 3))
     valid_ids = sorted(sources.root)
+    shown = ", ".join(valid_ids[:60]) or "(none)"
     feedback = ""
     spawn = None
     body = ""
@@ -258,12 +269,11 @@ def _synthesize_factual(
         )
         unknown = sorted({c for c in common.CITATION_RE.findall(body) if c not in sources.root})
         if not unknown:
-            return body, spawn
+            return body, spawn, False
         run.log_decision(
             f"synthesizer attempt {attempt}/{attempts}: cited non-existent source ids "
             f"{unknown}; " + ("retrying with feedback" if attempt < attempts else "neutralizing")
         )
-        shown = ", ".join(valid_ids[:60]) or "(none)"
         feedback = (
             f"\n\nCORRECTION: your previous draft cited source ids that DO NOT exist "
             f"in sources.json: {unknown}. Every [src-...] citation MUST be exactly one "
@@ -281,7 +291,66 @@ def _synthesize_factual(
         f"attempts ({unknown}); replaced with [citation-unresolved] so the report emits "
         "instead of crashing the final step (invariant 3: no fabricated source survives)"
     )
-    return body, spawn
+    if common.CITATION_RE.findall(body):
+        return body, spawn, False
+    # ALL-HALLUCINATED mode: every citation in the final draft was invalid, so
+    # neutralization stripped them all and the body would crash run()'s
+    # zero-citation invariant-3 check. One extra FULL _spawn_report ladder pass,
+    # treated as an output-class failure, with a correction explaining that
+    # every cited id was invalid and listing the valid ids (invariant 8: logged
+    # DECISION).
+    run.log_decision(
+        f"synthesizer: neutralization removed EVERY citation (all cited ids "
+        f"{unknown} were invalid); one extra _spawn_report ladder pass with an "
+        "all-ids-invalid correction before any honest-fallback emission"
+    )
+    correction = (
+        f"\n\nCORRECTION: EVERY source id your previous draft cited was invalid — "
+        f"none of {unknown} exist in sources.json. The ONLY valid citation ids are: "
+        f"{shown}. Re-emit the full report citing ONLY these ids, and drop any "
+        f"claim you cannot cite to one of them."
+    )
+    try:
+        retry_body, retry_spawn = _spawn_report(
+            run, settings, ledger, cycle, _build_user_prompt(run) + correction
+        )
+    except SynthesisError as exc:
+        if getattr(exc, "fallback_eligible", False):
+            raise  # transport-class: the session layer already fell back
+        retry_body, retry_spawn = "", None
+    if retry_body:
+        still = sorted(
+            {c for c in common.CITATION_RE.findall(retry_body) if c not in sources.root}
+        )
+        for u in still:
+            retry_body = retry_body.replace(f"[{u}]", "[citation-unresolved]")
+        if common.CITATION_RE.findall(retry_body):
+            if still:
+                run.log_decision(
+                    f"synthesizer extra ladder pass: {len(still)} citation(s) still "
+                    f"unresolvable ({still}); neutralized, valid citations remain"
+                )
+            return retry_body, retry_spawn, False
+    # The extra pass also failed or again neutralized to zero valid citations —
+    # emit the honest nothing-citable report (mirrors the zero-findings honest
+    # report, DECISIONS.md 2026-06-09) rather than crashing a finished run.
+    # Invariant 3 intact: this body ships NO factual claims, so no uncited
+    # claim ever ships as fact (invariant 8: logged DECISION).
+    run.log_decision(
+        "synthesizer: extra ladder pass also produced nothing citable; emitting "
+        "the honest nothing-citable report (no factual claims) instead of "
+        "crashing the finished run — invariant 3 holds because no claim ships"
+    )
+    honest = (
+        f"# Report: {run.meta.question}\n\n"
+        "The run produced findings, but their synthesis could not be attributed "
+        "to verifiable sources: every citation the report drafts carried "
+        "referenced a source id absent from the source registry, across all "
+        "retry and correction passes. Rather than ship unverifiable claims, "
+        "this report contains no factual claims. The Limitations & decisions "
+        "section below carries the full record of what was attempted."
+    )
+    return honest, retry_spawn or spawn, True
 
 
 def run(run: Runspace, settings: Settings, cycle: int, ledger: Ledger) -> SessionResult:
@@ -291,7 +360,9 @@ def run(run: Runspace, settings: Settings, cycle: int, ledger: Ledger) -> Sessio
     community = {s: p for s, p in all_findings.items() if p[0].track == "community"}
 
     if factual:
-        factual_body, metrics = _synthesize_factual(run, settings, ledger, cycle, sources)
+        factual_body, metrics, uncitable = _synthesize_factual(
+            run, settings, ledger, cycle, sources
+        )
     else:
         # No factual findings — honest empty body, no model call. A
         # community-only run still gets its quarantined section below.
@@ -301,6 +372,7 @@ def run(run: Runspace, settings: Settings, cycle: int, ledger: Ledger) -> Sessio
             "nothing to report in the evidence sections."
         )
         metrics = None
+        uncitable = False
 
     # Community section is engine-appended (quarantined); the model never saw
     # these findings, so it cannot fold anecdote into the factual synthesis.
@@ -316,7 +388,9 @@ def run(run: Runspace, settings: Settings, cycle: int, ledger: Ledger) -> Sessio
             f"report cites source ids missing from sources.json: {unknown}; "
             "refusing to emit (invariant 3)"
         )
-    if factual and not common.CITATION_RE.findall(factual_body):
+    # uncitable=True is the honest nothing-citable fallback: it ships NO factual
+    # claims, so the zero-citation check has no uncited claim to forbid.
+    if factual and not uncitable and not common.CITATION_RE.findall(factual_body):
         raise SynthesisError(
             "report contains no [src-...] citations despite findings existing; "
             "refusing to emit (invariant 3)"
