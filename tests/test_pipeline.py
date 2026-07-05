@@ -73,6 +73,16 @@ def test_select_urls_skips_registry_and_dupes_and_non_http():
 
 
 def test_select_urls_preferred_domains_rank_first_with_cap_override():
+    # Pre-diversity-rounds, PMC1-3 sorted ahead of random.com (rank tie-break)
+    # and greedy fill took all 3 PMC articles before random.com, incidentally
+    # pinning "preferred domain fills first". The domain-diversity re-pass
+    # (spec §3.3) now interleaves by breadth: PMC1 (round 0) and random.com
+    # (also round 0, since it only appears once) both land in round 0 ahead
+    # of PMC2/PMC3 (rounds 1-2) — sort_key's rank tie-break still orders
+    # PMC1 before random.com WITHIN round 0. What must still hold regardless
+    # of ordering: the domain_cap_overrides=3 is honored (all 3 PMC articles
+    # selected, not capped at the default 2), and PMC1 is read before
+    # random.com (rank still wins within a round).
     results = [[
         _r("https://random.com/1"),
         _r("https://pmc.ncbi.nlm.nih.gov/articles/PMC1"),
@@ -84,12 +94,16 @@ def test_select_urls_preferred_domains_rank_first_with_cap_override():
         "domain_cap_overrides": {"pmc.ncbi.nlm.nih.gov": 3},
     }
     selected = pipeline.select_urls(results, set(), dict(CFG, max_reads=4), prefs)
-    assert [u["url"] for u in selected][:3] == [
+    urls = [u["url"] for u in selected]
+    assert set(urls) == {
+        "https://random.com/1",
         "https://pmc.ncbi.nlm.nih.gov/articles/PMC1",
         "https://pmc.ncbi.nlm.nih.gov/articles/PMC2",
         "https://pmc.ncbi.nlm.nih.gov/articles/PMC3",
-    ]
-    assert selected[3]["url"] == "https://random.com/1"
+    }
+    assert urls.index("https://pmc.ncbi.nlm.nih.gov/articles/PMC1") < urls.index(
+        "https://random.com/1"
+    )
 
 
 def test_select_urls_per_query_cap():
@@ -100,36 +114,103 @@ def test_select_urls_per_query_cap():
     assert len(selected) == 3
 
 
-def test_select_urls_reports_drop_stats():
-    # Spec §2.3: the drop breakdown is a first-class per-cycle metric, not one
-    # conditional log line. Scenario walked by hand against the selection loop.
+def test_select_urls_spreads_across_domains_before_repeating_one():
+    # spec §3.3: a.org has the 3 best-ranked candidates (insertion order, no
+    # reranker); b.org and c.org each have one. With max_reads=3 the OLD
+    # greedy fill took a.org x3; diversity rounds must now take a1, b1, c1.
+    results = [[
+        {"url": "https://a.org/1", "title": "t", "snippet": ""},
+        {"url": "https://a.org/2", "title": "t", "snippet": ""},
+        {"url": "https://a.org/3", "title": "t", "snippet": ""},
+        {"url": "https://b.org/1", "title": "t", "snippet": ""},
+        {"url": "https://c.org/1", "title": "t", "snippet": ""},
+    ]]
+    cfg = {"queries_per_question": 1, "urls_per_query": 9, "max_reads": 3, "per_domain_cap": 3}
+    selected = pipeline.select_urls(results, set(), cfg, {})
+    assert [i["url"] for i in selected] == [
+        "https://a.org/1", "https://b.org/1", "https://c.org/1",
+    ]
+
+
+def test_select_urls_second_round_fills_after_diversity():
+    results = [[
+        {"url": "https://a.org/1", "title": "t", "snippet": ""},
+        {"url": "https://a.org/2", "title": "t", "snippet": ""},
+        {"url": "https://b.org/1", "title": "t", "snippet": ""},
+    ]]
+    cfg = {"queries_per_question": 1, "urls_per_query": 9, "max_reads": 3, "per_domain_cap": 3}
+    selected = pipeline.select_urls(results, set(), cfg, {})
+    # round 1: a1, b1 (distinct domains); round 2: a2
+    assert [i["url"] for i in selected] == [
+        "https://a.org/1", "https://b.org/1", "https://a.org/2",
+    ]
+
+
+def test_select_urls_drop_stats_bucket_attribution_no_budget_break():
+    # Restructured from the old test_select_urls_reports_drop_stats (Task 5
+    # review hand-off): that scenario's expected bucket VALUES were an
+    # artifact of greedy same-domain fill order, and the domain-diversity
+    # re-pass (spec §3.3) changes which candidates the loop reaches before
+    # budget fills — so per-bucket counts became order-dependent there.
+    # Here max_reads is high enough the loop runs to completion, so every
+    # candidate is individually classified regardless of traversal order —
+    # order-robust by construction.
     results = [[
         _r("https://a.org/1"),
         _r("https://a.org/2"),
         _r("https://a.org/3"),          # per_domain_cap=2 drops this
         _r("https://reddit.com/x"),     # blocked
-        _r("https://b.org/1"),          # 3rd selection -> budget full, loop breaks
-        _r("https://c.org/1"),          # never reached: budget filled at b.org/1
-        _r("notaurl"),                  # never reached (would be invalid)
-        _r("https://seen.org/1"),       # never reached (would be already-seen)
+        _r("https://b.org/1"),
+        _r("https://c.org/1"),
+        _r("notaurl"),                  # invalid
+        _r("https://seen.org/1"),       # already-seen (in registry)
     ]]
-    cfg = {"queries_per_question": 1, "urls_per_query": 99, "max_reads": 3, "per_domain_cap": 2}
+    cfg = {"queries_per_question": 1, "urls_per_query": 99, "max_reads": 99, "per_domain_cap": 2}
     stats: dict = {}
     selected = pipeline.select_urls(
         results, {pipeline.common.normalize_url("https://seen.org/1")}, cfg, {},
         stats=stats,
     )
-    assert len(selected) == 3
     assert stats["total_results"] == 8
-    assert stats["selected"] == 3
+    assert stats["selected"] == len(selected) == 4  # a1, a2, b1, c1
     assert stats["dropped_blocked"] == 1
     assert stats["dropped_domain_cap"] == 1
-    # The loop breaks the instant max_reads fills (after b.org/1), so nothing
-    # past that point is classified individually — it all lands in
-    # dropped_max_reads, including what would otherwise be invalid/already-seen.
-    assert stats["dropped_already_seen"] == 0
-    assert stats["dropped_invalid"] == 0
-    assert stats["dropped_max_reads"] == 3
+    assert stats["dropped_already_seen"] == 1
+    assert stats["dropped_invalid"] == 1
+    assert stats["dropped_max_reads"] == 0
+    assert (
+        stats["selected"] + sum(v for k, v in stats.items() if k.startswith("dropped_"))
+        == stats["total_results"]
+    )
+
+
+def test_select_urls_drop_stats_max_reads_break_all_distinct_domains():
+    # Restructured from the old test_select_urls_reports_drop_stats: pins the
+    # budget-break (dropped_max_reads) bucket using all-distinct domains, so
+    # the domain-diversity re-pass (spec §3.3) is the identity permutation
+    # here (every candidate is already its own domain's round 0) — the
+    # budget-break behavior is exercised without entangling it with the
+    # diversity reorder.
+    results = [[
+        _r("https://a.org/1"),
+        _r("https://b.org/1"),
+        _r("https://c.org/1"),          # 3rd selection -> budget full, loop breaks
+        _r("https://d.org/1"),          # never reached
+        _r("https://e.org/1"),          # never reached
+    ]]
+    cfg = {"queries_per_question": 1, "urls_per_query": 99, "max_reads": 3, "per_domain_cap": 2}
+    stats: dict = {}
+    selected = pipeline.select_urls(results, set(), cfg, {}, stats=stats)
+    assert [i["url"] for i in selected] == [
+        "https://a.org/1", "https://b.org/1", "https://c.org/1",
+    ]
+    assert stats["total_results"] == 5
+    assert stats["selected"] == 3
+    assert stats["dropped_max_reads"] == 2
+    assert (
+        stats["selected"] + sum(v for k, v in stats.items() if k.startswith("dropped_"))
+        == stats["total_results"]
+    )
 
 
 def test_select_urls_stats_param_is_optional():
@@ -758,15 +839,28 @@ def test_select_urls_without_reranker_is_authority_first():
 
 def test_select_urls_demotes_listicle_and_tag_urls():
     # No reranker, no preferred domains: previously insertion order won.
-    # The /tag/ and top-10 URLs must now sort AFTER the plain article.
+    # The /tag/ and top-10 URLs must now sort AFTER the plain article. Pinned
+    # as DEMOTION, not exclusion (Task 4 review): max_reads=3 admits all
+    # three, and a listicle-EXCLUDING implementation (as opposed to merely
+    # demoting) would wrongly drop one and fail this test. All three domains
+    # are distinct, so the domain-diversity re-pass (spec §3.3) puts every
+    # candidate in round 0 — reorder is the identity permutation here,
+    # verified by hand: sort_key alone (low_value tie-break) already yields
+    # [c.org, a.org, b.org] before the re-pass, and each domain occurs once
+    # so occurrence rounds are all 0 -> stable sort is a no-op.
     results = [[
         {"url": "https://a.org/tag/supplements", "title": "tag page", "snippet": ""},
         {"url": "https://b.org/top-10-best-pills", "title": "top 10 best", "snippet": ""},
         {"url": "https://c.org/clinical-trial-results", "title": "trial", "snippet": ""},
     ]]
-    cfg = {"queries_per_question": 1, "urls_per_query": 9, "max_reads": 1, "per_domain_cap": 3}
+    cfg = {"queries_per_question": 1, "urls_per_query": 9, "max_reads": 3, "per_domain_cap": 3}
     selected = pipeline.select_urls(results, set(), cfg, {})
-    assert selected[0]["url"] == "https://c.org/clinical-trial-results"
+    urls = [u["url"] for u in selected]
+    assert urls == [
+        "https://c.org/clinical-trial-results",
+        "https://a.org/tag/supplements",
+        "https://b.org/top-10-best-pills",
+    ]
 
 
 def test_select_urls_keyword_overlap_breaks_ties():

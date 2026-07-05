@@ -365,12 +365,19 @@ def select_urls(
     read budget goes to the most on-target pages), then preferred domains as
     the tie-breaker; otherwise preferred domains first. Two additional
     zero-model-cost signals (spec §2.2) break further ties: low-value URL
-    shapes (tag/category indexes, listicle roundups) are demoted, and
-    query-term overlap with title+snippet is preferred — both computed from
-    `question` alone whenever it is supplied, independent of the reranker.
-    Round-robin across queries either way. Dedupe by normalized URL; skip
-    already-registered URLs; cap per domain (with profile overrides); cap
-    total at max_reads.
+    shapes (tag/category indexes, listicle roundups) are demoted (this signal
+    fires off the URL shape alone, regardless of `question` or the reranker),
+    and query-term overlap with title+snippet is preferred (this one needs
+    `question`; it is 0 for every candidate when `question` is None, so it
+    drops out as a tie-breaker). Round-robin across queries either way.
+
+    After the sort, a domain-diversity re-pass (spec §3.3) reschedules by
+    breadth: every domain's 1st-ranked page is considered before any domain's
+    2nd, preserving sort_key order WITHIN each occurrence round. This changes
+    scheduling, not ranking — caps and totals are unaffected.
+
+    Dedupe by normalized URL; skip already-registered URLs; cap per domain
+    (with profile overrides); cap total at max_reads.
 
     When `stats` is passed (spec §2.3 truncation instrumentation), it is
     populated in place with the per-reason drop breakdown: total_results,
@@ -421,10 +428,15 @@ def select_urls(
 
     # Relevance descending (primary), domain-authority ascending (tie-break),
     # then two zero-model-cost §2.2 signals: low-value URL shapes demoted,
-    # query-term overlap descending. When relevance is empty (reranker off/
-    # unavailable) and question is None, all four components are equal for
-    # a given rank and this reduces exactly to the prior authority-first
-    # ordering (stable sort preserves insertion order among true ties).
+    # query-term overlap descending. low_value is computed from the URL
+    # alone and fires whenever a candidate matches the tag/listicle shape,
+    # independent of question/reranker; overlap needs `question` and is 0
+    # for every candidate (a no-op tie-breaker) when it is None. So this
+    # reduces exactly to the prior authority-first ordering only when
+    # relevance is empty (reranker off/unavailable), question is None, AND
+    # no candidate matches the low-value URL pattern — stable sort otherwise
+    # preserves insertion order among true ties. The domain-diversity re-pass
+    # below (spec §3.3) then reschedules this order by breadth, per domain.
     def sort_key(pair: tuple[int, dict[str, Any]]):
         norm = common.normalize_url((pair[1].get("url") or "").strip())
         low_value = 1 if _LOW_VALUE_URL_RE.search(pair[1].get("url") or "") else 0
@@ -436,6 +448,18 @@ def select_urls(
         )
 
     ordered.sort(key=sort_key)
+
+    # §3.3 domain-diversity rounds (spec 2026-07-05): every domain's 1st page
+    # is considered before any domain's 2nd. Stable sort keeps the sort_key
+    # ordering (relevance/authority/heuristics) WITHIN each round, so this is
+    # breadth scheduling, not a ranking change. Caps below still apply unchanged.
+    occurrence: dict[str, int] = {}
+    rounds: list[int] = []
+    for _qi, item in ordered:
+        d = _domain((item.get("url") or "").strip())
+        rounds.append(occurrence.get(d, 0))
+        occurrence[d] = occurrence.get(d, 0) + 1
+    ordered = [pair for _r, pair in sorted(zip(rounds, ordered), key=lambda t: t[0])]
 
     drops: Counter[str] = Counter()
     budget_full_at: int | None = None
