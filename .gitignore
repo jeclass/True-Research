@@ -36,3 +36,7 @@ _*.tmp
 
 # Session working notes to the operator (local only, never published)
 MORNING_UPDATE.md
+
+# Local AI-tooling state (session handoffs, agent config) — never publish
+.claude/
+.remember/
