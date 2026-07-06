@@ -1,5 +1,30 @@
 # Changelog
 
+## v1.2 — unreleased (coverage without cost)
+
+Implements the "safe to ship now" subset of the coverage-vs-cost research
+(spec 2026-07-05): more distinct material per run at the same read budget.
+
+- **Duplicate reads no longer burn money.** A per-run read cache reuses
+  completed page digests across questions (logged, never silent), coalesces
+  concurrent duplicate fetches onto one read, and soft-skips syndication
+  mirrors by content hash — freeing read budget for genuinely new pages. The
+  adversarial verifier deliberately bypasses the cache so refutation reads
+  stay independently framed.
+- **Smarter selection at the same budget.** Search-result selection now
+  demotes listicle/tag pages, breaks ties by query-term overlap, and spreads
+  reads across distinct domains before reading a second page from any one
+  domain — more independent sources per question at identical cost.
+- **DEPTH spend goes where it's needed.** The DEPTH wave now skips re-deepening
+  findings already backed by 3+ sources spanning 2+ distinct domains (each
+  skip logged), redirecting that budget to under-corroborated leads.
+- **Truncation is now measurable.** Every cycle logs how many search candidates
+  were dropped and why — the measurement the next round of coverage tuning
+  (spec §8) depends on.
+- Confirmed by investigation: DEPTH/verification waves inherit the active
+  posture's cheap routing, so future wave-depth increases scale at DeepSeek
+  rates under `--cheap` (but note the base posture's Opus verifier).
+
 ## v1.1 — 2026-07-02 (web UI usability · **public release**)
 
 **Repo flipped public 2026-07-02** after the full gate passed: 153-commit

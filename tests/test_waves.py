@@ -16,7 +16,6 @@ from src.state import (
     OpenQuestion,
     QuestionList,
     SourceRecord,
-    SourceRegistry,
     parse_questions,
     parse_run_meta,
 )

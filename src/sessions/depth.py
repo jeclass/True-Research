@@ -46,12 +46,9 @@ def seed_depth_questions(run: Runspace, settings: Settings) -> int:
     skip_n = settings.waves.skip_corroborated_min_sources
     sources = run.load_sources() if skip_n else None
 
-    def _independently_corroborated(meta) -> bool:
-        """§3.4 (spec 2026-07-05): skip only when >= skip_n sources AND they
-        span >= 2 distinct domains — same-domain sources are not independent
-        corroboration. Missing registry entries count as 0 (conservative)."""
-        if not skip_n or len(meta.source_ids) < skip_n:
-            return False
+    def _distinct_domains(meta) -> set[str]:
+        """Distinct hostnames among a finding's registered sources. Missing
+        registry entries contribute nothing (conservative)."""
         domains = set()
         for sid in meta.source_ids:
             rec = sources.root.get(sid) if sources else None
@@ -59,7 +56,15 @@ def seed_depth_questions(run: Runspace, settings: Settings) -> int:
                 host = (urlparse(rec.url).hostname or "").lower()
                 if host:
                     domains.add(host)
-        return len(meta.source_ids) >= skip_n and len(domains) >= 2
+        return domains
+
+    def _independently_corroborated(meta) -> bool:
+        """§3.4 (spec 2026-07-05): skip only when >= skip_n sources AND they
+        span >= 2 distinct domains — same-domain sources are not independent
+        corroboration. Missing registry entries count as 0 (conservative)."""
+        if not skip_n or len(meta.source_ids) < skip_n:
+            return False
+        return len(_distinct_domains(meta)) >= 2
 
     factual_all = [
         (slug, m)
@@ -68,11 +73,12 @@ def seed_depth_questions(run: Runspace, settings: Settings) -> int:
     ]
     skipped = [(slug, m) for slug, m in factual_all if _independently_corroborated(m)]
     for slug, m in skipped:
+        domain_count = len(_distinct_domains(m))
         run.log_decision(
             f"DEPTH skip (corroboration): finding {slug} for {m.question_id} already "
-            f"backed by {len(m.source_ids)} sources across >=2 domains "
-            f"(threshold {skip_n}) — DEPTH budget redirected to under-corroborated "
-            "leads (spec 2026-07-05 §3.4)"
+            f"backed by {len(m.source_ids)} sources across {domain_count} distinct "
+            f"domains (threshold {skip_n}, >=2 required) — DEPTH budget redirected "
+            "to under-corroborated leads (spec 2026-07-05 §3.4)"
         )
     factual = sorted(
         (t for t in factual_all if t not in skipped),

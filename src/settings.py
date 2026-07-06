@@ -233,7 +233,12 @@ class WavesCfg(_Frozen):
     # Per-question early-stopping (roadmap quick win): skip re-deepening a lead
     # already cross-validated by >= N sources, so the DEPTH budget hardens the
     # under-corroborated leads that actually need it instead of re-confirming
-    # settled ones. Default 0 = off (deepen the top-N regardless, as before).
+    # settled ones. Unlike VerificationCfg.skip_corroborated_min_sources above
+    # (count-only), this field's skip is ENGINE-ENFORCED to also require the
+    # N sources span >= 2 distinct hostnames (see depth.py's
+    # _independently_corroborated §3.4) — N same-domain sources are not
+    # independent corroboration. Default 0 = off (deepen the top-N regardless,
+    # as before).
     skip_corroborated_min_sources: int = Field(ge=0, default=0)
 
 
