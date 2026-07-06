@@ -113,11 +113,87 @@ opus --comprehensive --verify`):
 | Local LLMs on consumer hardware, mid-2026 | **$2.39** | 23 | 14,736 words, 357 citations | 146 |
 
 The exact prompts and collection/scoring protocol live in
-[`docs/evidence/head-to-head/`](docs/evidence/head-to-head/): competitor outputs
-(ChatGPT / Gemini Deep Research on the identical prompts) are scored blind on
-citation accuracy, verification, depth, and source quality by a fresh Opus
-judge whose spend is ledgered separately. Results land here when the competitor
-outputs are collected.
+[`docs/evidence/head-to-head/`](docs/evidence/head-to-head/).
+
+### Scored head-to-head — prediction-market trading edges (2026-07-06)
+
+A third question was run **as a brand-new user would run it**: a fresh `git clone`
+of the public repo at v1.2, keys entered through the dashboard, one question
+pasted, Comprehensive preset — then scored against **Claude** and **Gemini**
+deep-research outputs on the same topic (how to find exploitable edges in
+Kalshi/Polymarket data and build reproducible trading bots).
+
+**Setup, disclosed honestly.** The three systems did **not** get identical
+prompts (recorded in `PROMPTS-AS-SENT.md`): True Research received a detailed
+enumerated brief; Claude and Gemini received the user's short two-line ask. So
+*depth/coverage is not apples-to-apples* — but citation accuracy, verification,
+and source quality are prompt-independent and are the fair cross-system axes.
+True Research ran on the **cheap posture** (DeepSeek volume + Opus gate),
+finished on the budget breaker (a fuller run would close some gaps), and was
+scored by **two independent blind merit judges** (reports anonymised A/B/C) plus
+**three citation auditors** that fetched the actual cited sources to check claim
+support.
+
+| | Cost | Report | Registry sources |
+|---|---|---|---|
+| **True Research** (cheap posture, budget-capped) | **$11.03** | 21,025 words, 208 citations | **107** |
+| Claude (Research mode) | hosted | ~4,200 words, sources cited by name | — |
+| Gemini (Deep Research) | hosted | ~5,700 words | — |
+
+**Blind merit scores (/50), two independent judges:**
+
+| System | Judge 1 | Judge 2 (skeptic) | Rank |
+|---|---|---|---|
+| Claude | 46 | 44 | **1st** |
+| **True Research** | **43** | **43** | **2nd (razor-thin)** |
+| Gemini | 19 | 18 | 3rd |
+
+**Citation audits (sampled load-bearing quantitative claims, sources fetched):**
+
+| System | Supported | Partial | Dead/uncheckable | **Fabricated** |
+|---|---|---|---|---|
+| Claude | 8/8 | 0 | 0 | **0** |
+| True Research | 6/8 | 1 | 1 (NYT paywall) | **0** |
+| Gemini | 9/10 | 1 | 0 | **0** |
+
+**What the panel found — reported straight, including where we lose:**
+
+- **Claude won overall**, deservedly: the deepest, most disciplined, best
+  primary-sourced report, self-correcting (it caught and quarantined a viral
+  mis-citation of its own arbitrage source), and safest on the legal red lines.
+  Every named source resolved; the name-not-URL style hid zero fabrications.
+- **True Research placed 2nd, essentially co-equal with a frontier product on
+  trustworthiness, and won the honesty axis outright** — both judges scored it
+  **10/10 on intellectual honesty** (highest of any report on any axis) and the
+  skeptic judge named it *"the report I'd trust with real capital,"* because it
+  led with the negative finding (*no source documents a fully-costed,
+  net-profitable strategy*), separated gross-of-fees from net on every edge, and
+  established that simultaneously operating Kalshi + Polymarket is structurally
+  impossible for one trader. Its read-gate excerpts matched the live pages on
+  every checkable claim. It ranked below Claude only on completeness (a
+  budget-truncated run left coverage gaps) — achieved on the ~$11 cheap posture.
+- **Gemini placed 3rd, distantly.** Its citations are *real* (the audit corrected
+  the blind judges, who suspected fabrication — 9/10 claims traced to genuine
+  sources), but it leans on commercial-blog sources and, critically, presents a
+  blog's "78–85% market-making win rate" as fact with no hedge — the exact
+  survivorship-bias trap that sinks retail trading bots. Its failure is
+  credulity and source-tier discipline, not invention.
+- **All three cited real sources** — the "LLM hallucinates citations" failure
+  mode appeared in none of them. The differentiation was honesty and
+  source-quality discipline, which is precisely what an adversarial verifier is
+  built to enforce.
+
+**One real defect, recorded honestly:** True Research's report wrote Polymarket's
+taker `feeRate` coefficients (e.g. Crypto `0.07`) with a spurious `%` sign,
+which reads as a flat 0.07% fee. The coefficient is correct — its implied peak
+(`0.07 × 0.25 = 1.75%`) matches the live ~1.80% schedule — but the label would
+mislead a naïve breakeven calc. A synthesizer-precision issue, not a citation or
+sourcing failure; flagged in DECISIONS for a future fix.
+
+Full outputs, per-judge scorecards, and audit tables are in
+`docs/evidence/head-to-head/`. The earlier GLP-1 and local-LLM True Research runs
+above remain available for a like-for-like comparison whenever competitor
+outputs for those two are collected.
 
 ## Reproducing
 

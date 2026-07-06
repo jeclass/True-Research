@@ -1,0 +1,1190 @@
+{
+  "src-5-cent-spreads-in-prediction-markets-liq": {
+    "credibility": 75,
+    "excerpts": [],
+    "kind": "web",
+    "notes": "MetaMask/Consensys educational guide, June 2026, citing FalconX and Kaiko research. Official platform documentation. No original empirical study but synthesizes observed market data.",
+    "retrieved_at": "2026-07-06T16:50:54.676682Z",
+    "title": "5-cent spreads in prediction markets: liquidity, costs, and trading signals",
+    "url": "https://metamask.io/news/5-cent-spread-prediction-markets"
+  },
+  "src-a-framework-for-cross-platform-predictio": {
+    "credibility": 85,
+    "excerpts": [
+      "cross-venue divergence of 5 to 14 percentage points has been documented on less-liquid or politically charged contracts",
+      "Ng et al. (2026) [16] study common contracts traded across Polymarket, Kalshi, PredictIt, and Robinhood during the 2024 US election and document persistent cross-platform price disparities, with Polymarket leading price discovery during high-liquidity periods and Kalshi exhibiting lags that create exploitable windows",
+      "Saguillo et al. (2025) [7] analyze 86 million bids across Polymarket and quantify approximately USD 40 million in extracted arbitrage between April 2024 and April 2025"
+    ],
+    "kind": "paper",
+    "notes": "Working paper from Predictive Labs (industry research group), April 2026. Describes a framework design, not an empirical results paper; cites prior academic work (Saguillo et al. 2025, Ng et al. 2026) on mispricing. Companion results paper promised. No peer-reviewed journal publication yet.",
+    "retrieved_at": "2026-07-06T14:29:13.075255Z",
+    "title": "A Framework for Cross-Platform Prediction Market Unification",
+    "url": "https://predictivelabs.io/research/framework"
+  },
+  "src-adverse-selection-in-prediction-markets": {
+    "credibility": 90,
+    "excerpts": [
+      "Using 41.6 million trades, we measure adverse selection in prediction markets.",
+      "traders systematically overbet YES in markets that predominantly settle NO, generating a behavioral surplus that cross-subsidizes adverse selection."
+    ],
+    "kind": "paper",
+    "notes": "SSRN working paper, April 2026, by Robert Bartlett (Stanford Law). Large-scale empirical study analyzing 41.6M trades from Kalshi. No access limits indicated.",
+    "retrieved_at": "2026-07-06T14:43:36.191795Z",
+    "title": "Adverse Selection in Prediction Markets: Evidence from Kalshi",
+    "url": "https://law.stanford.edu/publications/adverse-selection-in-prediction-markets-evidence-from-kalshi/"
+  },
+  "src-ai-prediction-market-case-studies-6-impl": {
+    "credibility": 50,
+    "excerpts": [
+      "A single confidently-wrong settlement on a $5K position takes out half the bankroll.",
+      "If the system trades, it can be gamed. If it resolves, it can be poisoned. If it monitors, it can be evaded."
+    ],
+    "kind": "web",
+    "notes": "Interexy (commercial AI dev shop) blog, May 2026. Vendor site promoting services, but includes detailed third-party references (Prediction Arena, arXiv paper 2511.07678, Polymarket data). Moderate credibility \u2014 useful primary-source synthesis but with commercial slant.",
+    "retrieved_at": "2026-07-06T14:43:36.191830Z",
+    "title": "AI Prediction Market Case Studies: 6 Implementations That Worked",
+    "url": "https://interexy.com/ai-prediction-market-case-studies-implementations"
+  },
+  "src-are-final-market-prices-sufficient-for-i": {
+    "credibility": 90,
+    "excerpts": [
+      "We find that returns are negatively related to last-minute changes in odds, and that these late movements attenuate the favorite-longshot bias by weakening the correlation between final odds and returns."
+    ],
+    "kind": "paper",
+    "notes": "arXiv working paper (2509.14645), 2025. Empirical study using JRA horse-race parimutuel betting data (2004-2023). Preprint; not yet peer-reviewed but authored by economists at Hitotsubashi University, LSE, and University of Tokyo. No access restrictions. Open-access arXiv HTML.",
+    "retrieved_at": "2026-07-06T14:51:30.465501Z",
+    "title": "Are Final Market Prices Sufficient for Information Aggregation? Evidence from Last-Minute Dynamics in Parimutuel Betting",
+    "url": "https://arxiv.org/html/2509.14645"
+  },
+  "src-bank-deposits": {
+    "credibility": 90,
+    "excerpts": [],
+    "kind": "web",
+    "notes": "Kalshi official help center article, likely 2025\u20132026, no peer review but primary source for platform policies.",
+    "retrieved_at": "2026-07-06T17:23:04.755719Z",
+    "title": "Bank Deposits",
+    "url": "https://help.kalshi.com/en/articles/13823798-bank-deposits"
+  },
+  "src-best-kalshi-trading-bots-on-github-2026": {
+    "credibility": 50,
+    "excerpts": [
+      "Kalshi enforces rate limits. Your bot needs to respect them or risk getting temporarily blocked",
+      "Limit orders and market orders. Limit orders are strongly recommended for bots"
+    ],
+    "kind": "web",
+    "notes": "Blog post from alphascope.app (a commercial AI trading tool vendor). Published February 1, 2026. Not peer-reviewed; contains promotional content for its own product. Provides a high-level survey of Kalshi bot categories and API basics, but no specific repo names, SDK versions, or concrete rate-limit figures.",
+    "retrieved_at": "2026-07-06T14:37:50.586778Z",
+    "title": "Best Kalshi Trading Bots on GitHub (2026 Open-Source)",
+    "url": "https://www.alphascope.app/blog/kalshi-trading-bot-github"
+  },
+  "src-best-prediction-market-apis-for-develope": {
+    "credibility": 40,
+    "excerpts": [
+      "Kalshi provides a full sandbox at demo-api.kalshi.com."
+    ],
+    "kind": "web",
+    "notes": "Blog post on a VPS hosting company's site; January 2026; authored by a trader/writer, not official documentation; contains some specific numbers but self-promotional for hosting services.",
+    "retrieved_at": "2026-07-06T14:37:50.586781Z",
+    "title": "Best Prediction Market APIs for Developers: Complete Guide",
+    "url": "https://newyorkcityservers.com/blog/best-prediction-market-apis"
+  },
+  "src-best-prediction-market-platforms-in-2026": {
+    "credibility": 45,
+    "excerpts": [
+      "The core formula is: taker fee = 7 cents x C x (1-C) per contract, where C is the contract price between $0.01 and $0.99. Maker fees are 25% of the taker fee.",
+      "On Kalshi: taker fee at purchase is approximately $0.96 (7 cents x 100 x 0.40 x 0.60). Net profit: ~$59.04.",
+      "On Polymarket (sports): peak fee ~$0.36 (0.75% of $48 cost). Net profit: ~$59.64. (Geopolitics: $0 fee.)"
+    ],
+    "kind": "web",
+    "notes": "Blog post from Bleap (a fintech company) published June 2026. Primarily a marketing piece for Bleap's card product. Provides fee rate descriptions and worked examples but is not an independent academic or journalistic source; lower credibility due to promotional overlay and lack of primary data/citations.",
+    "retrieved_at": "2026-07-06T20:00:56.728692Z",
+    "title": "Best Prediction Market Platforms in 2026: Compare Kalshi, Polymarket & More",
+    "url": "https://www.bleap.finance/en-us/blog/best-prediction-market-platforms"
+  },
+  "src-card-deposits": {
+    "credibility": 80,
+    "excerpts": [],
+    "kind": "web",
+    "notes": "Official Kalshi help center article, published May 16, 2026. Covers debit card deposit fees and mechanics only; does not cover ACH, wire, or withdrawal-side costs, limits, holds, or instant-settlement options. Authoritative for its scope.",
+    "retrieved_at": "2026-07-06T17:23:04.755703Z",
+    "title": "Card Deposits",
+    "url": "https://help.kalshi.com/en/articles/13823795-card-deposits"
+  },
+  "src-cftc-and-kalshi-announce-enforcement-act": {
+    "credibility": 85,
+    "excerpts": [],
+    "kind": "web",
+    "notes": "Client alert from Lowenstein Sandler LLP (law firm with FinTech/Crypto practice), April 24, 2026. Not peer-reviewed but by experienced legal practitioners. No paywall.",
+    "retrieved_at": "2026-07-06T14:46:22.588772Z",
+    "title": "CFTC and Kalshi Announce Enforcement Actions Targeting Prediction Markets",
+    "url": "https://www.lowenstein.com/news-insights/publications/client-alerts/cftc-and-kalshi-announce-enforcement-actions-targeting-prediction-markets-fctm"
+  },
+  "src-cftc-approval-allows-polymarket-to-reent": {
+    "credibility": 60,
+    "excerpts": [
+      "The Commodity Futures Trading Commission (CFTC) approved a plan submitted by commodities futures trading platform Polymarket to resume limited U.S. operations through a registered intermediary.",
+      "The CFTC\u2019s approval signals an important policy shift."
+    ],
+    "kind": "web",
+    "notes": "Law firm blog (Troutman Pepper Locke) published December 4, 2025. Summarizes a CFTC approval of Polymarket's plan to resume limited U.S. operations through a registered intermediary. Reports a policy shift but does not cite the actual CFTC order docket number, date, or specific terms. Not primary source; provides high-level commentary.",
+    "retrieved_at": "2026-07-06T15:58:01.655957Z",
+    "title": "CFTC Approval Allows Polymarket to Reenter the U.S. Market",
+    "url": "https://www.regulatoryoversight.com/2025/12/cftc-approval-allows-polymarket-to-reenter-the-u-s-market/"
+  },
+  "src-cftc-issues-cease-and-desist-order-to-bi": {
+    "credibility": 55,
+    "excerpts": [
+      "Polymarket agreed to pay a $1.4 million civil penalty and wind down trading in unregistered markets that do not comply with the CEA or CFTC regulations."
+    ],
+    "kind": "web",
+    "notes": "Law firm blog post (Proskauer) summarizing CFTC Docket No. 22-09, January 2022. Secondary source, not the original order. Cites docket number but notes it as 22-09 (not 22-03 as in the research question).",
+    "retrieved_at": "2026-07-06T15:58:01.655940Z",
+    "title": "CFTC Issues Cease and Desist Order to Binary Options Operator Using Smart Contracts",
+    "url": "https://www.blockchainandthelaw.com/2022/01/cftc-issues-cease-and-desist-order-to-binary-options-operator-using-smart-contracts/"
+  },
+  "src-cftc-orders-event-based-binary-options-m": {
+    "credibility": 95,
+    "excerpts": [
+      "The order requires that Polymarket pay a $1.4 million civil monetary penalty, facilitate the resolution (i.e. wind down) of all markets displayed on Polymarket.com that do not comply with the Commodity Exchange Act (CEA) and applicable CFTC regulations, and cease and desist from violating the CEA and CFTC regulations, as charged.",
+      "The order further finds that Polymarket has offered more than 900 separate event markets since its inception, while deploying smart contracts hosted on a blockchain to operate the markets."
+    ],
+    "kind": "web",
+    "notes": "CFTC.gov official press release (Release Number 8478-22), January 3, 2022. Government enforcement action. Links to the full settlement order but order text is not reproduced in this page.",
+    "retrieved_at": "2026-07-06T16:04:10.977682Z",
+    "title": "CFTC Orders Event-Based Binary Options Markets Operator to Pay $1.4 Million Penalty",
+    "url": "https://www.cftc.gov/PressRoom/PressReleases/8478-22"
+  },
+  "src-cftc-scrutiny-of-polymarket-puts-predict": {
+    "credibility": 50,
+    "excerpts": [
+      "In January 2022, the CFTC entered an order against Blockratize, Inc., d/b/a Polymarket, finding that Polymarket offered event-based binary options contracts that constituted swaps and operated an unregistered facility for trading those products. The order required Polymarket to pay a $1.4 million civil monetary penalty, wind down noncompliant markets, and cease and desist from further violations.",
+      "On June 12, 2026, the CFTC published a proposal addressing prediction markets and public-interest determinations for event contracts."
+    ],
+    "kind": "web",
+    "notes": "Mondaq / Gesmer Updegrove LLP, July 2, 2026. Law firm article summarizing the 2022 CFTC settlement and recent regulatory developments. Not primary source \u2014 summarizes secondary reporting.",
+    "retrieved_at": "2026-07-06T16:04:10.977692Z",
+    "title": "CFTC Scrutiny Of Polymarket Puts Prediction-Market Compliance In Focus",
+    "url": "https://www.mondaq.com/unitedstates/commoditiesderivativesstock-exchanges/1810904/cftc-scrutiny-of-polymarket-puts-prediction-market-compliance-in-focus"
+  },
+  "src-clob-client": {
+    "credibility": 85,
+    "excerpts": [],
+    "kind": "web",
+    "notes": "Official Polymarket GitHub repository; archived May 25, 2026 \u2014 now read-only; MIT license; 517 stars, 166 forks; latest release v5.8.2 (Apr 14, 2026).",
+    "retrieved_at": "2026-07-06T15:29:45.917421Z",
+    "title": "clob-client",
+    "url": "https://github.com/Polymarket/clob-client"
+  },
+  "src-connectivity-kalshi-fix-api-documentatio": {
+    "credibility": 95,
+    "excerpts": [
+      "Only one FIX connection is allowed per API key. Separate API keys are required for concurrent connections.",
+      "FIX application messages use the same token model, token costs, and Read/Write buckets as the equivalent REST API operations.",
+      "Mass Cancel Request (35=q) is limited to 1 request/second."
+    ],
+    "kind": "web",
+    "notes": "Official Kalshi FIX API documentation page; primary source hosted at docs.kalshi.com; no access restrictions.",
+    "retrieved_at": "2026-07-06T15:24:29.526468Z",
+    "title": "Connectivity \u2014 Kalshi FIX API Documentation",
+    "url": "https://docs.kalshi.com/fix/connectivity"
+  },
+  "src-create-order-kalshi-api-documentation": {
+    "credibility": 90,
+    "excerpts": [
+      "Specifies whether the order place count should be capped by the member's current position. Orders with reduce_only set to true will be rejected unless time_in_force is immediate_or_cancel or fill_or_kill."
+    ],
+    "kind": "web",
+    "notes": "Kalshi's official API docs, docs.kalshi.com. Primary source for REST order entry. No FIX documentation found on this page.",
+    "retrieved_at": "2026-07-06T16:13:14.824515Z",
+    "title": "Create Order | Kalshi API Documentation",
+    "url": "https://docs.kalshi.com/margin-rest/orders/create-order"
+  },
+  "src-create-order-polymarket-documentation": {
+    "credibility": 90,
+    "excerpts": [],
+    "kind": "web",
+    "notes": "Official Polymarket docs page, part of docs.polymarket.com; primary reference for CLOB order types and SDK usage. No paywall.",
+    "retrieved_at": "2026-07-06T15:29:45.917437Z",
+    "title": "Create Order \u2014 Polymarket Documentation",
+    "url": "https://docs.polymarket.com/trading/orders/create"
+  },
+  "src-create-order-v2-kalshi-api-documentation": {
+    "credibility": 90,
+    "excerpts": [],
+    "kind": "web",
+    "notes": "Official Kalshi API documentation, REST endpoint for event-market order creation V2.",
+    "retrieved_at": "2026-07-06T16:13:14.824500Z",
+    "title": "Create Order (V2) - Kalshi API Documentation",
+    "url": "https://docs.kalshi.com/api-reference/orders/create-order-v2"
+  },
+  "src-creating-and-using-a-demo-account": {
+    "credibility": 80,
+    "excerpts": [
+      "Kalshi's demo environment lets you explore the platform and practice trading using mock funds.",
+      "Your demo account credentials are completely separate from your production account credentials, so your financial and personal data stay secure.",
+      "Nothing you do in the demo environment affects your production account."
+    ],
+    "kind": "web",
+    "notes": "Kalshi official help article (help.kalshi.com), published May 16, 2026. First-party documentation on the demo environment.",
+    "retrieved_at": "2026-07-06T14:37:50.586766Z",
+    "title": "Creating and using a demo account",
+    "url": "https://help.kalshi.com/en/articles/13823775-creating-and-using-a-demo-account"
+  },
+  "src-decomposing-crowd-wisdom-domain-specific": {
+    "credibility": 85,
+    "excerpts": [
+      "The dominant pattern is persistent underconfidence in political markets, where prices are chronically compressed toward 50%, and this bias generalises across both exchanges.",
+      "At long horizons, markets systematically understate the probability of the favoured outcome: a contract trading at 70 cents one month out corresponds to a true probability closer to 75%."
+    ],
+    "kind": "paper",
+    "notes": "Preprint (2026) by Nam Anh Le, National Economics University Vietnam. Uses 292M trades across 327K binary contracts on Kalshi and Polymarket. An empirical study using logistic recalibration, variance decomposition, and Bayesian hierarchical modeling. Not yet peer-reviewed but uses large-scale primary data and rigorous methods. Access: open (arXiv preprint).",
+    "retrieved_at": "2026-07-06T14:55:26.914360Z",
+    "title": "Decomposing Crowd Wisdom: Domain-Specific Calibration Dynamics in Prediction Markets",
+    "url": "https://arxiv.org/html/2602.19520v1"
+  },
+  "src-favorite-longshot-bias": {
+    "credibility": 60,
+    "excerpts": [
+      "The edge is typically small \u2014 on the order of 1-3% per trade \u2014 which means fees, execution quality, and volume of trades all matter significantly.",
+      "Page and Clemen (2013) examined InTrade and the Iowa Electronic Markets and found that contracts above 80 cents were slightly better calibrated than contracts below 20 cents, but mispricing persisted at the extremes."
+    ],
+    "kind": "web",
+    "notes": "Blog post by Prediction Pilot Research, April 2026. References several peer-reviewed papers (Griffith 1949; Thaler & Ziemba 1988; Snowberg & Wolfers 2010; Page & Clemen 2013) but is a secondary summary, not a primary study. No access restrictions.",
+    "retrieved_at": "2026-07-06T14:30:04.472974Z",
+    "title": "Favorite-Longshot Bias",
+    "url": "https://predictionpilot.io/blog/favorite-longshot"
+  },
+  "src-fee-schedule-for-july-2025-7-8-25-update": {
+    "credibility": 85,
+    "excerpts": [],
+    "kind": "page_capture",
+    "notes": "Internet Archive Wayback Machine capture of Kalshi's official fee schedule PDF (July 2025, updated 7/8/25). Hosted on Kalshi's own domain (kalshi.com/docs/), captured by archive.org. High credibility as direct company disclosure, though the extracted text is binary/garbled PDF content \u2014 the title metadata is machine-readable but the human-readable fee table text is not extractable from this scan.",
+    "retrieved_at": "2026-07-06T18:30:50.921226Z",
+    "title": "Fee Schedule for July 2025 - 7.8.25 Update",
+    "url": "https://web.archive.org/web/20250708150126/https://kalshi.com/docs/kalshi-fee-schedule.pdf"
+  },
+  "src-fix-order-entry-kalshi-api-documentation": {
+    "credibility": 90,
+    "excerpts": [],
+    "kind": "web",
+    "notes": "Official Kalshi documentation for FIX protocol Order Entry, including Execution Report (35=8). Published at docs.kalshi.com/fix-margin/order-entry. No access limits. Covers margin/perpetual FIX endpoints, not the prediction-markets Kalshi FIX API for events \u2014 but the FIX spec structure is authoritative for the described endpoint.",
+    "retrieved_at": "2026-07-06T17:32:10.024567Z",
+    "title": "FIX Order Entry \u2014 Kalshi API Documentation",
+    "url": "https://docs.kalshi.com/fix-margin/order-entry"
+  },
+  "src-galaxy-deep-research-report-how-hyperliq": {
+    "credibility": 85,
+    "excerpts": [
+      "HIP-4 charges zero fees for opening positions. Fees are only charged when closing, destroying, or settling. (In fact, during the initial testing phase, all outcome market fees are zero.)",
+      "For traders, predicting the future on Hyperliquid is much more economical than on Polymarket and Kalshi, which charge significantly higher fees on winning positions.",
+      "Polymarket collected $47.7 million in fees in April."
+    ],
+    "kind": "web",
+    "notes": "Galaxy Research report by Will Owens, published 2026/06/10, republished on WEEX news aggregator (full text reproduced). Institutional-quality crypto research report. No access limits.",
+    "retrieved_at": "2026-07-06T17:41:55.718270Z",
+    "title": "Galaxy Deep Research Report: How Hyperliquid's HIP-4 Upgrade Changes the Landscape of Prediction Markets?",
+    "url": "https://www.weex.com/news/detail/galaxy-deep-research-report-how-hyperliquids-hip-4-upgrade-changes-the-landscape-of-prediction-markets-nxnsl75eanr99yoglh68dpye"
+  },
+  "src-geographic-restrictions-polymarket-docum": {
+    "credibility": 85,
+    "excerpts": [
+      "Polymarket restricts order placement from certain geographic locations due to regulatory requirements and compliance with international sanctions.",
+      "Orders submitted from blocked regions will be rejected."
+    ],
+    "kind": "web",
+    "notes": "Official Polymarket developer documentation; primary source on geoblocking architecture and API enforcement. Published on docs.polymarket.com.",
+    "retrieved_at": "2026-07-06T16:21:49.510697Z",
+    "title": "Geographic Restrictions \u2014 Polymarket Documentation",
+    "url": "https://docs.polymarket.com/api-reference/geoblock"
+  },
+  "src-get-account-api-limits": {
+    "credibility": 90,
+    "excerpts": [
+      "User's effective Predictions API usage tier for these limits (for example, basic, advanced, expert, premier, paragon, prime, or prestige).",
+      "Public Predictions tiers include Basic, Advanced, Expert, Premier, Paragon, Prime, and Prestige."
+    ],
+    "kind": "web",
+    "notes": "Official Kalshi API documentation page describing the /account/limits endpoint; licensed by Kalshi; no access restrictions.",
+    "retrieved_at": "2026-07-06T16:31:09.496649Z",
+    "title": "Get Account API Limits",
+    "url": "https://docs.kalshi.com/api-reference/account/get-account-api-limits"
+  },
+  "src-get-balance": {
+    "credibility": 85,
+    "excerpts": [],
+    "kind": "web",
+    "notes": "Kalshi official documentation site (docs.kalshi.com). The retrieved page is the 'Get Balance' endpoint doc under the portfolio section. Shows authentication headers and a rate-limit annotation.",
+    "retrieved_at": "2026-07-06T15:24:29.526443Z",
+    "title": "Get Balance",
+    "url": "https://docs.kalshi.com/margin-rest/portfolio/get-balance"
+  },
+  "src-get-perps-account-api-limits": {
+    "credibility": 90,
+    "excerpts": [],
+    "kind": "web",
+    "notes": "Official Kalshi API documentation page; primary source from docs.kalshi.com; covers rate-limit authentication headers and token-bucket model for the Perps (margin) trading API.",
+    "retrieved_at": "2026-07-06T15:24:29.526459Z",
+    "title": "Get Perps Account API Limits",
+    "url": "https://docs.kalshi.com/margin-rest/account/get-perps-account-api-limits"
+  },
+  "src-health-api-overview-polymarket-us-docume": {
+    "credibility": 75,
+    "excerpts": [],
+    "kind": "web",
+    "notes": "Polymarket US (QCX LLC) docs.polymarket.us \u2014 CFTC-regulated entity. Single page: health-check endpoint only. No trading API reference found on this page.",
+    "retrieved_at": "2026-07-06T16:45:23.835518Z",
+    "title": "Health API Overview | Polymarket US Documentation",
+    "url": "https://docs.polymarket.us/institutional/health/overview"
+  },
+  "src-how-accurate-are-prediction-markets-acad": {
+    "credibility": 45,
+    "excerpts": [
+      "Prediction markets are well-calibrated within approximately 2-3 percentage points across most probability ranges."
+    ],
+    "kind": "web",
+    "notes": "TradeAlgo trading guide blog; published March 6, 2026. Cites academic studies (Berg, Nelson & Rietz, 2008; Snowberg & Wolfers, 2010; Dreber et al., 2015; Cowgill & Zitzewitz, 2015; Arrow et al., 2008) but is a secondary summary, not peer-reviewed original research. Contains promotional content for the platform.",
+    "retrieved_at": "2026-07-06T14:30:04.472990Z",
+    "title": "How Accurate Are Prediction Markets? Academic | TradeAlgo",
+    "url": "https://www.tradealgo.com/trading-guides/prediction-markets/prediction-market-accuracy"
+  },
+  "src-how-courts-and-regulators-are-redefining": {
+    "credibility": 60,
+    "excerpts": [
+      "The most consequential recent decision arrived on April 6, 2026, when the United States Court of Appeals for the Third Circuit affirmed a preliminary injunction for Kalshi against New Jersey, holding that Kalshi showed a reasonable chance of success in arguing that the CEA preempts state gambling law as applied to CFTC\u2011regulated event contracts.",
+      "The CFTC ramped up the federal-state clash by suing Arizona, Connecticut, and Illinois in April 2026 to stop what it has characterized as unlawful state interference with federally regulated event markets, reflecting a more assertive federal posture on preemption."
+    ],
+    "kind": "web",
+    "notes": "Law firm blog post (DarrowEverett LLP), April 28, 2026; provides legal analysis of prediction market regulation but is not peer-reviewed or a primary source; access free.",
+    "retrieved_at": "2026-07-06T14:46:22.588787Z",
+    "title": "How Courts and Regulators Are Redefining U.S. Prediction Markets",
+    "url": "https://darroweverett.com/prediction-markets-future-legal-analysis-cftc-state-laws/"
+  },
+  "src-how-kalshi-and-polymarket-settle-event-c": {
+    "credibility": 75,
+    "excerpts": [],
+    "kind": "web",
+    "notes": "DefiRate.com, updated April 20, 2026. Original research article with named editors and cited incidents, but from a commercial comparison/aggregator site rather than a peer-reviewed source.",
+    "retrieved_at": "2026-07-06T14:34:32.929649Z",
+    "title": "How Kalshi and Polymarket Settle Event Contracts (and Disputes)",
+    "url": "https://defirate.com/prediction-markets/how-contracts-settle/"
+  },
+  "src-how-prediction-market-arbitrage-works-po": {
+    "credibility": 40,
+    "excerpts": [
+      "These windows last seconds, not minutes. By the time you spot the gap and click buy, someone else already took it."
+    ],
+    "kind": "web",
+    "notes": "Personal blog post from Jan 2026 by Trevor I. Lasn, promotional piece for 0xinsider.com. No systematic data or peer review; illustrative examples only.",
+    "retrieved_at": "2026-07-06T14:32:11.599187Z",
+    "title": "How Prediction Market Arbitrage Works (Polymarket, Kalshi)",
+    "url": "https://www.trevorlasn.com/blog/how-prediction-market-polymarket-kalshi-arbitrage-works"
+  },
+  "src-how-to-build-a-cftc-compliant-polymarket": {
+    "credibility": 40,
+    "excerpts": [
+      "I spent the last three weeks migrating my Polymarket trading system to the official US API.",
+      "Polymarket operates under a CFTC no-action letter. That means it's legal for US persons to trade on the platform, but only through the official channels with proper KYC.",
+      "The unofficial workarounds that worked in 2024 - VPNs, non-KYC wallets, frontend scraping - those are now actively monitored. Palantir's surveillance platform (announced March 10) makes enforcement real, not theoretical."
+    ],
+    "kind": "web",
+    "notes": "dev.to blog post by Bill Wilson, March 2026. Practitioner account, not official Polymarket documentation. AI-assisted writing disclosure. Low credibility for technical enforceability claims because it focuses on the compliant US API path, not the international platform's geoblocking architecture.",
+    "retrieved_at": "2026-07-06T16:21:49.510707Z",
+    "title": "How to Build a CFTC-Compliant Polymarket Bot in 2026",
+    "url": "https://dev.to/ai-agent-economy/how-to-build-a-cftc-compliant-polymarket-bot-in-2026-o9h"
+  },
+  "src-how-to-build-a-prediction-market-trading": {
+    "credibility": 60,
+    "excerpts": [
+      "Fourteen of the top twenty most profitable wallets on Polymarket are bots.",
+      "A bot that tries to deploy $10,000 into one of these markets will move the price against itself so badly that the theoretical edge vanishes before the order is fully filled."
+    ],
+    "kind": "web",
+    "notes": "Industry blog post by Prediction Hunt (April\u2013May 2026), vendor-affiliated but provides practical technical detail on bot strategies, APIs, and risks. No peer review.",
+    "retrieved_at": "2026-07-06T18:35:03.720842Z",
+    "title": "How to Build a Prediction Market Trading Bot: A Practical API Guide",
+    "url": "https://www.predictionhunt.com/blog/how-to-build-prediction-market-trading-bot-api-guide"
+  },
+  "src-how-wise-is-the-crowd-in-prediction-mark": {
+    "credibility": 45,
+    "excerpts": [
+      "We find no statistically significant correlation between sentiment intensity and informational edge, indicating that the most prominent voices in these ecosystems function primarily as sources of communicative noise."
+    ],
+    "kind": "web",
+    "notes": "Quantpedia blog post summarizing a working paper (SSRN, 2026) by Deleep et al. Page is a secondary source with partial paywall; cites primary research.",
+    "retrieved_at": "2026-07-06T14:59:53.782364Z",
+    "title": "How Wise is the Crowd in Prediction Markets",
+    "url": "https://quantpedia.com/how-wise-is-the-crowd-in-prediction-markets/"
+  },
+  "src-is-polymarket-legal-in-2026": {
+    "credibility": 50,
+    "excerpts": [
+      "Polymarket Global has been geo-blocked from US users since the January 2022 CFTC settlement."
+    ],
+    "kind": "web",
+    "notes": "DropsTab (news.dropstab.com), June 6, 2026. Third-party research/analyst blog; not official CFTC or Polymarket ToS. Cites some CFTC docket dates and regulatory actions but relies on secondary synthesis.",
+    "retrieved_at": "2026-07-06T15:45:38.658187Z",
+    "title": "Is Polymarket Legal in 2026?",
+    "url": "https://news.dropstab.com/research/is-polymarket-legal"
+  },
+  "src-is-polymarket-legal-in-the-us-state-by-s": {
+    "credibility": 50,
+    "excerpts": [
+      "While individual VPN users have not been publicly prosecuted, Polymarket has reportedly frozen accounts suspected of U.S.-based trading."
+    ],
+    "kind": "web",
+    "notes": "TradeAlgo is a trading analytics platform (commercial), not a primary source; the article is a March 2026 guide reviewing Polymarket's legal status, citing the 2022 CFTC settlement. It discusses geo-blocking and account freezes in general terms but does not provide first-hand practitioner API-testing evidence or technical details on clob.polymarket.com endpoints.",
+    "retrieved_at": "2026-07-06T16:17:26.827222Z",
+    "title": "Is Polymarket Legal in the US? State-by-State | TradeAlgo",
+    "url": "https://www.tradealgo.com/trading-guides/prediction-markets/is-polymarket-legal"
+  },
+  "src-is-polymarket-legal-in-the-us-yes-open-o": {
+    "credibility": 45,
+    "excerpts": [
+      "Polymarket US is CFTC-regulated, requires full KYC (government ID, SSN), and is funded through registered futures commission merchants. The international exchange has no KYC, accepts direct crypto deposits, and has significantly more liquidity and market variety."
+    ],
+    "kind": "web",
+    "notes": "Unofficial affiliate site (startpolymarket.com), not official Polymarket or CFTC documentation. Self-described as updated June 27, 2026. Provides detailed state-by-state analysis but uses secondary/aggregated sources; no primary docket citations. Lower credibility for formal regulatory fact-finding.",
+    "retrieved_at": "2026-07-06T15:45:38.658180Z",
+    "title": "Is Polymarket Legal in the US? Yes \u2014 Open on iOS (Updated June 2026)",
+    "url": "https://startpolymarket.com/countries/united-states/"
+  },
+  "src-is-polymarket-legal-in-the-usa-2026-upda": {
+    "credibility": 55,
+    "excerpts": [
+      "The Services are not available to persons or entities who reside in, are located in, are incorporated in, or have a registered office in the United States of America or any Prohibited Localities.",
+      "There are NO US states where Polymarket is currently legal."
+    ],
+    "kind": "web",
+    "notes": "CloudAffi legal guide, updated Jan 2026; blog/commercial site with educational disclaimer; cites CFTC settlement details and primary source (ToS) but lacks official legal citations.",
+    "retrieved_at": "2026-07-06T14:46:22.588805Z",
+    "title": "Is Polymarket Legal in the USA? (2026 Update)",
+    "url": "https://cloudaffi.com/us/guides/is-polymarket-legal"
+  },
+  "src-is-polymarket-legal-in-usa-1-4m-cftc-fin": {
+    "credibility": 45,
+    "excerpts": [
+      "The CFTC issued the amended order in November 2025, formally permitting the QCX/Polymarket US entity to operate as a regulated US exchange for event contracts."
+    ],
+    "kind": "web",
+    "notes": "Tech Insider blog post, May 2026, author Marcus Chen. Summarizes secondary sources; no primary CFTC docket text. Moderate timeliness but limited authority for a legal/regulatory question.",
+    "retrieved_at": "2026-07-06T15:58:01.655975Z",
+    "title": "Is Polymarket Legal in USA? $1.4M CFTC Fine [2026]",
+    "url": "https://tech-insider.org/prediction-markets/is-polymarket-legal-in-the-usa/"
+  },
+  "src-kalshi-api-guide": {
+    "credibility": 30,
+    "excerpts": [
+      "There is no official first-party Python SDK from Kalshi."
+    ],
+    "kind": "web",
+    "notes": "Third-party guide on mintlify.app (not official docs). Published by Rekko AI. Covers fee structure as block quotes but is not the official OpenAPI spec or SDK source code requested.",
+    "retrieved_at": "2026-07-06T17:00:48.270150Z",
+    "title": "Kalshi API Guide",
+    "url": "https://herebedragons.mintlify.app/guides/kalshi-api-guide"
+  },
+  "src-kalshi-api-the-complete-developer-s-guid": {
+    "credibility": 45,
+    "excerpts": [
+      "Kalshi uses tokens that expire every 30 minutes, so your code needs to handle periodic re-login to maintain active sessions"
+    ],
+    "kind": "web",
+    "notes": "Blog post on dev.to by Zuplo (API management company). Published Apr 14, 2025, edited Jun 11, 2025. Not official Kalshi documentation; a third-party guide with promotional content for Zuplo. No peer review. No specific numbers (e.g., exact rate limits) provided \u2014 references official docs without reproducing them.",
+    "retrieved_at": "2026-07-06T14:37:50.586775Z",
+    "title": "Kalshi API: The Complete Developer's Guide",
+    "url": "https://dev.to/zuplo/kalshi-api-the-complete-developers-guide-1fo4"
+  },
+  "src-kalshi-fees-explained-for-2026-understan": {
+    "credibility": 55,
+    "excerpts": [
+      "Kalshi does not charge any payment fees for ACH Bank Transfers for deposits or withdrawals."
+    ],
+    "kind": "web",
+    "notes": "TheLines.com \u2014 sports/odds affiliate site, not academic/financial authority. Provides a clear lay explanation of Kalshi's maker/taker fee formulas as of June 2026, with worked examples. Unlikely to be formally peer-reviewed but appears factually consistent with Kalshi's published fee schedule.",
+    "retrieved_at": "2026-07-06T19:53:24.195543Z",
+    "title": "Kalshi Fees Explained For 2026: Understand The Costs And Charges For Effective Trading",
+    "url": "https://www.thelines.com/prediction-markets/kalshi/fees/"
+  },
+  "src-kalshi-fees-how-much-does-kalshi-charge": {
+    "credibility": 30,
+    "excerpts": [
+      "Kalshi trading fees = round up(0.07 x C x P x (1-P))",
+      "Kalshi maker fees = round up(0.0175 x C x P x (1-P))"
+    ],
+    "kind": "web",
+    "notes": "Affiliate review site (sailgp.com), June 2026. Not an official source or academic paper. Provides fee formulas but no original data on market inefficiencies.",
+    "retrieved_at": "2026-07-06T14:32:11.599197Z",
+    "title": "Kalshi Fees: How Much Does Kalshi Charge Per Contract & What is the Fee Schedule?",
+    "url": "https://sailgp.com/prediction-markets/kalshi/fees"
+  },
+  "src-kalshi-prediction-markets-stealing-marke": {
+    "credibility": 50,
+    "excerpts": [
+      "Kalshi's sports event contracts have helped the platform become approximately one-fifth the size of sports betting giant DraftKings.",
+      "Because all prediction platforms are regulated by the Commodities Futures Trading Commission, they do not have to pay to receive state-level licensing or split their profits in the form of gaming taxes."
+    ],
+    "kind": "web",
+    "notes": "Covers.com article syndicated on Yahoo Finance, February 2026. Covers is a betting/gambling industry news site, not a primary academic or regulatory source. Reports Financial Times figures second-hand.",
+    "retrieved_at": "2026-07-06T19:29:49.971543Z",
+    "title": "Kalshi, Prediction Markets Stealing Market Space from Top Sportsbooks",
+    "url": "https://finance.yahoo.com/news/kalshi-prediction-markets-stealing-market-160600765.html"
+  },
+  "src-kalshi-review-june-2026-real-money-test": {
+    "credibility": 60,
+    "excerpts": [
+      "There are no fees on funding (ACH or debit deposits are free). Withdrawal fees: ACH is free, wire is $25 outbound.",
+      "Across our 5-withdrawal test protocol, the median ACH withdrawal completed in 18 hours, ranging from 14 to 22 hours for amounts between $250 and $4,500. Wire transfer of $7,000 completed in 26 hours. Zero failed or held requests, no withdrawal-triggered KYC re-verification.",
+      "Deposit confirmation in our test was reliable across all methods. ACH funded within 1 hour for all test deposits. Debit card credits were instant."
+    ],
+    "kind": "web",
+    "notes": "Tech Insider review published May 2026 \u2014 affiliate site, six-week real-money test with 5 withdrawals, not peer-reviewed but transparent methodology. Good secondary source for user-reported Kalshi specs.",
+    "retrieved_at": "2026-07-06T17:23:04.755730Z",
+    "title": "Kalshi Review (June 2026): Real Money Test of the CFTC-Regulated Exchange",
+    "url": "https://tech-insider.org/prediction-markets/platforms/kalshi-review/"
+  },
+  "src-kalshi-vs-polymarket-a-side-by-side-comp": {
+    "credibility": 60,
+    "excerpts": [
+      "Kalshi's strict $25,000 retail position limits against Polymarket's deeper liquidity pools, which better accommodate institutional-sized orders."
+    ],
+    "kind": "web",
+    "notes": "Sports Illustrated betting analyst review; 2026 comparison with fact-checker; not an academic or primary source but a reputable media outlet; no access limits.",
+    "retrieved_at": "2026-07-06T14:34:32.929641Z",
+    "title": "Kalshi vs. Polymarket: A Side-by-Side Comparison of Legality, Access, and Trading",
+    "url": "https://www.si.com/prediction-markets/reviews/kalshi-vs-polymarket"
+  },
+  "src-kalshi-vs-polymarket-how-to-arbitrage-pr": {
+    "credibility": 50,
+    "excerpts": [],
+    "kind": "web",
+    "notes": "Claw Arbs blog (commercial software vendor), March 2026. Promotional but contains specific fee tiers, example calculations, and structural descriptions useful for arbitrage analysis. Not peer-reviewed.",
+    "retrieved_at": "2026-07-06T18:35:03.720848Z",
+    "title": "Kalshi vs Polymarket: How to Arbitrage Prediction Markets in 2026",
+    "url": "https://clawarbs.com/blog/kalshi-vs-polymarket-arbitrage/"
+  },
+  "src-kalshi-vs-polymarket-operator-affiliate": {
+    "credibility": 45,
+    "excerpts": [
+      "Resolution determines which contracts pay out and which expire worthless, and it is one of the sharpest differences between the two. On Kalshi, resolution follows the exchange's published contract terms and a defined data source, with the exchange responsible for declaring the result. On Polymarket, resolution runs through the UMA optimistic oracle, which proposes an outcome that becomes final unless someone disputes it within a challenge window.",
+      "One model trades regulatory clarity and US legality for a closed, permissioned perimeter; the other trades global, permissionless access for on-chain settlement risk.",
+      "Oracle risk is a real operator consideration"
+    ],
+    "kind": "web",
+    "notes": "Vendor blog post (Track360, an affiliate-software company), June 2026. Provides a high-level comparison aimed at operators/affiliates, not a primary source on arbitrage mechanics. Contains useful contrasts on resolution, fees, and settlement mechanics but no specific documented cases or quantified arbitrage friction data.",
+    "retrieved_at": "2026-07-06T14:34:32.929616Z",
+    "title": "Kalshi vs Polymarket: Operator & Affiliate Comparison 2026",
+    "url": "https://track360.io/blog/kalshi-vs-polymarket-operator-comparison-2026"
+  },
+  "src-liquidity-incentive-program-polymarket-u": {
+    "credibility": 80,
+    "excerpts": [
+      "This program rewards traders for placing resting limit orders. The closer your orders are to the best price and the larger they are, the more you earn."
+    ],
+    "kind": "web",
+    "notes": "Official Polymarket docs; describes ongoing liquidity rebate program as of July 2026. Updated schedule effective July 2, 2026. Authored by Polymarket.",
+    "retrieved_at": "2026-07-06T19:00:21.244990Z",
+    "title": "Liquidity Incentive Program \u2014 Polymarket US Documentation",
+    "url": "https://docs.polymarket.us/incentives/liquidity"
+  },
+  "src-liquidity-rewards": {
+    "credibility": 85,
+    "excerpts": [],
+    "kind": "web",
+    "notes": "Polymarket official help article, updated July 2026. Describes the active Liquidity Incentive Program (LIP) reward structure for limit order providers.",
+    "retrieved_at": "2026-07-06T19:24:07.198958Z",
+    "title": "Liquidity Rewards",
+    "url": "https://help.polymarket.com/en/articles/13364466-liquidity-rewards"
+  },
+  "src-liquidity-rewards-polymarket-documentati": {
+    "credibility": 85,
+    "excerpts": [
+      "Each market configures a max spread and min size cutoff within which orders are considered."
+    ],
+    "kind": "web",
+    "notes": "Official Polymarket documentation (docs.polymarket.com), likely current as of July 2026. Describes the active liquidity incentive program including World Cup 2026 pools. Primary-source specification of scoring methodology.",
+    "retrieved_at": "2026-07-06T19:24:07.198973Z",
+    "title": "Liquidity Rewards \u2014 Polymarket Documentation",
+    "url": "https://docs.polymarket.com/market-makers/liquidity-rewards"
+  },
+  "src-makers-and-takers-the-economics-of-the-k": {
+    "credibility": 90,
+    "excerpts": [],
+    "kind": "paper",
+    "notes": "GWU Center for Economic Research Working Paper 2026-001. Listed as 2025 MPRA and CEPR Discussion Paper versions also exist. No fee data or specific return figures available in abstract only.",
+    "retrieved_at": "2026-07-06T19:03:56.015676Z",
+    "title": "Makers and Takers: The Economics of the Kalshi Prediction Market",
+    "url": "https://ideas.repec.org/p/gwc/wpaper/2026-001.html"
+  },
+  "src-makers-and-takers-the-economics-of-the-k-2": {
+    "credibility": 95,
+    "excerpts": [
+      "Starting in 2021, Kalshi was the first federally licensed prediction market in the United States and remains the dominant platform in this segment. Using transaction-level data on over 300,000 contracts, we provide the first systematic evidence on its pricing."
+    ],
+    "kind": "paper",
+    "notes": "George Washington University Center for Economic Research Working Paper No. 2026-001, February 2026. Peer-reviewed working paper. Open access PDF available. Authors: B\u00fcrgi, Deng, Whelan.",
+    "retrieved_at": "2026-07-06T19:29:49.971558Z",
+    "title": "Makers and Takers: The Economics of the Kalshi Prediction Market",
+    "url": "https://econpapers.repec.org/RePEc:gwc:wpaper:2026-001"
+  },
+  "src-market-data-kalshi-api-documentation": {
+    "credibility": 80,
+    "excerpts": [
+      "Scheduled (time-based) opens and closes are not emitted as discrete events and are not reported here."
+    ],
+    "kind": "web",
+    "notes": "Official Kalshi documentation page covering FIX-based market-data session. Published by Kalshi. No date on page. Limited scope: market-data FIX session only (not REST/WebSocket, not auth, not order types, not sandbox).",
+    "retrieved_at": "2026-07-06T14:37:50.586771Z",
+    "title": "Market Data \u2014 Kalshi API Documentation",
+    "url": "https://docs.kalshi.com/fix/market-data"
+  },
+  "src-order-entry-management-and-best-practice": {
+    "credibility": 80,
+    "excerpts": [],
+    "kind": "web",
+    "notes": "Official Polymarket documentation page from docs.polymarket.com, part of the Market Makers section. Primary source, no date given, but references beta SDKs. No access limits.",
+    "retrieved_at": "2026-07-06T15:35:37.953230Z",
+    "title": "Order entry, management, and best practices for market makers",
+    "url": "https://docs.polymarket.com/market-makers/trading"
+  },
+  "src-polymarket-agents": {
+    "credibility": 70,
+    "excerpts": [],
+    "kind": "web",
+    "notes": "Official Polymarket GitHub repo for agent framework; archived May 11, 2026 (i.e., as of July 2026 it is read-only). README contains ToS statement relevant to US persons.",
+    "retrieved_at": "2026-07-06T15:45:38.658164Z",
+    "title": "Polymarket Agents",
+    "url": "https://github.com/Polymarket/agents/"
+  },
+  "src-polymarket-api-opens-fastest-trading-acc": {
+    "credibility": 40,
+    "excerpts": [],
+    "kind": "web",
+    "notes": "bitcoinfoundation.org blog, May 2026; third-party summary citing Polymarket developer docs and public X posts; no original technical testing or practitioner accounts.",
+    "retrieved_at": "2026-07-06T16:21:49.510681Z",
+    "title": "Polymarket API Opens Fastest Trading Access to KYC'd Users",
+    "url": "https://bitcoinfoundation.org/news/prediction-markets/polymarket-api-opens-fastest-trading-access/"
+  },
+  "src-polymarket-blocks-vpns-and-tightens-iden": {
+    "credibility": 65,
+    "excerpts": [
+      "Polymarket is clamping down on VPN users who bypass geographic blocks"
+    ],
+    "kind": "web",
+    "notes": "TechRadar news article, 28 May 2026. Journalistic secondary-source reporting; cites The Information and BeInCrypto. No firsthand practitioner account of API-level geoblocking. Moderate credibility for a tech news outlet reporting on industry developments.",
+    "retrieved_at": "2026-07-06T16:17:26.827212Z",
+    "title": "Polymarket blocks VPNs and tightens identity verification as over 30 countries ban the betting platform",
+    "url": "https://www.techradar.com/vpn/vpn-privacy-security/polymarket-blocks-vpns-and-tightens-identity-verification-as-over-30-countries-ban-the-betting-platform"
+  },
+  "src-polymarket-cracks-down-on-vpn-users-as-l": {
+    "credibility": 60,
+    "excerpts": [
+      "The company reportedly blocks known VPN IP ranges outright and flags accounts that show signs of evasion."
+    ],
+    "kind": "web",
+    "notes": "Gizmodo news article by Kyle Torpey, published May 30, 2026. Journalistic source citing a report in The Information; no direct technical documentation or practitioner accounts, but provides secondary reporting on Polymarket's geoblocking changes.",
+    "retrieved_at": "2026-07-06T16:17:26.827218Z",
+    "title": "Polymarket Cracks Down on VPN Users as Legal Pressure Intensifies in Dozens of Countries",
+    "url": "https://gizmodo.com/polymarket-cracks-down-on-vpn-users-as-legal-pressure-intensifies-in-dozens-of-countries-2000765379"
+  },
+  "src-polymarket-fees-2026-calculator-complete": {
+    "credibility": 45,
+    "excerpts": [
+      "US traders on the regulated exchange pay a flat 0.30% taker fee with a 0.20% maker rebate. Limit orders (maker orders) are free on both platforms.",
+      "Polymarket charges taker fees on nearly every market category: Crypto 1.80%, Economics 1.50%, Mentions 1.56%, Culture 1.25%, Weather 1.25%, Finance 1.00%, Politics 1.00%, Tech 1.00%, and Sports 0.75%."
+    ],
+    "kind": "web",
+    "notes": "PredictionHunt blog, updated April 2026; third-party aggregator site, not official Polymarket documentation; useful for fee structure details but no primary data on rebate programs or verified P&L.",
+    "retrieved_at": "2026-07-06T19:24:07.198991Z",
+    "title": "Polymarket Fees 2026: Calculator & Complete Cost Guide",
+    "url": "https://www.predictionhunt.com/blog/polymarket-fees-complete-guide"
+  },
+  "src-polymarket-in-talks-with-cftc-to-bring-m": {
+    "credibility": 40,
+    "excerpts": [
+      "The prediction market platform is discussing lifting the ban and restoring full access for American users. A formal CFTC vote would be required to approve the move."
+    ],
+    "kind": "web",
+    "notes": "bitcoinfoundation.org, April 2026, news blog \u2014 not primary source; cites Bloomberg report. Moderate credibility for current regulatory status.",
+    "retrieved_at": "2026-07-06T15:45:38.658138Z",
+    "title": "Polymarket in Talks With CFTC to Bring Main Business Back to US",
+    "url": "https://bitcoinfoundation.org/news/prediction-markets/polymarket-back-us/"
+  },
+  "src-polymarket-introduces-mandatory-kyc-and": {
+    "credibility": 40,
+    "excerpts": [],
+    "kind": "web",
+    "notes": "BitcoinFoundation.org (a crypto news site, not official foundation). May 2026. Summarizes third-party reporting from The Information/Techmeme. No primary technical documentation or first-hand practitioner accounts.",
+    "retrieved_at": "2026-07-06T16:17:26.827227Z",
+    "title": "Polymarket Introduces Mandatory KYC and Blocks VPN Users",
+    "url": "https://bitcoinfoundation.org/news/prediction-markets/polymarket-kyc/"
+  },
+  "src-polymarket-is-blocking-vpn-access-with-k": {
+    "credibility": 45,
+    "excerpts": [
+      "Polymarket now strictly polices VPN use, and accounts that bypass IP-based geoblocks risk suspension or permanent bans.",
+      "Traders running seven-figure positions, or rapid five-figure deposit-trade-withdraw cycles, have been documented triggering verification under internal anti-money laundering thresholds.",
+      "More than 33 countries now face full restrictions or technical blocks."
+    ],
+    "kind": "web",
+    "notes": "Yahoo Finance (aggregating BeInCrypto), May 27, 2026. News article summarizing Polymarket's KYC clampdown and VPN enforcement; no direct practitioner quotes or technical API geoblocking details.",
+    "retrieved_at": "2026-07-06T16:17:26.827200Z",
+    "title": "Polymarket is Blocking VPN Access With KYC: Should You Worry?",
+    "url": "https://finance.yahoo.com/markets/crypto/articles/polymarket-blocking-vpn-access-kyc-181022107.html"
+  },
+  "src-polymarket-kalshi-trading-bot-automate-p": {
+    "credibility": 40,
+    "excerpts": [
+      "Buy YES on Kalshi at 42\u00a2 + buy NO on Polymarket at 0.53. Total cost: $0.95. Guaranteed payout: $1.00. Profit: $0.05 per contract (5.3% edge before fees).",
+      "Prediction market contracts lock up capital until resolution. A $100 position on a contract that resolves in 30 days ties up that $100 for a month."
+    ],
+    "kind": "web",
+    "notes": "Blog post (ClawArbs.com, March 2026) promoting a commercial trading bot. Contains real worked examples and platform mechanics but is a vendor source with potential bias.",
+    "retrieved_at": "2026-07-06T14:34:32.929625Z",
+    "title": "Polymarket & Kalshi Trading Bot: Automate Prediction Market Trading",
+    "url": "https://clawarbs.com/blog/prediction-market-trading-bot/"
+  },
+  "src-polymarket-liquidity-rewards-daily-payou": {
+    "credibility": 45,
+    "excerpts": [
+      "Polymarket pays traders to provide liquidity. Not through fees. Not through the spread. Through a standalone rewards program that distributes PUSD every day to anyone who parks limit orders near the midpoint price of a market."
+    ],
+    "kind": "web",
+    "notes": "Third-party strategy guide (startpolymarket.com), last updated June 11, 2026. Affiliate links present; descriptive not empirical. No peer review or primary data. Provides detailed program mechanics (quadratic scoring, two-sided weighting) as of mid-2026.",
+    "retrieved_at": "2026-07-06T19:24:07.198983Z",
+    "title": "Polymarket Liquidity Rewards: Daily Payouts for Limit Orders",
+    "url": "https://startpolymarket.com/strategies/reward-farming/"
+  },
+  "src-polymarket-py-clob-client": {
+    "credibility": 90,
+    "excerpts": [
+      "You only need to set these once per wallet. After that, you can trade freely."
+    ],
+    "kind": "web",
+    "notes": "Official Polymarket GitHub repository (Python CLOB client), archived May 25, 2026 \u2014 no longer maintained; last release v0.34.6 Feb 19, 2026. README documents CLOB API usage, authentication, order types, and token allowances.",
+    "retrieved_at": "2026-07-06T15:35:37.953245Z",
+    "title": "Polymarket/py-clob-client",
+    "url": "https://github.com/Polymarket/py-clob-client"
+  },
+  "src-polymarket-receives-cftc-approval-of-ame": {
+    "credibility": 70,
+    "excerpts": [
+      "the U.S. Commodity Futures Trading Commission (\"CFTC\") has issued an Amended Order of Designation, permitting Polymarket to operate an intermediated trading platform subject to the full set of requirements applicable to federally regulated U.S. exchanges.",
+      "Polymarket remains subject to all provisions of the Commodity Exchange Act and applicable CFTC regulations governing Designated Contract Markets, including self-regulatory obligations.",
+      "Polymarket will implement additional rules, policies, and processes applicable to intermediated trading prior to official launch."
+    ],
+    "kind": "web",
+    "notes": "PRNewswire press release from Polymarket, Nov 25, 2025. Self-reported by the company; contains official CFTC action claim. Reflects mid-2025 regulatory development \u2014 6-7 months before the question's 'mid-2026' timestamp.",
+    "retrieved_at": "2026-07-06T15:45:38.658156Z",
+    "title": "Polymarket Receives CFTC Approval of Amended Order of Designation, Enabling Intermediated U.S. Market Access",
+    "url": "https://www.prnewswire.com/news-releases/polymarket-receives-cftc-approval-of-amended-order-of-designation-enabling-intermediated-us-market-access-302625833.html"
+  },
+  "src-polymarket-secures-cftc-approval-for-reg": {
+    "credibility": 60,
+    "excerpts": [
+      "Polymarket received an Amended Order of Designation from the U.S. Commodity Futures Trading Commission (CFTC), clearing the way for the prediction-market platform to operate as a fully regulated U.S. platform.",
+      "The designation brings Polymarket under the full regulatory framework applied to federally supervised exchanges, including enhanced surveillance, market-supervision standards, clearing procedures and Part 16 reporting obligations."
+    ],
+    "kind": "web",
+    "notes": "CoinDesk news article, Nov 25, 2025. Industry media; not a primary source (order text not reproduced). Reports CFTC Amended Order of Designation granted; no docket number or specific terms provided.",
+    "retrieved_at": "2026-07-06T16:04:10.977666Z",
+    "title": "Polymarket Secures CFTC Approval for Regulated U.S. Return",
+    "url": "https://www.coindesk.com/business/2025/11/25/polymarket-secures-cftc-approval-for-regulated-u-s-return"
+  },
+  "src-polymarket-us": {
+    "credibility": 80,
+    "excerpts": [
+      "Polymarket US is a CFTC-regulated Designated Contract Market (DCM) providing transparent, regulated access to event-based derivative instruments.",
+      "Polymarket US is a CFTC-regulated Designated Contract Market registered under the Commodity Exchange Act.",
+      "Technical documentation and API resources for institutional participants and technology partners."
+    ],
+    "kind": "web",
+    "notes": "Official Polymarket US website (polymarketexchange.com). Primary source, but limited in technical detail; no ToS text or API endpoints provided on this page. Page appears to be a landing/marketing page, not a full documentation site.",
+    "retrieved_at": "2026-07-06T15:45:38.658123Z",
+    "title": "Polymarket US",
+    "url": "https://www.polymarketexchange.com/"
+  },
+  "src-polymarket-us-market-integrity": {
+    "credibility": 85,
+    "excerpts": [
+      "QCX LLC d/b/a Polymarket US is a Designated Contract Market (DCM) registered with and regulated by the Commodity Futures Trading Commission (CFTC) under the Commodity Exchange Act (CEA).",
+      "This case marks the first time the CFTC has charged insider trading involving event contracts.",
+      "In April 2026, the DOJ and CFTC simultaneously announced charges against a U.S. Army service member who used classified information to trade on prediction markets."
+    ],
+    "kind": "web",
+    "notes": "Official market integrity policy page for Polymarket US (QCX LLC d/b/a Polymarket US), a CFTC-regulated Designated Contract Market. Mid-2026. Includes reference to April 2026 CFTC/DOJ insider trading charges.",
+    "retrieved_at": "2026-07-06T15:45:38.658172Z",
+    "title": "Polymarket US \u2014 Market Integrity",
+    "url": "https://integrity.polymarket.us/"
+  },
+  "src-polymarket-vs-kalshi-how-the-world-s-two": {
+    "credibility": 65,
+    "excerpts": [
+      "Since Kalshi accepts deposits via traditional fiat rails, it also levies a 2% processing fee on debit card deposits and withdrawals, though ACH transfers are free."
+    ],
+    "kind": "web",
+    "notes": "Arkham Research blog/guide (2026). Informational comparison article, not peer-reviewed. No explicit cross-platform arbitrage cases documented.",
+    "retrieved_at": "2026-07-06T14:34:32.929633Z",
+    "title": "Polymarket vs. Kalshi: How The World's Two Biggest Prediction Markets Compare",
+    "url": "https://info.arkm.com/research/polymarket-vs-kalshi-how-the-worlds-two-biggest-prediction-markets-compare"
+  },
+  "src-polymarket-vs-kalshi-which-prediction-ma": {
+    "credibility": 50,
+    "excerpts": [
+      "Polymarket's taker fees vary by category, with sports priced lower than crypto markets, and several categories, including geopolitics, currently carry no trading fee at all.",
+      "Both platforms use a probability weighted fee structure where trading costs peak near the 50 percent mark and shrink as a contract's implied probability moves toward either extreme."
+    ],
+    "kind": "web",
+    "notes": "FOX Sports betting affiliate article, Jul 2 2026. Not peer-reviewed; provides general fee descriptions but lacks specific numeric fee formulas, gas costs, or bid-ask spread data needed for breakeven edge computation. Useful for qualitative fee model descriptions only.",
+    "retrieved_at": "2026-07-06T16:50:54.676671Z",
+    "title": "Polymarket vs Kalshi: Which Prediction Market Should You Use in 2026?",
+    "url": "https://www.foxsports.com/stories/betting/polymarket-vs-kalshi"
+  },
+  "src-polymarketguide-trading-rewards": {
+    "credibility": 60,
+    "excerpts": [],
+    "kind": "web",
+    "notes": "Community-maintained guide on GitBook; not official Polymarket documentation but draws on official sources; last updated per page context (no explicit date).",
+    "retrieved_at": "2026-07-06T19:53:24.195526Z",
+    "title": "PolymarketGuide | Trading | Rewards",
+    "url": "https://polymarketguide.gitbook.io/polymarketguide/trading/rewards"
+  },
+  "src-prediction-market-apis-developer-tools-2": {
+    "credibility": 55,
+    "excerpts": [
+      "Kalshi provides a full sandbox at `demo.kalshi.com` with fake money for testing your bots before going live. This is a major advantage over Polymarket, which has no equivalent testnet for the CLOB API.",
+      "Authentication uses API-key headers plus per-request RSA-PSS signatures; see https://docs.kalshi.com/getting_started/api_keys."
+    ],
+    "kind": "web",
+    "notes": "PM.wiki industry guide, published March 2026, editorial but not peer-reviewed or official documentation. Summarizes multiple platforms at a high level.",
+    "retrieved_at": "2026-07-06T14:37:50.586785Z",
+    "title": "Prediction Market APIs & Developer Tools 2026",
+    "url": "https://pm.wiki/sl/learn/prediction-markets-for-developers"
+  },
+  "src-prediction-market-pricing-efficiency-and": {
+    "credibility": 40,
+    "excerpts": [],
+    "kind": "web",
+    "notes": "Published by AhaSignals (December 31, 2025). Not a peer-reviewed academic source; it is a commercial research firm's analysis blog. No original empirical data or systematic review methodology. Presents conceptual claims with self-assigned confidence scores (C-SNR) but no citations to specific peer-reviewed effect sizes or edge estimates.",
+    "retrieved_at": "2026-07-06T14:27:37.746416Z",
+    "title": "Prediction Market Pricing Efficiency and Divergence: When Do Markets Fail?",
+    "url": "https://ahasignals.com/research/prediction-market-pricing-efficiency-divergence/"
+  },
+  "src-prediction-market-settlement-rules-avoid": {
+    "credibility": 45,
+    "excerpts": [
+      "Fake arbitrage appears when traders compare two prices without comparing two rulebooks. A scanner can surface candidate gaps, but the trader still has to verify that both legs are actually equivalent.",
+      "Kalshi markets are regulated event contracts with defined settlement procedures. Polymarket markets often rely on market-specific resolution criteria and oracle-style processes. Both can be useful, but the rules may not match even when the event theme is the same.",
+      "Common fake-arb patterns include similar political markets with different date cutoffs, crypto bills where one market resolves on passage and another on signature, sports props that use different official data sources, and macro contracts that use different release revisions."
+    ],
+    "kind": "web",
+    "notes": "Alphascope (commercial blog), June 2026. Promotional product content, not peer-reviewed. General guidance without specific case studies or numerical data on fees/latency.",
+    "retrieved_at": "2026-07-06T14:34:32.929604Z",
+    "title": "Prediction Market Settlement Rules: Avoid Fake Arbitrage and Resolution Traps",
+    "url": "https://www.alphascope.app/blog/prediction-market-settlement-rules"
+  },
+  "src-prediction-markets-are-turning-into-a-bo": {
+    "credibility": 60,
+    "excerpts": [
+      "Wallet 0x8dxd reportedly turned roughly $300 into more than $400,000 within a month trading ultra-short crypto prediction contracts."
+    ],
+    "kind": "web",
+    "notes": "Finance Magnates article, March 2026, by Tanya Chepkova. Journalistic piece citing secondary sources (an academic paper, a social-media post, and an interview). No original primary data from the author.",
+    "retrieved_at": "2026-07-06T14:43:36.191812Z",
+    "title": "Prediction Markets Are Turning Into a Bot Playground",
+    "url": "https://www.financemagnates.com/trending/prediction-markets-are-turning-into-a-bot-playground/"
+  },
+  "src-rate-limits-and-tiers": {
+    "credibility": 95,
+    "excerpts": [
+      "Kalshi may, at its discretion, adjust your tier at any time, including downgrading you from higher tiers following prolonged inactivity."
+    ],
+    "kind": "web",
+    "notes": "Official Kalshi API documentation (docs.kalshi.com). Published by Kalshi. Contains definitive rate-limit and tier specifications for their API.",
+    "retrieved_at": "2026-07-06T16:31:09.496665Z",
+    "title": "Rate Limits and Tiers",
+    "url": "https://docs.kalshi.com/getting_started/rate_limits"
+  },
+  "src-regulatory-challenges-to-decentralized-d": {
+    "credibility": 85,
+    "excerpts": [
+      "On January 3, 2022, CFTC regulators settled their first enforcement action against a purportedly decentralized platform for derivatives contracts."
+    ],
+    "kind": "web",
+    "notes": "Columbia Business Law Review blog post (Feb 15, 2022) summarizing the CFTC's Polymarket/Blockratize settlement. Not a primary CFTC docket but cites docket and press release directly.",
+    "retrieved_at": "2026-07-06T15:41:16.195664Z",
+    "title": "Regulatory Challenges to Decentralized Derivative Protocols: Reviewing CTFC's Polymarket Order",
+    "url": "https://journals.library.columbia.edu/index.php/CBLR/announcement/view/494"
+  },
+  "src-report-polymarket-pushes-kyc-on-crypto-t": {
+    "credibility": 55,
+    "excerpts": [
+      "Despite that, it is believed that cheap VPN access has made geoblocking porous, leaving Polymarket exposed to potential OFAC sanctions violations and anti-money laundering failures."
+    ],
+    "kind": "web",
+    "notes": "News.bitcoin.com, May 27, 2026. News article summarizing a report from The Information. Covers KYC push, geoblocking gaps, and regulatory actions. Not a primary technical source, no API-level details.",
+    "retrieved_at": "2026-07-06T16:21:49.510715Z",
+    "title": "Report: Polymarket Pushes KYC on Crypto Traders as Geoblocking Gaps Draw Global Scrutiny",
+    "url": "https://news.bitcoin.com/report-polymarket-pushes-kyc-on-crypto-traders-as-geoblocking-gaps-draw-global-scrutiny/"
+  },
+  "src-research-review-24-april-2026-prediction": {
+    "credibility": 45,
+    "excerpts": [
+      "Trader skill, not the maker-taker distinction, determines who profits in prediction markets."
+    ],
+    "kind": "web",
+    "notes": "Blog aggregate summarizing 7 academic working papers (2026) on prediction markets; no original peer review but papers from credible institutions; free access.",
+    "retrieved_at": "2026-07-06T18:35:03.720851Z",
+    "title": "Research Review | 24 April 2026 | Prediction Markets",
+    "url": "https://www.capitalspectator.com/research-review-24-april-2026-prediction-markets/"
+  },
+  "src-risk-aversion-and-favorite-longshot-bias": {
+    "credibility": 85,
+    "excerpts": [
+      "Research on sports betting has generally found a favorite-longshot bias: Bets on longshots lose more than bets on favorites.",
+      "Explanations for this bias in previous work on parimutuel markets cannot explain why it would be a feature of competitive fixed-odds betting markets.",
+      "We show how disagreement among gamblers and risk-aversion on the part of bookmakers in a competitive market can produce a pattern of favorite-longshot bias resembling the empirical evidence."
+    ],
+    "kind": "paper",
+    "notes": "MPRA Working Paper 116923, University Library of Munich, 2023. Later published in Economica 91(361): 188-209, 2024. Theory paper with literature review; no new empirical effect size estimates.",
+    "retrieved_at": "2026-07-06T14:27:37.746389Z",
+    "title": "Risk Aversion and Favorite-Longshot Bias in a Competitive Fixed-Odds Betting Market",
+    "url": "https://ideas.repec.org/p/pra/mprapa/116923.html"
+  },
+  "src-semantic-non-fungibility-and-violations": {
+    "credibility": 90,
+    "excerpts": [
+      "semantically equivalent markets exhibit persistent execution-aware price deviations of 2-4% on average, even in highly liquid and information-rich settings",
+      "These mispricings give rise to persistent cross-platform arbitrage opportunities driven by structural frictions rather than informational disagreement."
+    ],
+    "kind": "paper",
+    "notes": "arXiv preprint, Jan 2026. Research study covering 100K+ events across 10 venues (2018-2025). Not yet peer-reviewed but on arXiv; includes human-validated dataset of cross-platform aligned prediction markets.",
+    "retrieved_at": "2026-07-06T14:34:32.929587Z",
+    "title": "Semantic Non-Fungibility and Violations of the Law of One Price in Prediction Markets",
+    "url": "http://arxiv.org/abs/2601.01706"
+  },
+  "src-supercharging-the-kalshi-developer-suite": {
+    "credibility": 70,
+    "excerpts": [
+      "P.S. Keep an eye out for a second announcement highlighting updates about our FIX API, Market Structure Variable Fields and some other features still to come."
+    ],
+    "kind": "web",
+    "notes": "Kalshi official blog post, Nov 2022. Promotional announcement of API v2 and developer tools; not a formal reference doc, but an authoritative primary source from the platform itself.",
+    "retrieved_at": "2026-07-06T15:16:38.628754Z",
+    "title": "Supercharging the Kalshi Developer Suite",
+    "url": "https://news.kalshi.com/p/apiv2-is-here"
+  },
+  "src-the-ai-superforecasters-are-here": {
+    "credibility": 75,
+    "excerpts": [
+      "Plenty of people beat prediction markets. But it might take them several hours to figure out which markets have untapped alpha, several more hours to make a model and decide who to bet on at what probability, et cetera, and then they can only put in a few thousand dollars before the inefficiency is corrected and they need to move on to something else."
+    ],
+    "kind": "web",
+    "notes": "Substack blog post by Scott Alexander, July 2026. High-quality synthesis of conference reporting, interviews with prediction-market AI startup founders, and Metaculus data. No peer review but closely sourced.",
+    "retrieved_at": "2026-07-06T14:43:36.191822Z",
+    "title": "The AI Superforecasters Are Here",
+    "url": "https://www.astralcodexten.com/p/the-ai-superforecasters-are-here"
+  },
+  "src-the-anatomy-of-a-blockchain-prediction-m": {
+    "credibility": 85,
+    "excerpts": [
+      "Naive aggregation reports $958M of October Trump-market volume, compared with $391M under our decomposition.",
+      "During October's large-account episode, capital flowed into both sides simultaneously, consistent with heterogeneous-beliefs trading rather than one-sided manipulation."
+    ],
+    "kind": "paper",
+    "notes": "arXiv preprint, v2 May 2026, General Economics. Full text not directly available from abstract page but paper appears to be a legitimate academic preprint. No fee-adjusted net profitability analysis visible in abstract.",
+    "retrieved_at": "2026-07-06T16:26:22.834047Z",
+    "title": "The Anatomy of a Blockchain Prediction Market: Polymarket in the 2024 U.S. Presidential Election",
+    "url": "http://arxiv.org/abs/2603.03136"
+  },
+  "src-the-cftc-s-polymarket-decision-bringing": {
+    "credibility": 65,
+    "excerpts": [
+      "The enforcement action resulted in a $1.4 million civil monetary penalty and a cease-and-desist order that forced Polymarket to block U.S. users."
+    ],
+    "kind": "web",
+    "notes": "JD Supra blog post by The Rodman Law Group, LLC, December 2025. Author: Nick Claassen. Not primary source but summarizes recent CFTC order. Law firm publication with medium credibility.",
+    "retrieved_at": "2026-07-06T15:58:01.655966Z",
+    "title": "The CFTC's Polymarket Decision \u2013 Bringing a New Crypto Events-Based Market into the Commodities Regulatory Fold",
+    "url": "https://www.jdsupra.com/legalnews/the-cftc-s-polymarket-decision-bringing-1443992/"
+  },
+  "src-the-complete-guide-to-kalshi-trading-bot": {
+    "credibility": 45,
+    "excerpts": [
+      "Kalshi publishes a public REST and WebSocket API and explicitly supports automated trading. Per Kalshi's developer documentation, any account in good standing can generate API credentials and place orders programmatically \u2014 no special \"bot tier,\" no waitlist, no per-trade approval.",
+      "What Kalshi does not allow: market manipulation, wash trading, spoofing, and self-matching across accounts. These rules apply equally to humans and bots \u2014 automation is not the issue, conduct is."
+    ],
+    "kind": "web",
+    "notes": "Blog post by Bot for Kalshi (a commercial bot-platform vendor). Last reviewed June 24, 2026. Not a primary CFTC or ToS source \u2014 cites Kalshi docs but is a third-party promotional guide.",
+    "retrieved_at": "2026-07-06T15:41:16.195649Z",
+    "title": "The Complete Guide to Kalshi Trading Bots (2026)",
+    "url": "https://www.botforkalshi.com/blog/kalshi-trading-bots-complete-guide"
+  },
+  "src-the-economics-of-the-kalshi-prediction-m": {
+    "credibility": 70,
+    "excerpts": [
+      "the average pre-fee return on a contract is still minus 20%.",
+      "Takers lose almost 32% on average, while makers have an average loss of about 10%.",
+      "For example, if a 5 cent contract only wins 2% of the time, it loses 60% of the money invested."
+    ],
+    "kind": "web",
+    "notes": "VOXeu column republished by Global Business & Finance Magazine, February 19, 2026. Summarizes B\u00fcrgi, Deng & Whelan (2025/2026) GWU Working Paper. No access restrictions.",
+    "retrieved_at": "2026-07-06T20:21:52.124707Z",
+    "title": "The economics of the Kalshi prediction market",
+    "url": "https://gbfinancemag.com/the-economics-of-the-kalshi-prediction-market/"
+  },
+  "src-the-mathematical-execution-behind-predic": {
+    "credibility": 55,
+    "excerpts": [
+      "Transaction fees (1\u20132%) eliminate sub-0.5% edges"
+    ],
+    "kind": "web",
+    "notes": "Substack newsletter post by Navnoor Bawa, Dec 2025. Unrefereed, cites academic sources (Saguillo et al. arXiv Aug 2025, Cont et al. 2014, McCullough Dune dashboard). Includes specific fee and position limit claims. No peer review; self-published opinion with some empirical references.",
+    "retrieved_at": "2026-07-06T14:32:11.599214Z",
+    "title": "The Mathematical Execution Behind Prediction Market Alpha: How Quants Extract Edge from Binary Contracts",
+    "url": "https://navnoorbawa.substack.com/p/the-mathematical-execution-behind"
+  },
+  "src-the-microstructure-of-wealth-transfer-in": {
+    "credibility": 75,
+    "excerpts": [
+      "At a price of 1 cent, a YES contract carries a historical expected value of -41%; buyers lose nearly half their capital in expectation. Conversely, a NO contract at the same 1-cent price delivers a historical expected value of +23%."
+    ],
+    "kind": "paper",
+    "notes": "Self-published working paper (Jan 2026), not peer-reviewed. Uses 72.1M trades from Kalshi; dataset on GitHub. No trader IDs; no bid-ask spread data. Venue: blog/jbecker.dev.",
+    "retrieved_at": "2026-07-06T15:03:50.513155Z",
+    "title": "The Microstructure of Wealth Transfer in Prediction Markets",
+    "url": "https://jbecker.dev/research/prediction-market-microstructure"
+  },
+  "src-the-microstructure-of-wealth-transfer-in-2": {
+    "credibility": 70,
+    "excerpts": [],
+    "kind": "web",
+    "notes": "Self-published research blog post / working paper (Jan 2026). Uses 72.1M trades from Kalshi. No fee schedule applied; gross returns only. No peer review, but detailed methodology and public dataset. Published on personal site, not a journal.",
+    "retrieved_at": "2026-07-06T16:26:22.834065Z",
+    "title": "The Microstructure of Wealth Transfer in Prediction Markets",
+    "url": "https://www.jbecker.dev/research/prediction-market-microstructure"
+  },
+  "src-the-microstructure-of-wealth-transfer-in-3": {
+    "credibility": 70,
+    "excerpts": [
+      "The total excess return (ri) is the return relative to the cost (before platform fees), where pi is the price in cents, and oi\u2208{0,1} is the outcome."
+    ],
+    "kind": "paper",
+    "notes": "Preprint/market microstructure study of Kalshi; posted as a translation on KuCoin news; discusses 72.1M trades, $18.26B volume, but only up to Nov 2025. Appears to be a self-published or pre-publication working paper (not peer-reviewed journal). No actual fee schedule applied to compute net returns.",
+    "retrieved_at": "2026-07-06T16:26:22.834075Z",
+    "title": "The Microstructure of Wealth Transfer in Prediction Markets",
+    "url": "https://www.kucoin.com/news/flash/analysis-reveals-systematic-wealth-transfer-in-prediction-markets"
+  },
+  "src-the-race-to-trade-everything": {
+    "credibility": 85,
+    "excerpts": [
+      "HIP-4 charges zero fees to open positions. Fees apply only when closing, burning, or settling. (In practice, all outcome market fees are zero across the board while the system is in initial testing.) For traders, it is much more economical to predict the future on Hyperliquid than on Polymarket and Kalshi, which charge meaningfully higher fees on winning positions."
+    ],
+    "kind": "web",
+    "notes": "Galaxy Digital research report, June 2026. Institutional research with original data and cross-platform comparison; publicly accessible, no paywall.",
+    "retrieved_at": "2026-07-06T14:34:32.929657Z",
+    "title": "The Race to Trade Everything",
+    "url": "https://www.galaxy.com/insights/research/hyperliquid-hip-4-prediction-markets-polymarket-kalshi-analysis"
+  },
+  "src-trading-fees": {
+    "credibility": 85,
+    "excerpts": [
+      "Polymarket Sports markets created on or after March 30, 2026, have an updated fee structure with a peak effective fee of 0.75% at the 50/50 price point.",
+      "fee = C \u00d7 p \u00d7 feeRate \u00d7 (p \u00d7 (1 \u2212 p))^exponent"
+    ],
+    "kind": "web",
+    "notes": "Polymarket official help article, April 28, 2026. Platform documentation \u2014 primary source for fee rules.",
+    "retrieved_at": "2026-07-06T18:35:03.720832Z",
+    "title": "Trading Fees",
+    "url": "https://help.polymarket.com/en/articles/13364478-trading-fees"
+  },
+  "src-trading-fees-on-polymarket": {
+    "credibility": 90,
+    "excerpts": [
+      "Polymarket does not charge fees or profit from trading activity on these markets."
+    ],
+    "kind": "web",
+    "notes": "Polymarket official documentation; primary source for fee schedule; publicly accessible.",
+    "retrieved_at": "2026-07-06T14:32:11.599172Z",
+    "title": "Trading Fees on Polymarket",
+    "url": "https://docs.polymarket.com/trading/fees"
+  },
+  "src-trading-on-the-polymarket-clob": {
+    "credibility": 85,
+    "excerpts": [
+      "We recommend using the open-source SDK clients, which handle order signing, authentication, and submission"
+    ],
+    "kind": "web",
+    "notes": "Official Polymarket documentation (docs.polymarket.com). Primary source for API usage; no date listed but currently active.",
+    "retrieved_at": "2026-07-06T14:39:50.785798Z",
+    "title": "Trading on the Polymarket CLOB",
+    "url": "https://docs.polymarket.com/trading/overview"
+  },
+  "src-welcome-to-kalshi-s-api-documentation": {
+    "credibility": 85,
+    "excerpts": [
+      "This documentation covers the Kalshi Exchange API for real-time market data and trade execution"
+    ],
+    "kind": "web",
+    "notes": "Official Kalshi API docs landing page; published by Kalshi (regulated exchange). May 2026. TOC only \u2014 no deep technical detail on this single page.",
+    "retrieved_at": "2026-07-06T14:37:50.586755Z",
+    "title": "Welcome to Kalshi's API Documentation",
+    "url": "https://docs.kalshi.com/welcome"
+  },
+  "src-what-five-new-academic-papers-say-about": {
+    "credibility": 60,
+    "excerpts": [
+      "the prices also display a systematic favorite-longshot bias. Contracts with low prices win less than required for them to break even on average, while the opposite applies to contracts with high prices.",
+      "investors who buy contracts costing less than 10c lose over 60 percent of their money. In contrast, there is statistically significant evidence that contracts with prices above 50c earn a small positive rate of return.",
+      "We use data from over 300,000 Kalshi contracts to show these predictions are supported by the evidence."
+    ],
+    "kind": "web",
+    "notes": "Substack newsletter summarizing five recent academic papers on prediction markets. Not peer-reviewed itself but reports primary studies. Relevant paper: 'Makers and Takers: The Economics of the Kalshi Prediction Market' (B\u00fcrgi, Deng, Whelan, UCD, July 2025) \u2013 empirical study with over 300,000 Kalshi contracts documenting favorite-longshot bias.",
+    "retrieved_at": "2026-07-06T14:55:26.914345Z",
+    "title": "What Five New Academic Papers Say About Prediction Markets",
+    "url": "https://nexteventhorizon.substack.com/p/what-five-new-academic-papers-say-prediction-markets"
+  },
+  "src-what-is-polymarket-us": {
+    "credibility": 80,
+    "excerpts": [
+      "Polymarket US is a CFTC-regulated exchange for trading event contracts on real-world outcomes."
+    ],
+    "kind": "web",
+    "notes": "Official Polymarket US documentation page describing the CFTC-regulated DCM/DCO platform; venue = polymarket.us docs, accessed mid-2026.",
+    "retrieved_at": "2026-07-06T15:45:38.658148Z",
+    "title": "What is Polymarket US?",
+    "url": "https://docs.polymarket.us/getting-started/what-is-polymarket-us"
+  },
+  "src-when-should-a-market-maker-refuse-a-bet": {
+    "credibility": 85,
+    "excerpts": [
+      "Our project focused on addressing the challenge of adverse selection in prediction markets, where market makers risk trading against participants who possess superior or faster information.",
+      "Backtesting results showed that trades flagged by the detector were associated with significantly larger subsequent price movements than unflagged trades, suggesting that the model successfully identifies situations where adverse selection risk is elevated.",
+      "One challenge we encountered was that prediction markets differ widely in trading frequency and liquidity, meaning a model tuned for one market could perform poorly in another."
+    ],
+    "kind": "web",
+    "notes": "Stanford University MSE Senior Project, 2026. Describes an adverse selection detection algorithm for prediction market makers, developed for Tauroi Technologies. Faculty mentor Markus Pelger. Pre-print/project report, publicly available.",
+    "retrieved_at": "2026-07-06T19:24:07.198998Z",
+    "title": "When should a market maker refuse a bet?",
+    "url": "https://msande.stanford.edu/research-impact/mse-student-research/mse-senior-projects/2026-senior-projects/when-should-market"
+  },
+  "src-where-is-polymarket-legal-is-polymarket": {
+    "credibility": 30,
+    "excerpts": [],
+    "kind": "web",
+    "notes": "SailGP Insights / affiliate marketing site, June 29, 2026. Not a primary source; contains promotional content and likely conflates facts. States CFTC 'Amended Order of Designation' in Nov 2025 but provides no citation or linking to official CFTC documents.",
+    "retrieved_at": "2026-07-06T14:46:22.588797Z",
+    "title": "Where is Polymarket Legal? Is Polymarket Legal in the US or the UK?",
+    "url": "https://sailgp.com/prediction-markets/polymarket/legal"
+  },
+  "src-you-can-make-free-money-on-polymarket-if": {
+    "credibility": 85,
+    "excerpts": [
+      "The probability spread of around five percentage points, minus Kalshi\u2019s transaction fee.",
+      "One-tenth of the top one percent of accounts on Polymarket rake in more than two-thirds of the profits"
+    ],
+    "kind": "web",
+    "notes": "New York Times Upshot, June 12, 2026. Journalistic feature with interviews and concrete examples; not peer-reviewed but high editorial standards.",
+    "retrieved_at": "2026-07-06T14:32:11.599206Z",
+    "title": "You Can Make Free Money on Polymarket. If You Know Math.",
+    "url": "https://www.nytimes.com/interactive/2026/06/12/upshot/kalshi-polymarket-prediction-markets-arbitrage.html"
+  }
+}
