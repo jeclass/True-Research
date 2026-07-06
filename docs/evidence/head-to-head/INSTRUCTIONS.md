@@ -11,13 +11,17 @@ mode and let it run to completion:
 
 - `prompt-glp1.txt` → ChatGPT Deep Research, and/or Gemini Deep Research
 - `prompt-local-llms.txt` → same
+- `prompt-prediction-markets.txt` → any hosted deep-research product (Claude,
+  ChatGPT, Gemini) — this one was run on True Research from a FRESH public
+  clone (v1.2), i.e. the exact experience a new user gets.
 
 Save each output (export or copy the full report, citations included) into this
 folder as:
 
 ```
-chatgpt-glp1.md        gemini-glp1.md
-chatgpt-local-llms.md  gemini-local-llms.md
+chatgpt-glp1.md                gemini-glp1.md
+chatgpt-local-llms.md          gemini-local-llms.md
+claude-prediction-markets.md   gemini-prediction-markets.md
 ```
 
 ## 2. Blind scoring
